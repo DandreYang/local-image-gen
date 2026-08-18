@@ -1,8 +1,19 @@
-# local-image-gen
+<p align="center">
+  <img src="docs/logo.png" width="168" alt="local-image-gen logo: a house-shaped local mark with a camera aperture">
+</p>
 
-Generate or edit images from the coding-agent subscriptions already on your machine. Official API keys are a fallback, not a prerequisite.
+<h1 align="center">local-image-gen</h1>
 
-[中文说明](README.zh-CN.md)
+<p align="center">
+  Generate or edit images from the coding-agent subscriptions already on your machine.<br>
+  Official API keys are a fallback, not a prerequisite.
+</p>
+
+<p align="center"><a href="README.zh-CN.md">中文说明</a></p>
+
+<p align="center">
+  <img src="docs/cover.jpg" width="100%" alt="Cover: a local desk and darkroom print, made on your own machine">
+</p>
 
 Python 3.9+, standard library only. Works as a CLI and as a portable agent skill (`SKILL.md`) for Claude, Codex, Grok, Cursor, Gemini, and similar tools.
 

@@ -1,8 +1,19 @@
-# local-image-gen
+<p align="center">
+  <img src="docs/logo.png" width="168" alt="local-image-gen 标志：房子轮廓里的相机光圈">
+</p>
 
-用本机已经登录的编程助手订阅来生图、改图。官方 API Key 只是兜底，不是前提。
+<h1 align="center">local-image-gen</h1>
 
-[English](README.md)
+<p align="center">
+  用本机已经登录的编程助手订阅来生图、改图。<br>
+  官方 API Key 只是兜底，不是前提。
+</p>
+
+<p align="center"><a href="README.md">English</a></p>
+
+<p align="center">
+  <img src="docs/cover.jpg" width="100%" alt="封面：本机工作台上刚完成的一张照片">
+</p>
 
 Python 3.9+，只用标准库。既可以当 CLI，也可以当 Claude / Codex / Grok / Cursor / Gemini 等助手的 portable skill（`SKILL.md`）。
 

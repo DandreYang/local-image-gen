@@ -13,6 +13,8 @@ outputs/
 *.jpg
 *.jpeg
 *.webp
+!docs/*.png
+!docs/*.jpg
 .DS_Store
 .idea/
 .vscode/
