@@ -17,6 +17,7 @@ import mimetypes
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -277,6 +278,78 @@ def normalize_aspect(raw: Optional[str]) -> Optional[str]:
 def parse_size(size: str) -> Tuple[int, int]:
     width, height = size.lower().split("x", maxsplit=1)
     return int(width), int(height)
+
+
+def pixel_size_for_aspect(aspect: str, resolution: Optional[str]) -> str:
+    """Explicit WIDTHxHEIGHT so OpenAI-compatible hosts cannot default to 16:9."""
+    long_edge = 2048 if (resolution or "1k") == "2k" else 1024
+    width_n, height_n = (float(part) for part in aspect.split(":", maxsplit=1))
+    if width_n >= height_n:
+        width = long_edge
+        height = max(16, int(round(long_edge * height_n / width_n / 16.0)) * 16)
+    else:
+        height = long_edge
+        width = max(16, int(round(long_edge * width_n / height_n / 16.0)) * 16)
+    return f"{width}x{height}"
+
+
+def aspect_ratio_value(aspect: str) -> float:
+    width_n, height_n = (float(part) for part in aspect.split(":", maxsplit=1))
+    return width_n / height_n
+
+
+def dimensions_match_aspect(width: int, height: int, aspect: str, tolerance: float = 0.04) -> bool:
+    if width <= 0 or height <= 0:
+        return False
+    return abs((width / height) - aspect_ratio_value(aspect)) <= tolerance
+
+
+def describe_dimensions(width: int, height: int) -> str:
+    for candidate in SUPPORTED_ASPECTS:
+        if dimensions_match_aspect(width, height, candidate):
+            return candidate
+    return f"{width}x{height}"
+
+
+def read_image_dimensions(path: Path) -> Tuple[int, int]:
+    data = path.read_bytes()
+    if len(data) >= 24 and data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return struct.unpack(">II", data[16:24])
+    if data[:2] == b"\xff\xd8":
+        index = 2
+        while index + 9 < len(data):
+            if data[index] != 0xFF:
+                index += 1
+                continue
+            marker = data[index + 1]
+            if marker in {0xC0, 0xC1, 0xC2}:
+                height, width = struct.unpack(">HH", data[index + 5 : index + 9])
+                return width, height
+            if marker == 0xD9:
+                break
+            if marker in {0xD8, 0x01} or 0xD0 <= marker <= 0xD7:
+                index += 2
+                continue
+            if index + 4 > len(data):
+                break
+            length = struct.unpack(">H", data[index + 2 : index + 4])[0]
+            index += 2 + length
+    raise ImageGenError(f"Could not read image dimensions from {path}")
+
+
+def assert_saved_aspect(paths: Sequence[Path], aspect: Optional[str]) -> None:
+    if not aspect:
+        return
+    for path in paths:
+        width, height = read_image_dimensions(path)
+        if dimensions_match_aspect(width, height, aspect):
+            continue
+        actual = describe_dimensions(width, height)
+        raise ImageGenError(
+            f"Requested aspect {aspect} but {path.name} is {width}x{height} ({actual}). "
+            "The backend ignored the ratio (many OpenAI-compatible hosts default to 16:9). "
+            "Retry with --provider grok and no XAI_BASE_URL, or pass --size for an explicit canvas."
+        )
 
 
 def aspect_from_size(size: str) -> str:
@@ -926,6 +999,7 @@ def run_antigravity(
             f"Exit {completed.returncode}. {details}"
         )
     saved = copy_to_output(existing[0], output, overwrite)
+    assert_saved_aspect([saved], aspect)
     return {
         "success": True,
         "provider": "antigravity",
@@ -1066,6 +1140,7 @@ def run_cursor(
             f"Exit {completed.returncode}. {details}"
         )
     saved = copy_to_output(existing[0], output, overwrite)
+    assert_saved_aspect([saved], aspect)
     return {
         "success": True,
         "provider": "cursor",
@@ -1401,6 +1476,7 @@ def grok_image_payload(
     }
     if aspect:
         payload["aspect_ratio"] = aspect
+        payload["size"] = pixel_size_for_aspect(aspect, resolution)
     if quality and model == "grok-imagine-image-2.0":
         payload["quality"] = quality
     if resolution:
@@ -1457,6 +1533,7 @@ def run_grok(
     if not isinstance(data, list) or not data:
         raise ImageGenError(f"Grok image API returned no image data: {json.dumps(body)[:800]}")
     saved = save_openai_image_items([item for item in data if isinstance(item, dict)], output, overwrite)
+    assert_saved_aspect(saved, aspect)
     return {
         "success": True,
         "provider": "grok",
@@ -1465,6 +1542,7 @@ def run_grok(
         "image": str(saved[0]),
         "images": [str(path) for path in saved],
         "aspect_ratio": aspect,
+        "size": payload.get("size"),
         "quality": quality,
         "resolution": resolution,
     }
@@ -1502,6 +1580,7 @@ def run_codex(
     image_b64 = stream_codex_image(access, account_id, request_body)
     saved = unique_output_path(output, overwrite)
     save_b64_image(image_b64, saved)
+    assert_saved_aspect([saved], aspect_from_size(size) if size and size != "auto" else None)
     return {
         "success": True,
         "provider": "codex",
@@ -1594,6 +1673,7 @@ def run_gemini(
         target = unique_output_path(target, overwrite)
         save_b64_image(b64, target)
         saved.append(target)
+    assert_saved_aspect(saved, aspect)
     return {
         "success": True,
         "provider": "gemini",
@@ -1686,6 +1766,10 @@ def run_openai_compat(
     if not isinstance(data, list) or not data:
         raise ImageGenError(f"{provider} image API returned no image data: {json.dumps(response)[:800]}")
     saved = save_openai_image_items([item for item in data if isinstance(item, dict)], output, overwrite)
+    requested = None
+    if size and size != "auto":
+        requested = aspect_from_size(size)
+    assert_saved_aspect(saved, requested)
     return {
         "success": True,
         "provider": provider,

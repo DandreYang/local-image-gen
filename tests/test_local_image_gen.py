@@ -88,8 +88,55 @@ class RequestShapeTests(unittest.TestCase):
                 [str(path)],
             )
             self.assertEqual(payload["aspect_ratio"], "16:9")
+            self.assertEqual(payload["size"], "2048x1152")
             self.assertEqual(payload["resolution"], "2k")
             self.assertTrue(payload["image"]["url"].startswith("data:image/"))
+
+    def test_portrait_payload_sends_explicit_tall_size(self) -> None:
+        payload = image_gen.grok_image_payload(
+            "wardrobe",
+            "grok-imagine-image-2.0",
+            "9:16",
+            "medium",
+            "2k",
+            1,
+            [],
+        )
+        self.assertEqual(payload["aspect_ratio"], "9:16")
+        self.assertEqual(payload["size"], "1152x2048")
+
+
+class DimensionTests(unittest.TestCase):
+    def test_pixel_size_for_aspect(self) -> None:
+        self.assertEqual(image_gen.pixel_size_for_aspect("9:16", "2k"), "1152x2048")
+        self.assertEqual(image_gen.pixel_size_for_aspect("16:9", "2k"), "2048x1152")
+        self.assertEqual(image_gen.pixel_size_for_aspect("1:1", "1k"), "1024x1024")
+
+    def test_assert_saved_aspect_rejects_landscape_for_portrait(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "wide.png"
+            path.write_bytes(_minimal_png(2048, 1152))
+            with self.assertRaises(image_gen.ImageGenError) as ctx:
+                image_gen.assert_saved_aspect([path], "9:16")
+            self.assertIn("16:9", str(ctx.exception))
+
+    def test_assert_saved_aspect_accepts_matching_ratio(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tall.png"
+            path.write_bytes(_minimal_png(1152, 2048))
+            image_gen.assert_saved_aspect([path], "9:16")
+
+
+def _minimal_png(width: int, height: int) -> bytes:
+    import struct
+    import zlib
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    raw = b"".join(b"\x00" + (b"\x00" * (width * 3)) for _ in range(height))
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
 
 
 class TokenTests(unittest.TestCase):
@@ -244,6 +291,16 @@ class DryRunTests(unittest.TestCase):
         self.assertEqual(result["provider"], "grok")
         self.assertEqual(result["request"]["resolution"], "2k")
         self.assertEqual(result["request"]["quality"], "medium")
+        self.assertEqual(result["request"]["aspect_ratio"], "16:9")
+        self.assertEqual(result["request"]["size"], "2048x1152")
+
+    def test_grok_dry_run_keeps_portrait_size(self) -> None:
+        args = image_gen.parse_args(
+            ["wardrobe", "--provider", "grok", "--aspect-ratio", "9:16", "--quality", "high", "--resolution", "2k", "--dry-run"]
+        )
+        result = image_gen.run_job(args)
+        self.assertEqual(result["request"]["aspect_ratio"], "9:16")
+        self.assertEqual(result["request"]["size"], "1152x2048")
 
     def test_antigravity_dry_run(self) -> None:
         args = image_gen.parse_args(

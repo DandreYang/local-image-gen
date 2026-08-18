@@ -6,6 +6,7 @@
 - Optional Dyro: default images to `<workspace>/outputs/images` when `dyro.toml` is present; `--doctor` reports backends without requiring Dyro.
 - Install also links the skill into DeepSeek Harness (`$DSH_HOME/skills` or `~/.dsh/skills`).
 - Add logo and cover art in `docs/` and show them on the README.
+- Send an explicit Grok `size` with `--aspect-ratio` and reject saved files that come back as the wrong ratio (common 9:16 → 16:9 default).
 
 ## 0.1.0
 
