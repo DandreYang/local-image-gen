@@ -8,7 +8,7 @@ The executable source of truth is `scripts/local_image_gen.py --list-models`. Th
 | --- | --- | --- | --- |
 | `grok` | `grok-imagine-image-2.0` | `~/.grok/auth.json` | `XAI_API_KEY` → official `https://api.x.ai/v1` or `XAI_BASE_URL` |
 | `codex` | `gpt-image-2` | `~/.codex/auth.json` (experimental unofficial ChatGPT backend) | none (use `openai` + `OPENAI_API_KEY` for the supported Images API) |
-| `antigravity` | `gemini-3.1-flash-image` | local `agy` CLI | none (explicit; no silent fallback) |
+| `agy` / `antigravity` | `gemini-3.1-flash-image` | local `agy` CLI | none (explicit; no silent fallback) |
 | `cursor` | `gemini-3-pro-image` | local `cursor-agent` | none |
 | `gemini` | `gemini-3.1-flash-image` | Nano Banana chain: Antigravity → Cursor → API key | `GEMINI_API_KEY` / `GOOGLE_API_KEY` / `NANOBANANA_API_KEY` → official Gemini API or `GEMINI_BASE_URL` |
 | `openai` | `gpt-image-2` | — | `OPENAI_API_KEY` → official `https://api.openai.com/v1` or `OPENAI_BASE_URL` |

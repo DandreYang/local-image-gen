@@ -73,7 +73,7 @@ python3 scripts/local_image_gen.py "电影感城市夜景" \
   --aspect-ratio 16:9 --resolution 2k --quality medium -o outputs/city.png
 
 python3 scripts/local_image_gen.py "水彩狐狸在雪林里" \
-  --provider antigravity --model gemini-3.1-flash-image \
+  --provider agy --model gemini-3.1-flash-image \
   --aspect-ratio 3:4 --resolution 2k -o outputs/fox.png
 
 python3 scripts/local_image_gen.py "干净的产品静物" \
@@ -90,7 +90,7 @@ python3 scripts/local_image_gen.py "test" --dry-run --aspect-ratio 1:1
 | --- | --- | --- | --- |
 | `auto` | 自动选择 | 是 | 是 |
 | `grok` | `grok-imagine-image-2.0` | `grok login` | `XAI_API_KEY` |
-| `antigravity` | `gemini-3.1-flash-image` | 本地 `agy` | — |
+| `agy` / `antigravity` | `gemini-3.1-flash-image` | 本地 `agy` | — |
 | `cursor` | `gemini-3-pro-image` | 本地 `cursor-agent` | — |
 | `gemini` | `gemini-3.1-flash-image` | Nano Banana：Antigravity → Cursor → Key | `GEMINI_API_KEY` |
 | `codex` | `gpt-image-2` | 实验性 `codex auth login` | —（请用 `openai`） |

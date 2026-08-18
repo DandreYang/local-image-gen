@@ -315,6 +315,14 @@ class DryRunTests(unittest.TestCase):
         result = image_gen.run_job(args)
         self.assertTrue(result["dry_run"])
         self.assertEqual(result["provider"], "antigravity")
+
+    def test_agy_is_antigravity_alias(self) -> None:
+        args = image_gen.parse_args(
+            ["fox in snow", "--provider", "agy", "--aspect-ratio", "3:4", "--resolution", "2k", "--dry-run"]
+        )
+        result = image_gen.run_job(args)
+        self.assertEqual(result["provider"], "antigravity")
+        self.assertEqual(result["request"]["model_name"], "gemini-3.1-flash-image")
         self.assertEqual(result["request"]["model_name"], "gemini-3.1-flash-image")
         self.assertEqual(result["request"]["aspect_ratio"], "3:4")
         self.assertEqual(result["request"]["image_size"], "2K")

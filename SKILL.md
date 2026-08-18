@@ -34,7 +34,7 @@ python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspe
 
 | Intent | Flag | Notes |
 | --- | --- | --- |
-| Provider | `--provider auto\|grok\|codex\|antigravity\|cursor\|gemini\|openai\|xai` | Nano Banana chain: Antigravity → Cursor CLI → `GEMINI_API_KEY` |
+| Provider | `--provider auto\|grok\|codex\|agy\|antigravity\|cursor\|gemini\|openai\|xai` | `agy` is the short name for Antigravity. Nano Banana chain: Antigravity → Cursor CLI → `GEMINI_API_KEY` |
 | Model | `--model` | See `--list-models`. Examples: `grok-imagine-image-2.0`, `gpt-image-2`, `gemini-3.1-flash-image` |
 | Aspect | `--aspect-ratio` / `--aspect` | `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`, `2:1`, `1:2`, or `square` / `landscape` / `portrait`. Grok also sends an explicit `size` (9:16 at 2k → `1152x2048`). The script fails if the saved file is a different ratio |
 | Exact size | `--size WIDTHxHEIGHT` | Used when the backend accepts pixel sizes (Codex / OpenAI-compatible). Do not combine with `--aspect-ratio` |
@@ -71,7 +71,7 @@ python3 scripts/local_image_gen.py "电影感城市夜景" --provider grok --mod
 Force Antigravity Nano Banana (`agy`):
 
 ```bash
-python3 scripts/local_image_gen.py "水彩狐狸在雪林里" --provider antigravity --model gemini-3.1-flash-image --aspect-ratio 3:4 --resolution 2k -o outputs/fox.png
+python3 scripts/local_image_gen.py "水彩狐狸在雪林里" --provider agy --model gemini-3.1-flash-image --aspect-ratio 3:4 --resolution 2k -o outputs/fox.png
 ```
 
 Edit:

@@ -97,7 +97,8 @@ CODEX_ASPECT_TO_SIZE = {
 GROK_ASPECTS = set(SUPPORTED_ASPECTS)
 GEMINI_ASPECTS = set(SUPPORTED_ASPECTS)
 
-PROVIDERS = ("auto", "grok", "codex", "gemini", "antigravity", "cursor", "openai", "xai")
+PROVIDERS = ("auto", "grok", "codex", "gemini", "antigravity", "agy", "cursor", "openai", "xai")
+PROVIDER_ALIASES = {"agy": "antigravity"}
 QUALITY_CHOICES = ("auto", "low", "medium", "high")
 RESOLUTION_CHOICES = ("1k", "2k", "4k")
 
@@ -1919,6 +1920,7 @@ def resolve_nano_banana_provider(loaded_files: Sequence[Path]) -> str:
 
 
 def resolve_provider(requested: str, model: Optional[str], loaded_files: Sequence[Path]) -> str:
+    requested = PROVIDER_ALIASES.get(requested, requested)
     if requested == "gemini":
         return resolve_nano_banana_provider(loaded_files)
     if requested != "auto":

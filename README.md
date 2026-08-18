@@ -77,7 +77,7 @@ python3 scripts/local_image_gen.py "cinematic night city" \
 
 # Nano Banana via Antigravity
 python3 scripts/local_image_gen.py "watercolor fox in snow" \
-  --provider antigravity --model gemini-3.1-flash-image \
+  --provider agy --model gemini-3.1-flash-image \
   --aspect-ratio 3:4 --resolution 2k -o outputs/fox.png
 
 # Official OpenAI Images API
@@ -96,7 +96,7 @@ Agents that have the skill installed should run `scripts/local_image_gen.py` ins
 | --- | --- | --- | --- |
 | `auto` | chosen by routing | yes | yes |
 | `grok` | `grok-imagine-image-2.0` | `grok login` → `~/.grok/auth.json` | `XAI_API_KEY` |
-| `antigravity` | `gemini-3.1-flash-image` | local `agy` | — |
+| `agy` / `antigravity` | `gemini-3.1-flash-image` | local `agy` | — |
 | `cursor` | `gemini-3-pro-image` | local `cursor-agent` | — |
 | `gemini` | `gemini-3.1-flash-image` | Nano Banana chain: Antigravity → Cursor → key | `GEMINI_API_KEY` |
 | `codex` | `gpt-image-2` | experimental `codex auth login` | — (use `openai`) |
