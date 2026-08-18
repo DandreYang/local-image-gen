@@ -12,7 +12,7 @@
 <p align="center"><a href="README.md">English</a></p>
 
 <p align="center">
-  <img src="docs/cover.jpg" width="100%" alt="封面：用已登录的编程助手直接生图，无需额外 API Key">
+  <img src="docs/cover.zh-CN.jpg" width="100%" alt="封面：用已登录的编程助手直接生图，无需额外 API Key">
 </p>
 
 Python 3.9+，只用标准库。既可以当 CLI，也可以当 Claude / Codex / Grok / Cursor / Gemini 等助手的 portable skill（`SKILL.md`）。

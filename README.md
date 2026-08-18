@@ -12,7 +12,7 @@
 <p align="center"><a href="README.zh-CN.md">中文说明</a></p>
 
 <p align="center">
-  <img src="docs/cover.jpg" width="100%" alt="Cover: generate images with the Codex, Grok, Cursor, or Antigravity login you already have">
+  <img src="docs/cover.jpg" width="100%" alt="Cover: Generate with the coding-agent login you already have. No extra API Key">
 </p>
 
 Python 3.9+, standard library only. Works as a CLI and as a portable agent skill (`SKILL.md`) for Claude, Codex, Grok, Cursor, Gemini, and similar tools.
