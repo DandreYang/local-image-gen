@@ -30,7 +30,7 @@ Override only when you set `--base-url` or `XAI_BASE_URL` / `OPENAI_BASE_URL` / 
 ## Install
 
 ```bash
-git clone https://github.com/Dandre126/local-image-gen.git
+git clone https://github.com/DandreYang/local-image-gen.git
 cd local-image-gen
 python3 scripts/local_image_gen.py --list-providers
 ```

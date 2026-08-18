@@ -30,7 +30,7 @@ Python 3.9+，只用标准库。既可以当 CLI，也可以当 Claude / Codex /
 ## 安装
 
 ```bash
-git clone https://github.com/Dandre126/local-image-gen.git
+git clone https://github.com/DandreYang/local-image-gen.git
 cd local-image-gen
 python3 scripts/local_image_gen.py --list-providers
 ```
