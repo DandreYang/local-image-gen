@@ -40,6 +40,14 @@ local-image-gen --list-providers
 
 已经 clone 过的话，在仓库里跑 `./install.sh` 会用当前目录，不会再下一份。安装脚本只建符号链接，不会覆盖已有的实体 skill 目录。
 
+## 可选的 Dyro
+
+这个项目**不依赖** [Dyro](https://github.com/DandreYang/DyroEngineeringFlow)，仍然是独立的 CLI 和 skill。
+
+如果在 Dyro 工作区里运行（上级目录有 `dyro.toml`），又没传 `-o` / `--out-dir`，图片会写到 `<workspace>/outputs/images`，避免落到 `repositories/` 或任务 worktree 里。`-o` 始终优先。
+
+`local-image-gen --doctor` 会报告后端，以及是否检测到 Dyro CLI / 工作区，不会真正生图。
+
 ## 用法
 
 ```bash

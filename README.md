@@ -40,6 +40,14 @@ If `~/.local/bin` is not on your PATH, the installer prints the one `export` to 
 
 From a git checkout, `./install.sh` uses that checkout instead of cloning again. The installer only creates symlinks; it will not replace an existing real skill directory.
 
+## Optional Dyro
+
+This project does **not** require [Dyro](https://github.com/DandreYang/DyroEngineeringFlow). It stays a standalone CLI and skill.
+
+If you run it inside a Dyro workspace (an ancestor `dyro.toml`) and omit `-o` / `--out-dir`, images go to `<workspace>/outputs/images` so they stay out of `repositories/` and task worktrees. `-o` always wins.
+
+`local-image-gen --doctor` reports backends and whether a Dyro CLI or workspace is present. It does not generate an image.
+
 ## Usage
 
 ```bash

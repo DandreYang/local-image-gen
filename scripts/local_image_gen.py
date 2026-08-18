@@ -63,6 +63,8 @@ API_BASE_ENV_NAMES = {
 REQUEST_TIMEOUT = 300
 TOKEN_EXPIRY_SKEW_SECONDS = 60
 DEFAULT_OUTPUT_STEM = "local-generated-image"
+DYRO_TOML_NAME = "dyro.toml"
+DYRO_IMAGE_DIR = Path("outputs") / "images"
 
 ASPECT_ALIASES = {
     "square": "1:1",
@@ -509,6 +511,68 @@ def default_output_path(prompt: str, out_dir: Path, fmt: str) -> Path:
     else:
         suffix = ".png"
     return out_dir / f"{DEFAULT_OUTPUT_STEM}-{stamp}-{digest}{suffix}"
+
+
+def find_dyro_workspace(start: Optional[Path] = None) -> Optional[Path]:
+    """Return the nearest ancestor that contains dyro.toml, if any."""
+    current = (start or Path.cwd()).expanduser()
+    try:
+        current = current.resolve()
+    except OSError:
+        return None
+    if current.is_file():
+        current = current.parent
+    for candidate in (current, *current.parents):
+        if (candidate / DYRO_TOML_NAME).is_file():
+            return candidate
+    return None
+
+
+def dyro_workspace_name(root: Path) -> Optional[str]:
+    path = root / DYRO_TOML_NAME
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    in_workspace = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            in_workspace = line == "[workspace]"
+            continue
+        if not in_workspace:
+            continue
+        match = re.match(r'^name\s*=\s*"(.*)"\s*$', line)
+        if match:
+            return match.group(1)
+    return None
+
+
+def dyro_cli_version() -> Optional[str]:
+    exe = shutil.which("dyro")
+    if not exe:
+        return None
+    try:
+        proc = subprocess.run(
+            [exe, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "present"
+    text = (proc.stdout or proc.stderr or "").strip().splitlines()
+    return text[0] if text else "present"
+
+
+def default_image_dir(explicit: Optional[Path] = None, start: Optional[Path] = None) -> Tuple[Path, Optional[Path]]:
+    """Return (output_dir, dyro_workspace_or_none)."""
+    if explicit:
+        return explicit.expanduser(), find_dyro_workspace(start)
+    workspace = find_dyro_workspace(start)
+    if workspace:
+        return workspace / DYRO_IMAGE_DIR, workspace
+    return (start or Path(".")).expanduser(), None
 
 
 def strip_env_value(value: str) -> str:
@@ -1800,15 +1864,20 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--list-providers", action="store_true")
     parser.add_argument("--list-models", action="store_true")
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Report backends and optional Dyro detection. Does not generate an image.",
+    )
     args = parser.parse_args(argv)
-    if args.list_providers or args.list_models:
+    if args.list_providers or args.list_models or args.doctor:
         return args
     if args.prompt and args.prompt_file:
         parser.error("Use either a prompt argument or --prompt-file, not both.")
     if args.prompt_file:
         args.prompt = args.prompt_file.expanduser().read_text(encoding="utf-8")
     if not args.prompt or not str(args.prompt).strip():
-        parser.error("A prompt is required unless --list-providers or --list-models is set.")
+        parser.error("A prompt is required unless --list-providers, --list-models, or --doctor is set.")
     args.prompt = str(args.prompt).strip()
     if args.n < 1 or args.n > 10:
         parser.error("--n must be between 1 and 10.")
@@ -1819,15 +1888,31 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return args
 
 
-def prepare_output(args: argparse.Namespace) -> Path:
+def attach_workspace(result: Dict[str, Any], workspace: Optional[Path], notes: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+    extra = [item for item in (notes or []) if item]
+    if extra:
+        existing = result.get("notes")
+        if isinstance(existing, list):
+            result["notes"] = list(existing) + extra
+        elif existing:
+            result["notes"] = [str(existing), *extra]
+        else:
+            result["notes"] = extra
+    if workspace:
+        result["dyro_workspace"] = str(workspace)
+    return result
+
+
+def prepare_output(args: argparse.Namespace) -> Tuple[Path, Optional[Path]]:
+    workspace = find_dyro_workspace()
     if args.output:
         path = args.output.expanduser()
-        if path.suffix:
-            return path
-        return path.with_suffix(".png")
-    directory = (args.out_dir or Path(".")).expanduser()
+        if not path.suffix:
+            path = path.with_suffix(".png")
+        return path, workspace
+    directory, workspace = default_image_dir(args.out_dir)
     directory.mkdir(parents=True, exist_ok=True)
-    return default_output_path(args.prompt, directory, "png")
+    return default_output_path(args.prompt, directory, "png"), workspace
 
 
 def run_job(args: argparse.Namespace) -> Dict[str, Any]:
@@ -1845,7 +1930,7 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
         aspect = "1:1"
 
     notes: List[str] = []
-    output = prepare_output(args)
+    output, workspace = prepare_output(args)
     images = list(args.images or [])
 
     if provider == "grok":
@@ -1877,9 +1962,7 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
             args.dry_run,
             grok_base,
         )
-        if notes:
-            result["notes"] = notes
-        return result
+        return attach_workspace(result, workspace, notes)
 
     if provider == "codex":
         if not (codex_auth_available() or args.dry_run):
@@ -1888,32 +1971,44 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
         quality = "high" if args.quality == "auto" and args.resolution in {"2k", "4k"} else args.quality
         if quality == "auto":
             quality = "medium"
-        return run_codex(args.prompt, model, size, quality, images, output, args.overwrite, args.dry_run)
+        return attach_workspace(
+            run_codex(args.prompt, model, size, quality, images, output, args.overwrite, args.dry_run),
+            workspace,
+            notes,
+        )
 
     if provider == "antigravity":
         image_size = map_gemini_image_size(args.quality, args.resolution)
-        return run_antigravity(
-            args.prompt,
-            model,
-            aspect,
-            image_size,
-            images,
-            output,
-            args.overwrite,
-            args.dry_run,
+        return attach_workspace(
+            run_antigravity(
+                args.prompt,
+                model,
+                aspect,
+                image_size,
+                images,
+                output,
+                args.overwrite,
+                args.dry_run,
+            ),
+            workspace,
+            notes,
         )
 
     if provider == "cursor":
         image_size = map_gemini_image_size(args.quality, args.resolution)
-        return run_cursor(
-            args.prompt,
-            model,
-            aspect,
-            image_size,
-            images,
-            output,
-            args.overwrite,
-            args.dry_run,
+        return attach_workspace(
+            run_cursor(
+                args.prompt,
+                model,
+                aspect,
+                image_size,
+                images,
+                output,
+                args.overwrite,
+                args.dry_run,
+            ),
+            workspace,
+            notes,
         )
 
     if provider == "gemini":
@@ -1924,17 +2019,21 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
                 "Gemini API key is missing. Use --provider antigravity after `agy` login, or set GEMINI_API_KEY."
             )
         gemini_base, _source = resolve_api_base("gemini", loaded_files, getattr(args, "base_url", None))
-        return run_gemini(
-            args.prompt,
-            model,
-            aspect,
-            image_size,
-            images,
-            api_key or "dry-run",
-            output,
-            args.overwrite,
-            args.dry_run,
-            gemini_base,
+        return attach_workspace(
+            run_gemini(
+                args.prompt,
+                model,
+                aspect,
+                image_size,
+                images,
+                api_key or "dry-run",
+                output,
+                args.overwrite,
+                args.dry_run,
+                gemini_base,
+            ),
+            workspace,
+            notes,
         )
 
     if provider in {"openai", "xai"}:
@@ -1964,23 +2063,25 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
                 args.dry_run,
                 key_base,
             )
-            if notes:
-                result["notes"] = notes
             result["provider"] = "xai"
-            return result
-        return run_openai_compat(
-            provider,
-            args.prompt,
-            model,
-            size,
-            quality,
-            images,
-            args.n,
-            api_key or "dry-run",
-            key_base,
-            output,
-            args.overwrite,
-            args.dry_run,
+            return attach_workspace(result, workspace, notes)
+        return attach_workspace(
+            run_openai_compat(
+                provider,
+                args.prompt,
+                model,
+                size,
+                quality,
+                images,
+                args.n,
+                api_key or "dry-run",
+                key_base,
+                output,
+                args.overwrite,
+                args.dry_run,
+            ),
+            workspace,
+            notes,
         )
 
     raise ImageGenError(f"Unsupported provider: {provider}")
@@ -2000,6 +2101,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
     if args.list_models:
         print_json({"success": True, "models": list_models_payload()})
+        return 0
+    if args.doctor:
+        workspace = find_dyro_workspace()
+        output_dir, _detected = default_image_dir()
+        print_json(
+            {
+                "success": True,
+                "command": "doctor",
+                "version": __version__,
+                "cli": "local-image-gen",
+                "harness": detect_harness(),
+                "dyro": {
+                    "optional": True,
+                    "cli": dyro_cli_version(),
+                    "workspace": str(workspace) if workspace else None,
+                    "workspace_name": dyro_workspace_name(workspace) if workspace else None,
+                    "output_dir": str(output_dir),
+                },
+                "providers": list_provider_status(loaded_files),
+            }
+        )
         return 0
     try:
         result = run_job(args)

@@ -442,6 +442,7 @@ class CliContractTests(unittest.TestCase):
             "--list-providers",
             "--base-url",
             "--version",
+            "--doctor",
         ):
             self.assertIn(token, result.stdout)
 
@@ -491,6 +492,54 @@ class CliContractTests(unittest.TestCase):
         self.assertEqual(rows["gemini"]["api_base"], "https://generativelanguage.googleapis.com/v1beta")
         self.assertTrue(rows["codex"]["experimental"])
         self.assertNotIn("yai", rows)
+
+
+class DyroOptionalTests(unittest.TestCase):
+    def test_finds_workspace_toml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            nested = root / "repositories" / "app"
+            nested.mkdir(parents=True)
+            (root / "dyro.toml").write_text('[workspace]\nname = "demo"\n', encoding="utf-8")
+            found = image_gen.find_dyro_workspace(nested)
+            self.assertEqual(found, root.resolve())
+            self.assertEqual(image_gen.dyro_workspace_name(root), "demo")
+            out_dir, workspace = image_gen.default_image_dir(None, nested)
+            self.assertEqual(workspace, root.resolve())
+            self.assertEqual(out_dir, root.resolve() / "outputs" / "images")
+
+    def test_no_workspace_keeps_cwd_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            start = Path(tmp)
+            self.assertIsNone(image_gen.find_dyro_workspace(start))
+            out_dir, workspace = image_gen.default_image_dir(None, start)
+            self.assertIsNone(workspace)
+            self.assertEqual(out_dir, start)
+
+    def test_explicit_out_dir_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "dyro.toml").write_text("[workspace]\nname = \"demo\"\n", encoding="utf-8")
+            custom = root / "custom-out"
+            out_dir, workspace = image_gen.default_image_dir(custom, root)
+            self.assertEqual(out_dir, custom)
+            self.assertEqual(workspace, root.resolve())
+
+    def test_doctor_json(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(MODULE_PATH), "--doctor"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["command"], "doctor")
+        self.assertTrue(payload["dyro"]["optional"])
+        names = {item["provider"] for item in payload["providers"]}
+        self.assertIn("grok", names)
+        self.assertNotIn("yai", names)
 
 
 if __name__ == "__main__":

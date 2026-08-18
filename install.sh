@@ -168,10 +168,18 @@ if [[ ":${PATH}:" != *":${BIN_DIR}:"* ]]; then
   echo "  export PATH=\"${BIN_DIR}:\$PATH\""
 fi
 
+if command -v dyro >/dev/null 2>&1; then
+  echo
+  echo "Dyro is optional. Image gen does not require it."
+  echo "Inside a Dyro workspace, images default to <workspace>/outputs/images."
+fi
+
 echo
 echo "Next:"
 if command -v "$NAME" >/dev/null 2>&1 || [[ ":${PATH}:" == *":${BIN_DIR}:"* ]]; then
   echo "  ${NAME} --list-providers"
+  echo "  ${NAME} --doctor"
 else
   echo "  \"${WRAPPER}\" --list-providers"
+  echo "  \"${WRAPPER}\" --doctor"
 fi

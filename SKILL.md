@@ -18,6 +18,7 @@ If the current working directory is not the skill root, call the script by absol
 ```bash
 python3 scripts/local_image_gen.py --list-providers
 python3 scripts/local_image_gen.py --list-models
+python3 scripts/local_image_gen.py --doctor
 python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspect-ratio 16:9 --quality high --resolution 2k -o outputs/cover.png
 ```
 
@@ -43,6 +44,7 @@ python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspe
 | Output | `-o` / `--output` | Existing files become `name-v2.png` unless `--overwrite` |
 | Keys file | `--api-key-file` | Optional dotenv with `XAI_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, plus optional `*_BASE_URL` |
 | API base | `--base-url` / `--api-base` | API-key path only. Defaults to the official host. Also `XAI_BASE_URL`, `OPENAI_BASE_URL`, `GEMINI_BASE_URL` |
+| Diagnose | `--doctor` | Backends plus optional Dyro detection. Does not spend quota |
 
 Details and mapping tables live in `references/providers.md`. The script is the source of truth — run `--list-models` rather than inventing IDs.
 
@@ -92,6 +94,7 @@ python3 scripts/local_image_gen.py "test" --dry-run --aspect-ratio 1:1
 - Cursor: local `cursor-agent` (Nano Banana Pro). Used when Nano Banana is requested and Antigravity is unavailable, or with `--provider cursor`.
 - API keys: `XAI_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `NANOBANANA_API_KEY`, plus `--api-key-file` and `~/.local-image-gen.env`. Gemini keys are only a fallback if `agy` is missing.
 - API bases (API-key path only): official defaults are `https://api.x.ai/v1`, `https://api.openai.com/v1`, and `https://generativelanguage.googleapis.com/v1beta`. Override with `--base-url` or `XAI_BASE_URL` / `OPENAI_BASE_URL` / `GEMINI_BASE_URL`. Unofficial routers are never the default. Subscriptions keep their official endpoints and ignore a custom base.
+- Dyro is optional. If the current directory is inside a Dyro workspace (`dyro.toml`) and the user did not pass `-o` / `--out-dir`, write images to `<workspace>/outputs/images`. Never require the `dyro` CLI.
 
 Never print tokens or keys. If a subscription file is missing, tell the user the matching login command instead of asking for a key first.
 

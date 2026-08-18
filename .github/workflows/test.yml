@@ -24,6 +24,7 @@ jobs:
           python scripts/local_image_gen.py --version
           python scripts/local_image_gen.py --list-models
           python scripts/local_image_gen.py --help
+          python scripts/local_image_gen.py --doctor
           bash -n install.sh
           ./install.sh --help
           ./install.sh --dry-run

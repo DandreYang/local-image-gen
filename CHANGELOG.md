@@ -3,6 +3,7 @@
 ## Unreleased
 
 - One-line install: clone or update, put `local-image-gen` on PATH, and link agent skills.
+- Optional Dyro: default images to `<workspace>/outputs/images` when `dyro.toml` is present; `--doctor` reports backends without requiring Dyro.
 
 ## 0.1.0
 
