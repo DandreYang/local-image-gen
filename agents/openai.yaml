@@ -1,0 +1,4 @@
+interface:
+  display_name: "Local Image Gen"
+  short_description: "Generate and edit images from local Codex/Grok/Gemini subscriptions or API keys"
+  default_prompt: "Use $local-image-gen to generate or edit an image. Prefer a local Codex, Grok, or Gemini/Antigravity subscription when available."

@@ -1,0 +1,23 @@
+{
+  "skill_name": "local-image-gen",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "用本机已登录的订阅生成一张蓝白 AI 课程封面，16:9，高清，无文字，保存到 outputs/。",
+      "expected_output": "Agent 调用 scripts/local_image_gen.py，带 --aspect-ratio 16:9 和 --quality high 或 --resolution 2k，不先索要 API Key。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "指定用 Codex 的 gpt-image-2 画一张极简科技插图。",
+      "expected_output": "Agent 使用 --provider codex --model gpt-image-2。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "把 draft.png 改成干净的白板商业插图，比例 16:9。",
+      "expected_output": "Agent 使用 -i draft.png 做编辑；文件不存在时先报清楚。",
+      "files": ["draft.png"]
+    }
+  ]
+}
