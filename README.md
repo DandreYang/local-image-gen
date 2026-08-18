@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.jpg" width="168" alt="local-image-gen logo: a house-shaped local mark with a camera aperture">
+  <img src="docs/logo.svg" width="168" alt="local-image-gen logo: a viewfinder framing a generated landscape, with a CLI caret">
 </p>
 
 <h1 align="center">local-image-gen</h1>
@@ -12,7 +12,7 @@
 <p align="center"><a href="README.zh-CN.md">中文说明</a></p>
 
 <p align="center">
-  <img src="docs/cover.jpg" width="100%" alt="Cover: the same house-and-aperture mark on a wide charcoal metal plate">
+  <img src="docs/cover.svg" width="100%" alt="Cover: the local viewfinder mark opening into a wide generated landscape">
 </p>
 
 Python 3.9+, standard library only. Works as a CLI and as a portable agent skill (`SKILL.md`) for Claude, Codex, Grok, Cursor, Gemini, and similar tools.

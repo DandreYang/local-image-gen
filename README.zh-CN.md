@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.jpg" width="168" alt="local-image-gen 标志：房子轮廓里的相机光圈">
+  <img src="docs/logo.svg" width="168" alt="local-image-gen 标志：取景框里的生成风景，带命令行箭头">
 </p>
 
 <h1 align="center">local-image-gen</h1>
@@ -12,7 +12,7 @@
 <p align="center"><a href="README.md">English</a></p>
 
 <p align="center">
-  <img src="docs/cover.jpg" width="100%" alt="封面：同一枚房子光圈标志，铺在宽幅石墨金属板上">
+  <img src="docs/cover.svg" width="100%" alt="封面：本机取景框打开成一张宽幅生成图">
 </p>
 
 Python 3.9+，只用标准库。既可以当 CLI，也可以当 Claude / Codex / Grok / Cursor / Gemini 等助手的 portable skill（`SKILL.md`）。
