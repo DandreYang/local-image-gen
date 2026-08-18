@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- One-line install: clone or update, put `local-image-gen` on PATH, and link agent skills.
+
 ## 0.1.0
 
 - First public release.

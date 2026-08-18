@@ -29,24 +29,16 @@ Python 3.9+，只用标准库。既可以当 CLI，也可以当 Claude / Codex /
 
 ## 安装
 
-```bash
-git clone https://github.com/DandreYang/local-image-gen.git
-cd local-image-gen
-python3 scripts/local_image_gen.py --list-providers
-```
-
-把 skill 链到本机各助手（只建符号链接，不会覆盖已有实体目录）：
+一条命令。会克隆或更新到 `~/.local/share/local-image-gen`，把 `local-image-gen` 放到 PATH，并链到本机已有的编程助手：
 
 ```bash
-chmod +x install.sh
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/DandreYang/local-image-gen/main/install.sh | bash
+local-image-gen --list-providers
 ```
 
-也可以只链一个：
+如果 `~/.local/bin` 不在 PATH 里，安装脚本会打印需要加的那一行 `export`。
 
-```bash
-ln -s "$(pwd)" ~/.codex/skills/local-image-gen
-```
+已经 clone 过的话，在仓库里跑 `./install.sh` 会用当前目录，不会再下一份。安装脚本只建符号链接，不会覆盖已有的实体 skill 目录。
 
 ## 用法
 

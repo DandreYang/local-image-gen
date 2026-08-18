@@ -29,24 +29,16 @@ Override only when you set `--base-url` or `XAI_BASE_URL` / `OPENAI_BASE_URL` / 
 
 ## Install
 
-```bash
-git clone https://github.com/DandreYang/local-image-gen.git
-cd local-image-gen
-python3 scripts/local_image_gen.py --list-providers
-```
-
-Install the skill into local agents (creates symlinks, never overwrites a real directory):
+One command. It clones or updates `~/.local/share/local-image-gen`, puts `local-image-gen` on your PATH, and links the skill into any coding agent already on this machine:
 
 ```bash
-chmod +x install.sh
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/DandreYang/local-image-gen/main/install.sh | bash
+local-image-gen --list-providers
 ```
 
-You can also link one root yourself:
+If `~/.local/bin` is not on your PATH, the installer prints the one `export` to add.
 
-```bash
-ln -s "$(pwd)" ~/.codex/skills/local-image-gen
-```
+From a git checkout, `./install.sh` uses that checkout instead of cloning again. The installer only creates symlinks; it will not replace an existing real skill directory.
 
 ## Usage
 

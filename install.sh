@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
-# Link this checkout into local coding-agent skill directories.
+# Install local-image-gen as a CLI and as an agent skill.
+# Safe to re-run. Never overwrites a non-symlink skill directory.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
 NAME="local-image-gen"
+REPO_SLUG="${LOCAL_IMAGE_GEN_REPO:-DandreYang/local-image-gen}"
+REPO_URL="${LOCAL_IMAGE_GEN_REPO_URL:-https://github.com/${REPO_SLUG}.git}"
+DEFAULT_HOME="${HOME}/.local/share/${NAME}"
+BIN_DIR="${LOCAL_IMAGE_GEN_BIN:-${HOME}/.local/bin}"
 DRY_RUN=0
 
 usage() {
   cat <<EOF
-Usage: ./install.sh [--dry-run]
+Usage: install.sh [--dry-run]
 
-Creates a symlink named ${NAME} in each detected agent skill root.
-Existing non-matching entries are left untouched.
+One-liner (no prior clone):
+  curl -fsSL https://raw.githubusercontent.com/${REPO_SLUG}/main/install.sh | bash
+
+From a checkout:
+  ./install.sh
+
+Clones or updates ${DEFAULT_HOME}, puts ${NAME} on PATH, and
+symlinks the skill into detected agent directories.
 EOF
 }
 
@@ -21,6 +31,79 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 if [[ "${1:-}" == "--dry-run" ]]; then
   DRY_RUN=1
+fi
+
+run() {
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf 'would  '
+    printf '%q ' "$@"
+    printf '\n'
+    return 0
+  fi
+  "$@"
+}
+
+canon() {
+  python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
+script_dir=""
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
+if [[ -n "$script_dir" && -f "$script_dir/SKILL.md" && -f "$script_dir/scripts/local_image_gen.py" ]]; then
+  ROOT="$script_dir"
+  SOURCE="checkout"
+else
+  ROOT="${LOCAL_IMAGE_GEN_HOME:-$DEFAULT_HOME}"
+  SOURCE="fetch"
+fi
+
+if ! command -v git >/dev/null 2>&1; then
+  echo "git is required." >&2
+  exit 1
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required (3.9+)." >&2
+  exit 1
+fi
+
+if [[ "$SOURCE" == "fetch" ]]; then
+  if [[ -d "$ROOT/.git" ]]; then
+    echo "update  ${ROOT}"
+    if [[ "$DRY_RUN" -eq 0 ]]; then
+      git -C "$ROOT" pull --ff-only
+    fi
+  elif [[ -e "$ROOT" ]]; then
+    echo "skip    ${ROOT} exists and is not a git checkout" >&2
+    exit 1
+  else
+    echo "clone   ${REPO_URL} -> ${ROOT}"
+    run mkdir -p "$(dirname "$ROOT")"
+    run git clone --depth 1 "$REPO_URL" "$ROOT"
+  fi
+else
+  echo "using   ${ROOT}"
+fi
+
+CLI_SRC="${ROOT}/scripts/local_image_gen.py"
+if [[ ! -f "$CLI_SRC" ]]; then
+  echo "missing ${CLI_SRC}" >&2
+  exit 1
+fi
+
+run mkdir -p "$BIN_DIR"
+WRAPPER="${BIN_DIR}/${NAME}"
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "would   write ${WRAPPER}"
+else
+  cat >"$WRAPPER" <<EOF
+#!/usr/bin/env bash
+exec python3 "$(printf '%q' "$CLI_SRC")" "\$@"
+EOF
+  chmod +x "$WRAPPER"
+  echo "cli     ${WRAPPER}"
 fi
 
 SKILL_ROOTS=(
@@ -49,7 +132,7 @@ for root in "${SKILL_ROOTS[@]}"; do
   fi
   if [[ -L "$dest" ]]; then
     current="$(readlink "$dest")"
-    if [[ "$current" == "$ROOT" ]]; then
+    if [[ "$(canon "$dest")" == "$(canon "$ROOT")" ]]; then
       echo "ok      ${dest}"
       linked=$((linked + 1))
       continue
@@ -75,9 +158,20 @@ for root in "${SKILL_ROOTS[@]}"; do
 done
 
 echo
-echo "linked_or_ok=${linked} skipped=${skipped} agents_not_present=${missing}"
-if [[ "$linked" -eq 0 ]]; then
-  echo "No agent skill root was found. Install the CLI by running:"
-  echo "  python3 \"${ROOT}/scripts/local_image_gen.py\" --list-providers"
-  exit 1
+echo "install_root=${ROOT}"
+echo "cli=${WRAPPER}"
+echo "skills_linked_or_ok=${linked} skipped=${skipped} agents_not_present=${missing}"
+
+if [[ ":${PATH}:" != *":${BIN_DIR}:"* ]]; then
+  echo
+  echo "Add this to your shell profile so '${NAME}' is on PATH:"
+  echo "  export PATH=\"${BIN_DIR}:\$PATH\""
+fi
+
+echo
+echo "Next:"
+if command -v "$NAME" >/dev/null 2>&1 || [[ ":${PATH}:" == *":${BIN_DIR}:"* ]]; then
+  echo "  ${NAME} --list-providers"
+else
+  echo "  \"${WRAPPER}\" --list-providers"
 fi
