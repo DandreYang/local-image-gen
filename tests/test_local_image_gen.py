@@ -120,6 +120,12 @@ class DimensionTests(unittest.TestCase):
                 image_gen.assert_saved_aspect([path], "9:16")
             self.assertIn("16:9", str(ctx.exception))
 
+    def test_assert_saved_aspect_accepts_requested_or_mapped_ratio(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "banner.png"
+            path.write_bytes(_minimal_png(1672, 941))
+            image_gen.assert_saved_aspect([path], "16:9", "3:2")
+
     def test_assert_saved_aspect_accepts_matching_ratio(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "tall.png"

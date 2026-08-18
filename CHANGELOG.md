@@ -8,6 +8,7 @@
 - Add logo and cover art in `docs/` and show them on the README.
 - Send an explicit Grok `size` with `--aspect-ratio` and reject saved files that come back as the wrong ratio (common 9:16 → 16:9 default).
 - Replace the house-aperture photos with a designed viewfinder mark and matching cover (`docs/logo.svg`, `docs/cover.svg`).
+- Accept Codex outputs that honor the requested 16:9 even when the tool size is remapped to 1536x1024.
 
 ## 0.1.0
 

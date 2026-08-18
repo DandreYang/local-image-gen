@@ -337,16 +337,18 @@ def read_image_dimensions(path: Path) -> Tuple[int, int]:
     raise ImageGenError(f"Could not read image dimensions from {path}")
 
 
-def assert_saved_aspect(paths: Sequence[Path], aspect: Optional[str]) -> None:
-    if not aspect:
+def assert_saved_aspect(paths: Sequence[Path], *aspects: Optional[str]) -> None:
+    accepted = [item for item in aspects if item]
+    if not accepted:
         return
     for path in paths:
         width, height = read_image_dimensions(path)
-        if dimensions_match_aspect(width, height, aspect):
+        if any(dimensions_match_aspect(width, height, item) for item in accepted):
             continue
         actual = describe_dimensions(width, height)
+        wanted = " or ".join(accepted)
         raise ImageGenError(
-            f"Requested aspect {aspect} but {path.name} is {width}x{height} ({actual}). "
+            f"Requested aspect {wanted} but {path.name} is {width}x{height} ({actual}). "
             "The backend ignored the ratio (many OpenAI-compatible hosts default to 16:9). "
             "Retry with --provider grok and no XAI_BASE_URL, or pass --size for an explicit canvas."
         )
@@ -1557,6 +1559,7 @@ def run_codex(
     output: Path,
     overwrite: bool,
     dry_run: bool,
+    requested_aspect: Optional[str] = None,
 ) -> Dict[str, Any]:
     request_body = build_codex_request(prompt, model, size, quality, images)
     if dry_run:
@@ -1580,7 +1583,8 @@ def run_codex(
     image_b64 = stream_codex_image(access, account_id, request_body)
     saved = unique_output_path(output, overwrite)
     save_b64_image(image_b64, saved)
-    assert_saved_aspect([saved], aspect_from_size(size) if size and size != "auto" else None)
+    mapped = aspect_from_size(size) if size and size != "auto" else None
+    assert_saved_aspect([saved], requested_aspect, mapped)
     return {
         "success": True,
         "provider": "codex",
@@ -2056,7 +2060,9 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
         if quality == "auto":
             quality = "medium"
         return attach_workspace(
-            run_codex(args.prompt, model, size, quality, images, output, args.overwrite, args.dry_run),
+            run_codex(
+                args.prompt, model, size, quality, images, output, args.overwrite, args.dry_run, aspect
+            ),
             workspace,
             notes,
         )
