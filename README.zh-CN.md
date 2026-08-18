@@ -126,3 +126,7 @@ python3 scripts/local_image_gen.py --version
 ## 许可证
 
 [MIT](LICENSE)
+
+## 相关兄弟项目
+
+[`DyroEngineeringFlow`](https://github.com/DandreYang/DyroEngineeringFlow)（`dyro`）是可选的第一方交付控制面。同屋不是同一产品：本 CLI 不依赖它，装其中一个也不会装上另一个。如果已经在 Dyro 工作区里，省略 `-o` / `--out-dir`，图片会写到 `<workspace>/outputs/images`。

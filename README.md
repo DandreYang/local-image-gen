@@ -132,3 +132,7 @@ No third-party Python dependencies.
 ## License
 
 [MIT](LICENSE)
+
+## Related sibling
+
+[`DyroEngineeringFlow`](https://github.com/DandreYang/DyroEngineeringFlow) (`dyro`) is an optional first-party delivery control plane. Same house, not the same product: this CLI does not require it, and installing one does not install the other. If you already have a Dyro workspace, omit `-o` / `--out-dir` and images go to `<workspace>/outputs/images`.
