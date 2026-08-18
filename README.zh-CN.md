@@ -29,7 +29,7 @@ Python 3.9+，只用标准库。既可以当 CLI，也可以当 Claude / Codex /
 
 ## 安装
 
-一条命令。会克隆或更新到 `~/.local/share/local-image-gen`，把 `local-image-gen` 放到 PATH，并链到本机已有的编程助手：
+一条命令。会克隆或更新到 `~/.local/share/local-image-gen`，把 `local-image-gen` 放到 PATH，并链到本机已有的编程助手（Codex、Claude、Cursor、Grok、Gemini、Trae、Hermes、DeepSeek Harness、OpenCode，以及共享的 Agents 目录）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DandreYang/local-image-gen/main/install.sh | bash

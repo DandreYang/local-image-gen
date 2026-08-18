@@ -29,7 +29,7 @@ Override only when you set `--base-url` or `XAI_BASE_URL` / `OPENAI_BASE_URL` / 
 
 ## Install
 
-One command. It clones or updates `~/.local/share/local-image-gen`, puts `local-image-gen` on your PATH, and links the skill into any coding agent already on this machine:
+One command. It clones or updates `~/.local/share/local-image-gen`, puts `local-image-gen` on your PATH, and links the skill into any coding agent already on this machine (Codex, Claude, Cursor, Grok, Gemini, Trae, Hermes, DeepSeek Harness, OpenCode, and the shared Agents root):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DandreYang/local-image-gen/main/install.sh | bash

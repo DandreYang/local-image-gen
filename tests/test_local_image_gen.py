@@ -446,6 +446,11 @@ class CliContractTests(unittest.TestCase):
         ):
             self.assertIn(token, result.stdout)
 
+    def test_install_script_includes_dsh(self) -> None:
+        text = (SKILL_ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("DSH_HOME", text)
+        self.assertIn(".dsh}/skills", text)
+
     def test_version(self) -> None:
         result = subprocess.run(
             [sys.executable, str(MODULE_PATH), "--version"],

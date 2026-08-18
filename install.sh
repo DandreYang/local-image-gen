@@ -115,6 +115,7 @@ SKILL_ROOTS=(
   "${HOME}/.trae-cn/skills"
   "${HOME}/.hermes/skills"
   "${HOME}/.grok/skills"
+  "${DSH_HOME:-${HOME}/.dsh}/skills"
   "${HOME}/.opencode/skills"
   "${HOME}/.config/opencode/skills"
 )
