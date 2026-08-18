@@ -530,7 +530,7 @@ class CliContractTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("0.1.0", result.stdout)
+        self.assertIn("0.1.1", result.stdout)
 
     def test_list_models_json(self) -> None:
         result = subprocess.run(

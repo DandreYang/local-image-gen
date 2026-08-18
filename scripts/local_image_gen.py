@@ -28,7 +28,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 CODEX_AUTH_PATH = Path("~/.codex/auth.json").expanduser()
 GROK_AUTH_PATH = Path("~/.grok/auth.json").expanduser()

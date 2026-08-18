@@ -48,7 +48,7 @@ Dyro 只认 PATH 上的 `local-image-gen` 包装命令。仅有 skill 目录、�
 {
   "success": true,
   "command": "doctor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "cli": "local-image-gen",
   "harness": "grok",
   "dyro": {
@@ -198,7 +198,7 @@ dyro --dry-run doctor              # 不得启动 local-image-gen
   "id": "local-image-gen",
   "optional": true,
   "state": "absent" | "needs_setup" | "ready" | "unavailable",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "usable_providers": ["grok", "codex"]
 }
 ```
