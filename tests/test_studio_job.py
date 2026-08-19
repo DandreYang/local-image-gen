@@ -11,20 +11,39 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "studio"))
 
 from director import parse_look_payload, parse_revise_payload  # noqa: E402
-from cases import list_cases  # noqa: E402
+from cases import list_cases, passes_engagement  # noqa: E402
 from job import build_job_prompt, extract_headlines, keep_search_fact, split_count, user_facts  # noqa: E402
 from templates import pick_template, split_count as template_split  # noqa: E402
 import server  # noqa: E402
 
 
 class CaseCatalogTests(unittest.TestCase):
-    def test_catalog_is_small_and_attributed(self) -> None:
+    def test_catalog_is_attributed_and_engagement_gated(self) -> None:
         rows = list_cases()
         self.assertGreaterEqual(len(rows), 6)
-        self.assertLessEqual(len(rows), 12)
+        seen_ids = set()
+        seen_sources = set()
         for item in rows:
             self.assertTrue(str(item.get("source") or "").startswith("https://x.com/"))
             self.assertIn(item["family"], {"imagine", "gpt_image", "nano_banana"})
+            self.assertTrue(item["id"])
+            self.assertNotIn(item["id"], seen_ids)
+            seen_ids.add(item["id"])
+            self.assertNotIn(item["source"], seen_sources)
+            seen_sources.add(item["source"])
+            engagement = item.get("engagement") or {}
+            self.assertTrue(passes_engagement(engagement), item["id"])
+
+    def test_engagement_gate_rejects_low_reach(self) -> None:
+        weak = {"followers": 17831, "views": 309, "likes": 23, "replies": 4}
+        self.assertFalse(passes_engagement(weak))
+        farm = {"followers": 816, "views": 123, "likes": 13, "replies": 7}
+        self.assertFalse(passes_engagement(farm))
+        proven = {"followers": 1808, "views": 1285, "likes": 70, "replies": 8}
+        self.assertTrue(passes_engagement(proven))
+        # One weak axis is allowed if the other three clear.
+        three_of_four = {"followers": 816, "views": 2908, "likes": 95, "replies": 28}
+        self.assertTrue(passes_engagement(three_of_four))
 
 
 class TemplateTests(unittest.TestCase):
@@ -39,6 +58,14 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(pick_template("大阪等距沙盘海报"), "isometric")
         self.assertEqual(pick_template("竖版旅行信息图，标题原文入画"), "infographic")
         self.assertEqual(pick_template("手机随拍，巷口黄昏"), "snapshot")
+        self.assertEqual(pick_template("丝网招贴旅行海报，城市名原文"), "travel-poster")
+        self.assertEqual(pick_template("古风仙侠，妆发衣分层"), "period")
+        self.assertEqual(pick_template("标志做纤维流材质迁移"), "material")
+        self.assertEqual(pick_template("跟拍虚化，背景拉成灯带"), "panning")
+        self.assertEqual(pick_template("产品破框跳出画框"), "framebreak")
+        self.assertEqual(pick_template("天上宫阙，超尺度云海露台"), "environment")
+        self.assertEqual(pick_template("冷白清透CCD生活照，办公材料室"), "ccd")
+        self.assertEqual(pick_template("上摄下绘，上半部分保留原片"), "split")
 
     def test_split_styles(self) -> None:
         self.assertEqual(template_split("三种风格的课历"), 3)

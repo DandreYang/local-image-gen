@@ -26,6 +26,14 @@ PROMPT_PROFILES = (
     "packshot",
     "snapshot",
     "graphic",
+    "travel",
+    "period",
+    "material",
+    "panning",
+    "framebreak",
+    "environment",
+    "ccd",
+    "split",
 )
 OPTIMIZE_MODES = ("off", "on", "auto")
 PROMPT_FAMILIES = ("imagine", "gpt_image", "nano_banana")
@@ -523,6 +531,145 @@ PROFILE_SPECS: Dict[str, Dict[str, Any]] = {
             "Avoid: 8k tag soup, photoreal clutter, collage"
         ),
     },
+    "travel": {
+        "label": "collectible travel poster",
+        "constraints": (
+            "one printed poster, destination identity in a single scene",
+            "user city or country name verbatim",
+            "landmarks belong to one landscape or one material, never a sticker wall",
+        ),
+        "template": (
+            "Use case: ads-marketing\n"
+            "Asset type: collectible travel poster, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Style/medium: named print medium (screenprint, oil poster, silk-flag landscape)\n"
+            "Typography: user place names verbatim; little else\n"
+            "Constraints: one scene; landmarks integrated; no photo collage\n"
+            "Avoid: tourist sticker wall, photoreal clutter, extra countries"
+        ),
+    },
+    "period": {
+        "label": "period / xianxia portrait",
+        "constraints": (
+            "one adult East-Asian subject",
+            "makeup, hair, wardrobe, setting, and light as separate facts",
+            "wardrobe color must not stain the face",
+            "identity lock if a reference is present",
+        ),
+        "template": (
+            "Use case: portrait\n"
+            "Asset type: period portrait, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Subject: adult East-Asian face; restrained expression\n"
+            "Materials/textures: layered fabric, hair ornament, named makeup\n"
+            "Scene/backdrop: near, mid, far layers\n"
+            "Lighting/mood: named direction, no studio beauty pass unless asked\n"
+            "Constraints: one person; lock face if referenced; no underage look\n"
+            "Avoid: idol filter, studio cutout, collage, heavy modern glam"
+        ),
+    },
+    "material": {
+        "label": "material shift of a mark",
+        "constraints": (
+            "keep the mark's silhouette and negative space",
+            "change only the physical substance",
+            "studio light and a contact shadow",
+        ),
+        "template": (
+            "Use case: product-mockup\n"
+            "Asset type: material study of a mark, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Materials/textures: the new substance only; silhouette unchanged\n"
+            "Lighting/mood: studio key and a clean contact shadow\n"
+            "Constraints: do not redesign the mark; no invented lettering\n"
+            "Avoid: reprinting a flat logo, extra brands, collage"
+        ),
+    },
+    "panning": {
+        "label": "panning motion photograph",
+        "constraints": (
+            "one moving subject",
+            "horizontal background blur, face relatively sharp",
+            "available urban light",
+        ),
+        "template": (
+            "Use case: photorealistic-natural\n"
+            "Asset type: panning fashion still, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Composition/framing: side or three-quarter follow; one person\n"
+            "Style/medium: panning photograph, motion streak in the background\n"
+            "Lighting/mood: location city light, optional film grain\n"
+            "Constraints: face readable; one action; no collage\n"
+            "Avoid: studio beauty pass, frozen posed catalog, multi-panel"
+        ),
+    },
+    "framebreak": {
+        "label": "product breaking its own ad frame",
+        "constraints": (
+            "one product, one physical ad boundary, one escaping part",
+            "inside and outside are the same object",
+            "no invented slogans",
+        ),
+        "template": (
+            "Use case: ads-marketing\n"
+            "Asset type: campaign still with a frame break, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Scene/backdrop: a physical ad surface in real space\n"
+            "Subject: one product; one part crosses the boundary\n"
+            "Constraints: packaging accurate; inside/outside connected; no extra copy\n"
+            "Avoid: two products, collage, fantasy portal, random torn paper"
+        ),
+    },
+    "environment": {
+        "label": "monumental environment",
+        "constraints": (
+            "camera standing in one place, eye-level or slight up-angle",
+            "architecture reads as terrain; people are only scale",
+            "one spatial proposition, no second hero structure",
+        ),
+        "template": (
+            "Use case: illustration-story\n"
+            "Asset type: monumental environment still, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Composition/framing: camera planted on a terrace or stair; near columns crop the frame\n"
+            "Scene/backdrop: architecture as geology; tiny figures for scale only\n"
+            "Constraints: one space; no aerial bird's-eye; gold only as edge light\n"
+            "Avoid: second palace, crowded city collage, spacecraft sci-fi"
+        ),
+    },
+    "ccd": {
+        "label": "CCD lifestyle still",
+        "constraints": (
+            "field form: style, scene, wardrobe, light, filter",
+            "garment color must not stain skin",
+            "one person, one action, weak fill flash for catchlights only",
+        ),
+        "template": (
+            "Use case: photorealistic-natural\n"
+            "Asset type: CCD lifestyle still, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Style/medium: bright CCD snapshot, light grain\n"
+            "Lighting/mood: daylight plus a very weak fill for catchlights\n"
+            "Constraints: field slots; garment color stays on the garment; no swimsuit; no studio beauty\n"
+            "Avoid: collage, hotel-pool tourist look, color cast on the face"
+        ),
+    },
+    "split": {
+        "label": "photo over medium translation",
+        "constraints": (
+            "one page, two equal halves, not a multi-photo collage",
+            "top keeps identity; bottom changes only the medium",
+            "the lower form must still be recognizable",
+        ),
+        "template": (
+            "Use case: ads-marketing\n"
+            "Asset type: split editorial poster, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Composition/framing: top photograph, bottom translation, equal height\n"
+            "Constraints: lock identity on top; one medium below; large negative space\n"
+            "Avoid: nine-panel grid, ecommerce headline, stretching the subject"
+        ),
+    },
 }
 
 PROFILE_PROSE: Dict[str, str] = {
@@ -573,6 +720,38 @@ PROFILE_PROSE: Dict[str, str] = {
     "graphic": (
         "{prompt}. {aspect} few-element graphic in a named medium and a closed palette. "
         "No camera-spec soup."
+    ),
+    "travel": (
+        "{prompt}. {aspect} collectible travel poster, one scene, place names verbatim. "
+        "Landmarks live in one landscape or one material. No sticker wall."
+    ),
+    "period": (
+        "{prompt}. {aspect} period portrait. Write makeup, hair, wardrobe, setting, and light "
+        "as separate facts. One adult subject. Lock the face if referenced."
+    ),
+    "material": (
+        "{prompt}. {aspect} material shift: keep the mark's silhouette, change only the substance. "
+        "Studio light and a contact shadow. Do not redesign the mark."
+    ),
+    "panning": (
+        "{prompt}. {aspect} panning still, horizontal background blur, face relatively sharp. "
+        "One person, one action, location light."
+    ),
+    "framebreak": (
+        "{prompt}. {aspect} one product breaking one ad frame. Inside and outside are the same "
+        "object. No invented slogans, no second product."
+    ),
+    "environment": (
+        "{prompt}. {aspect} monumental environment. Camera planted at eye level, architecture "
+        "as terrain, people only for scale. One space, no aerial collage."
+    ),
+    "ccd": (
+        "{prompt}. {aspect} CCD lifestyle still in field form: style, scene, wardrobe, light. "
+        "Garment color must not stain the face. One person, one action."
+    ),
+    "split": (
+        "{prompt}. {aspect} one editorial page split in half: photograph above, one medium "
+        "below. Lock identity. Do not collage multiple photos."
     ),
 }
 
