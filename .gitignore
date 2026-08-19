@@ -18,3 +18,9 @@ outputs/
 .DS_Store
 .idea/
 .vscode/
+.dyro/
+repositories/
+studio/__pycache__/
+.omc/
+.playwright-mcp/
+

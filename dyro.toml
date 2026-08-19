@@ -1,0 +1,30 @@
+schema_version = 1
+
+[workspace]
+name = "local-image-gen"
+
+[layout]
+anchors = "repositories"
+lines = "versions"
+hotfixes = "hotfixes"
+tasks = "worktrees"
+
+[policy]
+default_base = "main"
+task_branch_prefix = "task/"
+allow_push = false
+require_clean_merge = true
+require_external_signoff = false
+require_signed_execution = false
+require_signed_review = false
+require_signed_signoff = false
+execution_mode = "local"
+
+# In-place prototype: the git checkout is also the workspace root (Dyro
+# doctor will WARN). repositories/local-image-gen is a symlink to this
+# checkout so Profile validation has a real anchor. Not a ship layout.
+[repositories.local-image-gen]
+path = "repositories/local-image-gen"
+mount = "local-image-gen"
+remote = "https://github.com/DandreYang/local-image-gen.git"
+verify = [["python3", "tests/test_local_image_gen.py"], ["python3", "tests/test_prompt_compile.py"]]

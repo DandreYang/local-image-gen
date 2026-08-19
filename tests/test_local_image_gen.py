@@ -145,6 +145,43 @@ class DimensionTests(unittest.TestCase):
             path.write_bytes(_minimal_png(1152, 2048))
             image_gen.assert_saved_aspect([path], "9:16")
 
+    def test_assert_saved_aspect_writes_fail_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "square.png"
+            path.write_bytes(_minimal_png(1024, 1024))
+            with self.assertRaises(image_gen.ImageGenError):
+                image_gen.assert_saved_aspect([path], "3:4")
+            sidecar = path.with_suffix(".json")
+            self.assertTrue(sidecar.is_file())
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["actual_aspect"], "1:1")
+
+    def test_aspect_fail_receipt_keeps_seeded_provider_and_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "portrait.png"
+            path.write_bytes(_minimal_png(1024, 1024))
+            image_gen.write_job_receipt(
+                {
+                    "success": True,
+                    "provider": "codex",
+                    "auth": "subscription",
+                    "model": "gpt-image-2",
+                    "image": str(path),
+                    "images": [str(path)],
+                    "quality": "high",
+                    "prompt": {"original": "cover", "used": "Use case: ads-marketing"},
+                }
+            )
+            with self.assertRaises(image_gen.ImageGenError):
+                image_gen.assert_saved_aspect([path], "3:4")
+            payload = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["provider"], "codex")
+            self.assertEqual(payload["model"], "gpt-image-2")
+            self.assertEqual(payload["prompt"]["used"], "Use case: ads-marketing")
+            self.assertEqual(payload["actual_aspect"], "1:1")
+
 
 def _minimal_png(width: int, height: int) -> bytes:
     import struct
@@ -807,14 +844,37 @@ class PromptCompileCliTests(unittest.TestCase):
                 image_gen.http_request("https://api.x.ai/v1/chat/completions", body=b"{}")
         self.assertIn("timed out", str(ctx.exception))
 
-    def test_codex_skips_optimize(self) -> None:
-        result = image_gen.run_job(
-            image_gen.parse_args(
-                ["封面", "--provider", "codex", "--optimize", "on", "--dry-run"]
-            )
+    def test_codex_optimize_on_compiles(self) -> None:
+        compiled = (
+            "Use case: ads-marketing\n"
+            "Asset type: cover\n"
+            "Primary request: a course cover\n"
+            "Constraints: no logos\n"
         )
-        self.assertEqual(result["prompt_used"], "封面")
-        self.assertEqual(result["prompt"]["optimize"]["skipped_reason"], "codex_response_model")
+        with patch.object(
+            image_gen,
+            "list_optimize_backends",
+            return_value=[
+                {
+                    "provider": "openai",
+                    "auth": "api_key",
+                    "token": "k",
+                    "base_url": "https://api.openai.com/v1",
+                }
+            ],
+        ), patch.object(
+            image_gen,
+            "invoke_optimize_model",
+            return_value=(compiled, "gpt-5.6-terra"),
+        ):
+            result = image_gen.run_job(
+                image_gen.parse_args(
+                    ["封面", "--provider", "codex", "--optimize", "on", "--dry-run"]
+                )
+            )
+        self.assertTrue(result["prompt"]["optimize"]["applied"])
+        self.assertIn("Use case:", result["prompt_used"])
+        self.assertEqual(result["prompt"]["optimize"]["family"], "gpt_image")
 
     def test_openai_edit_dry_run_is_multipart(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1181,6 +1241,32 @@ class DyroOptionalTests(unittest.TestCase):
             out_dir, workspace = image_gen.default_image_dir(custom, root)
             self.assertEqual(out_dir, custom)
             self.assertEqual(workspace, root.resolve())
+
+    def test_write_job_receipt_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "shot.png"
+            image.write_bytes(b"\x89PNG\r\n\x1a\n")
+            result = {
+                "success": True,
+                "provider": "grok",
+                "auth": "subscription",
+                "model": "grok-imagine-image-2.0",
+                "aspect_ratio": "16:9",
+                "image": str(image),
+                "images": [str(image)],
+                "prompt": {"original": "a lake", "used": "a still lake at dusk"},
+            }
+            sidecar = image_gen.write_job_receipt(result)
+            self.assertIsNotNone(sidecar)
+            assert sidecar is not None
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+            self.assertEqual(payload["image"], "shot.png")
+            self.assertEqual(payload["provider"], "grok")
+            self.assertEqual(payload["prompt"]["used"], "a still lake at dusk")
+            self.assertEqual(result["receipt"], str(sidecar))
+
+    def test_write_job_receipt_skips_dry_run(self) -> None:
+        self.assertIsNone(image_gen.write_job_receipt({"success": True, "dry_run": True, "image": "x.png"}))
 
     def test_doctor_json(self) -> None:
         env = os.environ.copy()

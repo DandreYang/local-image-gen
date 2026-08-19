@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">local-image-gen：用已登录的编程助手直接生图</title>
+  <desc id="desc">黑色终端空间流向暖橙色山景，强调已有登录优先、官方 API Key 兜底。</desc>
+  <defs>
+    <linearGradient id="shade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#07080a" stop-opacity="0.99"/>
+      <stop offset="0.43" stop-color="#07080a" stop-opacity="0.94"/>
+      <stop offset="0.67" stop-color="#07080a" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#07080a" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="code" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1c1f24" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#101216" stop-opacity="0.82"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.52"/>
+    </filter>
+  </defs>
+
+  <image href="backgrounds/01-login-to-image.png" x="0" y="0" width="1600" height="900" preserveAspectRatio="xMidYMid slice"/>
+  <rect width="1600" height="900" fill="url(#shade)"/>
+  <rect x="0" y="0" width="1600" height="10" fill="#ee9b2f"/>
+
+  <g transform="translate(72 58)" filter="url(#shadow)">
+    <rect width="82" height="82" rx="20" fill="#111318" stroke="#3b3f46"/>
+    <image href="../../docs/logo.svg" x="5" y="5" width="72" height="72"/>
+  </g>
+  <text x="174" y="88" fill="#f4f0e8" font-family="SF Pro Display, Inter, Arial, sans-serif" font-size="25" font-weight="700" letter-spacing="0.3">local-image-gen</text>
+  <text x="174" y="119" fill="#a7a9ae" font-family="SFMono-Regular, Menlo, monospace" font-size="15" letter-spacing="1.5">LOCAL ORCHESTRATION · MIT</text>
+
+  <g transform="translate(493 68)">
+    <rect width="154" height="40" rx="20" fill="#ee9b2f"/>
+    <text x="77" y="26" text-anchor="middle" fill="#111216" font-family="SF Pro Display, Inter, Arial, sans-serif" font-size="15" font-weight="800" letter-spacing="1.5">OPEN SOURCE</text>
+  </g>
+
+  <text x="72" y="252" fill="#ffffff" font-family="SF Pro Display, Inter, Arial, sans-serif" font-size="84" font-weight="800" letter-spacing="-3">local-image-gen</text>
+  <text x="72" y="335" fill="#f4f0e8" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="48" font-weight="700">用已登录的编程助手</text>
+  <text x="72" y="400" fill="#f4f0e8" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="48" font-weight="700">直接生图、改图。</text>
+  <rect x="74" y="431" width="104" height="6" rx="3" fill="#ee9b2f"/>
+  <text x="72" y="480" fill="#c8c9cc" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="25" font-weight="500">订阅登录优先 · 官方 API Key 只是显式兜底</text>
+
+  <g font-family="SF Pro Display, Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#f4f0e8">
+    <g transform="translate(72 520)"><rect width="105" height="44" rx="22" fill="#202329" stroke="#4a4e56"/><text x="52.5" y="29" text-anchor="middle">Grok</text></g>
+    <g transform="translate(189 520)"><rect width="152" height="44" rx="22" fill="#202329" stroke="#4a4e56"/><text x="76" y="29" text-anchor="middle">Antigravity</text></g>
+    <g transform="translate(353 520)"><rect width="112" height="44" rx="22" fill="#202329" stroke="#4a4e56"/><text x="56" y="29" text-anchor="middle">Cursor</text></g>
+    <g transform="translate(477 520)"><rect width="154" height="44" rx="22" fill="#202329" stroke="#4a4e56"/><text x="77" y="29" text-anchor="middle">Codex · 实验</text></g>
+  </g>
+
+  <g transform="translate(72 616)" filter="url(#shadow)">
+    <rect width="665" height="86" rx="19" fill="url(#code)" stroke="#454950"/>
+    <circle cx="28" cy="25" r="5" fill="#ee6a5f"/>
+    <circle cx="47" cy="25" r="5" fill="#f2bd4f"/>
+    <circle cx="66" cy="25" r="5" fill="#61c454"/>
+    <text x="28" y="59" fill="#ee9b2f" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="20" font-weight="700">›</text>
+    <text x="53" y="59" fill="#f4f0e8" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="20">local-image-gen "你的创意" --quality high</text>
+  </g>
+
+  <text x="72" y="835" fill="#f4f0e8" font-family="SFMono-Regular, Menlo, monospace" font-size="18">github.com/DandreYang/local-image-gen</text>
+  <text x="1528" y="835" text-anchor="end" fill="#d7d0c5" font-family="PingFang SC, Noto Sans CJK SC, sans-serif" font-size="16">使用自有登录或自有官方 Key</text>
+</svg>

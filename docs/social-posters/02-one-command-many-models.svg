@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">local-image-gen：一条命令，多种模型</title>
+  <desc id="desc">一条橙色输入线路经过本地路由核心，分发到四种不同风格的生成图像。</desc>
+  <defs>
+    <linearGradient id="leftShade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#07080a" stop-opacity="0.99"/>
+      <stop offset="0.42" stop-color="#07080a" stop-opacity="0.92"/>
+      <stop offset="0.62" stop-color="#07080a" stop-opacity="0.38"/>
+      <stop offset="0.78" stop-color="#07080a" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c1f24" stop-opacity="0.98"/>
+      <stop offset="1" stop-color="#111318" stop-opacity="0.95"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000000" flood-opacity="0.58"/>
+    </filter>
+  </defs>
+
+  <image href="backgrounds/02-one-command-many-models.png" x="0" y="0" width="1600" height="900" preserveAspectRatio="xMidYMid slice"/>
+  <rect width="1600" height="900" fill="url(#leftShade)"/>
+  <rect x="0" y="0" width="10" height="900" fill="#ee9b2f"/>
+
+  <g transform="translate(72 54)">
+    <image href="../../docs/logo.svg" width="72" height="72"/>
+    <text x="94" y="31" fill="#ffffff" font-family="SF Pro Display, Inter, Arial, sans-serif" font-size="25" font-weight="750">local-image-gen</text>
+    <text x="94" y="59" fill="#9fa2a8" font-family="SFMono-Regular, Menlo, monospace" font-size="14" letter-spacing="1.2">ONE CLI · MANY BACKENDS</text>
+  </g>
+
+  <text x="72" y="238" fill="#ffffff" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="62" font-weight="800" letter-spacing="-1">一条命令，</text>
+  <text x="72" y="312" fill="#ffffff" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="62" font-weight="800" letter-spacing="-1">多种模型。</text>
+  <text x="72" y="360" fill="#c8c9cc" font-family="PingFang SC, Noto Sans CJK SC, sans-serif" font-size="23">本地订阅优先，官方 API 显式兜底</text>
+
+  <g transform="translate(72 405)" filter="url(#shadow)">
+    <rect width="568" height="122" rx="18" fill="url(#card)" stroke="#484c53"/>
+    <text x="26" y="36" fill="#ee9b2f" font-family="SFMono-Regular, Menlo, monospace" font-size="16" font-weight="700">PROMPT</text>
+    <text x="26" y="76" fill="#f5f2ec" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="20">local-image-gen "极简科技封面"</text>
+    <text x="26" y="105" fill="#aeb0b5" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">--aspect-ratio 16:9 --quality high</text>
+  </g>
+
+  <g font-family="SF Pro Display, Inter, Arial, sans-serif" font-size="17" font-weight="700">
+    <g transform="translate(72 560)"><rect width="185" height="48" rx="14" fill="#f2ede3"/><text x="92.5" y="31" text-anchor="middle" fill="#17191d">Grok Imagine 2.0</text></g>
+    <g transform="translate(270 560)"><rect width="170" height="48" rx="14" fill="#f2ede3"/><text x="85" y="31" text-anchor="middle" fill="#17191d">Nano Banana</text></g>
+    <g transform="translate(453 560)"><rect width="156" height="48" rx="14" fill="#f2ede3"/><text x="78" y="31" text-anchor="middle" fill="#17191d">GPT Image 2</text></g>
+  </g>
+
+  <g transform="translate(72 647)">
+    <rect width="568" height="103" rx="16" fill="#0e1014" fill-opacity="0.82" stroke="#33373e"/>
+    <text x="24" y="34" fill="#ee9b2f" font-family="SFMono-Regular, Menlo, monospace" font-size="15" font-weight="700">AUTO（非 Nano Banana 模型）</text>
+    <text x="24" y="68" fill="#f0ede7" font-family="SF Pro Display, PingFang SC, sans-serif" font-size="20" font-weight="650">Grok → Antigravity → Codex*</text>
+    <text x="24" y="91" fill="#999ca2" font-family="PingFang SC, Noto Sans CJK SC, sans-serif" font-size="14">* Codex 供应方为实验通道；受支持路径请使用 OpenAI 官方 API</text>
+  </g>
+
+  <text x="72" y="839" fill="#ece8e1" font-family="SFMono-Regular, Menlo, monospace" font-size="18">github.com/DandreYang/local-image-gen</text>
+</svg>

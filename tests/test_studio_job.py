@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "studio"))
+
+from director import parse_look_payload, parse_revise_payload  # noqa: E402
+from cases import list_cases  # noqa: E402
+from job import build_job_prompt, extract_headlines, keep_search_fact, split_count, user_facts  # noqa: E402
+from templates import pick_template, split_count as template_split  # noqa: E402
+import server  # noqa: E402
+
+
+class CaseCatalogTests(unittest.TestCase):
+    def test_catalog_is_small_and_attributed(self) -> None:
+        rows = list_cases()
+        self.assertGreaterEqual(len(rows), 6)
+        self.assertLessEqual(len(rows), 12)
+        for item in rows:
+            self.assertTrue(str(item.get("source") or "").startswith("https://x.com/"))
+            self.assertIn(item["family"], {"imagine", "gpt_image", "nano_banana"})
+
+
+class TemplateTests(unittest.TestCase):
+    def test_calendar_and_portrait(self) -> None:
+        self.assertEqual(pick_template("夏季课程日历，三种风格"), "calendar-poster")
+        self.assertEqual(pick_template("帮她生成一套商务形象照"), "portrait")
+        self.assertEqual(pick_template("蓝白课程封面"), "cover")
+        self.assertEqual(
+            pick_template("设计一个小红书封面，尺寸3:4\n**主标题**\n春季公开课"),
+            "xiaohongshu",
+        )
+        self.assertEqual(pick_template("大阪等距沙盘海报"), "isometric")
+        self.assertEqual(pick_template("竖版旅行信息图，标题原文入画"), "infographic")
+        self.assertEqual(pick_template("手机随拍，巷口黄昏"), "snapshot")
+
+    def test_split_styles(self) -> None:
+        self.assertEqual(template_split("三种风格的课历"), 3)
+        self.assertEqual(split_count("一张封面"), 1)
+
+
+class JobPromptTests(unittest.TestCase):
+    def test_bans_collage(self) -> None:
+        text = build_job_prompt(
+            "课历",
+            "calendar-poster",
+            "暖金杂志",
+            [{"text": "8月开课", "source": "user"}],
+        )
+        self.assertIn("不要三联", text)
+        self.assertIn("暖金杂志", text)
+
+    def test_user_facts_keep_lines(self) -> None:
+        facts = user_facts("一行\n二行")
+        self.assertEqual([item["source"] for item in facts], ["user", "user"])
+
+    def test_xiaohongshu_keeps_headline_and_person(self) -> None:
+        prompt = (
+            "**主标题（大字）**\n"
+            "春季公开课：把一次咨询做成长期服务\n\n"
+            "**副标题（小字）**\n"
+            "3 天线下｜从单次到可复购\n\n"
+            "用上面的文字和图片帮我设计一个小红书封面"
+        )
+        heads = extract_headlines(prompt)
+        self.assertEqual(heads["headline"], "春季公开课：把一次咨询做成长期服务")
+        text = build_job_prompt(
+            prompt,
+            "xiaohongshu",
+            "主风格",
+            [],
+            images=["ref.png"],
+        )
+        self.assertIn("春季公开课：把一次咨询做成长期服务", text)
+        self.assertIn("必须入画", text)
+        self.assertNotIn("少字或无字", text)
+
+    def test_search_does_not_inject_unnamed_people(self) -> None:
+        self.assertFalse(keep_search_fact("张三是课程主理人", "小红书封面"))
+        self.assertTrue(keep_search_fact("张三是课程主理人", "请张三出镜"))
+        self.assertFalse(keep_search_fact("张三创办了示例机构", "课历"))
+        self.assertTrue(keep_search_fact("8月24日开课", "夏季课历"))
+        facts_prompt = build_job_prompt(
+            "小红书封面",
+            "xiaohongshu",
+            "主风格",
+            [{"text": "张三创办了示例机构", "source": "search"}],
+        )
+        self.assertNotIn("创办了", facts_prompt)
+
+
+class DirectorTests(unittest.TestCase):
+    def test_parse_look_json(self) -> None:
+        parsed = parse_look_payload(
+            '{"summary":"字出画","ok":false,"issues":[{"area":"text","detail":"副标题被裁"}],'
+            '"keep":["人还在"],"next":"把字上移"}'
+        )
+        self.assertEqual(parsed["issues"][0]["area"], "text")
+        self.assertIn("副标题", parsed["issues"][0]["detail"])
+        self.assertEqual(parsed["next"], "把字上移")
+
+    def test_revise_defaults_to_edit(self) -> None:
+        parsed = parse_revise_payload(
+            '{"mode":"edit","draft":"Use case: ads-marketing\\nKeep the face","reason":"只改字"}',
+            message="字大一点",
+            draft="old",
+            last_image="images/a.png",
+        )
+        self.assertEqual(parsed["mode"], "edit")
+        self.assertEqual(parsed["images"], ["images/a.png"])
+        self.assertIn("字大一点", parsed["draft"])
+
+    def test_revise_restart_is_generate(self) -> None:
+        parsed = parse_revise_payload(
+            '{"mode":"edit","draft":"new","reason":"x"}',
+            message="不要这张，从零再来",
+            draft="old",
+            last_image="images/a.png",
+        )
+        self.assertEqual(parsed["mode"], "generate")
+        self.assertEqual(parsed["images"], [])
+
+
+def _minimal_png(width: int, height: int) -> bytes:
+    import struct
+    import zlib
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    raw = b"".join(b"\x00" + (b"\x00" * (width * 3)) for _ in range(height))
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
+class ReceiptTests(unittest.TestCase):
+    def test_crop_receipt_merges_parent_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            parent = folder / "shot.png"
+            crop = folder / "shot-3x4.png"
+            parent.write_bytes(_minimal_png(30, 40))
+            crop.write_bytes(_minimal_png(30, 40))
+            (folder / "shot.json").write_text(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "provider": "codex",
+                        "auth": "subscription",
+                        "model": "gpt-image-2",
+                        "aspect_ratio": "3:4 or 2:3",
+                        "prompt": {"used": "Use case: ads-marketing"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            server.write_media_receipt(
+                crop,
+                {
+                    "success": True,
+                    "provider": "codex",
+                    "aspect_ratio": "3:4",
+                    "sent_prompt": "Use case: ads-marketing",
+                    "cropped_from": str(parent),
+                },
+            )
+            loaded = server.load_receipt(crop)
+            self.assertEqual(loaded["aspect_ratio"], "3:4")
+            self.assertEqual(loaded["provider"], "codex")
+            self.assertEqual(loaded["prompt"]["used"], "Use case: ads-marketing")
+            self.assertEqual(loaded["cropped_from"], str(parent))
+
+    def test_media_item_infers_crop_facts_without_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            path = image_dir / "cover-3x4.png"
+            path.write_bytes(_minimal_png(30, 40))
+            (image_dir / "cover.png").write_bytes(_minimal_png(30, 53))
+            (image_dir / "cover.json").write_text(
+                json.dumps({"ok": False, "size": "30x53", "aspect_ratio": "9:16"}),
+                encoding="utf-8",
+            )
+            with patch.object(server, "OUTPUTS", root):
+                item = server.media_item(path)
+            self.assertEqual(item["aspect_ratio"], "3:4")
+            self.assertEqual(item["size"], "30x40")
+            self.assertTrue(item["created_at"])
+            self.assertTrue(str(item["cropped_from"]).endswith("cover.png"))
+
+
+if __name__ == "__main__":
+    unittest.main()

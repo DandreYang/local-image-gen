@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>local studio · 本机暗房</title>
+  <link rel="stylesheet" href="/static/app.css?v=darkroom3">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="mark"></span>
+      <div>
+        <h1>local studio</h1>
+        <p>本机暗房 · 一句话出图，看图后再改</p>
+      </div>
+    </div>
+    <div class="meta">
+      <span id="workspace-pill">Dyro 工作区</span>
+      <button type="button" class="pill" id="version-pill">…</button>
+      <button type="button" class="pill" id="log-pill">更新日志</button>
+      <span class="warn">127.0.0.1 · 会消耗所选后端配额</span>
+    </div>
+  </header>
+
+  <main>
+    <aside class="round">
+      <p class="kicker">本轮</p>
+      <p class="round-empty" id="round-empty">还没有 take。<br>在相纸上写一句就开始。</p>
+      <div class="director" id="director" hidden>
+        <p class="director-status" id="director-status">出图后自动看图。点下面的问题直接改，或自己写一句。</p>
+        <div class="director-issues" id="director-issues"></div>
+        <div class="director-turns" id="director-turns"></div>
+        <div class="export" id="export">
+          <p class="kicker">定稿导出</p>
+          <div class="export-row">
+            <button type="button" data-export="original">原图</button>
+            <button type="button" data-export="xhs">小红书 3:4</button>
+            <button type="button" data-export="wide">封面 16:9</button>
+            <button type="button" data-export="square">方图 1:1</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="stage">
+      <div class="viewer" id="viewer">
+        <span class="compare-badge" id="compare-badge" hidden>上一张</span>
+        <div class="paper" id="empty-view">
+          <p class="paper-kicker">本机暗房 · LOCAL STUDIO</p>
+          <h1>这一张要什么</h1>
+          <textarea id="prompt" rows="5" required placeholder="一句就行。例如：小红书封面，人物出镜，主标题「夏季训练营」原文入画。"></textarea>
+          <div class="chips" id="templates"></div>
+          <button type="button" class="go" id="brief-btn">整理并出图</button>
+          <p class="paper-hint">先整理任务、核对终稿，确认才花额度。出图后会自动看图写评语。</p>
+        </div>
+        <img id="hero" alt="" hidden>
+        <article class="brief-card" id="brief-card" hidden></article>
+        <div class="busy" id="busy" hidden>
+          <div class="develop-sheet" id="develop-sheet" hidden></div>
+          <span class="spinner" aria-hidden="true"></span>
+          <p id="busy-title">正在显影</p>
+          <p class="busy-sub" id="busy-sub">请稍候，不要关闭或连点。</p>
+          <p class="busy-expect" id="busy-expect" hidden></p>
+          <p class="busy-time" id="busy-time">已等 0 秒</p>
+        </div>
+      </div>
+      <div class="follow" id="follow" hidden>
+        <textarea id="director-text" rows="2" placeholder="接着改：例如 字再大一点，不要换脸"></textarea>
+        <div class="follow-route" title="这次改稿用哪个通路和模型">
+          <select id="follow-provider"></select>
+          <select id="follow-model"></select>
+        </div>
+        <button type="button" class="ghost" id="director-look">看这张</button>
+        <button type="button" id="director-revise">按这句改</button>
+      </div>
+      <div class="film-wrap">
+        <div class="film" id="film"></div>
+        <input id="filter" type="search" placeholder="搜胶片">
+      </div>
+      <dl class="facts" id="facts" hidden></dl>
+    </section>
+
+    <form class="desk" id="form">
+      <div class="stamps">
+        <label>通路
+          <select id="provider" name="provider"></select>
+        </label>
+        <label>比例
+          <select id="aspect" name="aspect">
+            <option value="" selected>按模板</option>
+            <option>1:1</option>
+            <option>16:9</option>
+            <option>9:16</option>
+            <option>4:3</option>
+            <option>3:4</option>
+            <option>3:2</option>
+            <option>2:3</option>
+            <option>2:1</option>
+            <option>1:2</option>
+          </select>
+        </label>
+      </div>
+
+      <details class="more">
+        <summary>更多设置 · 模型 / 质量 / 清晰度 / 优化 / 模板</summary>
+        <div class="row">
+          <label>模型
+            <select id="model" name="model"></select>
+          </label>
+          <label>质量
+            <select id="quality" name="quality">
+              <option>auto</option>
+              <option>low</option>
+              <option>medium</option>
+              <option selected>high</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>清晰度
+            <select id="resolution" name="resolution">
+              <option value="">默认</option>
+              <option>1k</option>
+              <option selected>2k</option>
+              <option>4k</option>
+            </select>
+          </label>
+          <label>优化
+            <select id="optimize" name="optimize">
+              <option value="off" selected>off · 原文</option>
+              <option value="auto">auto · 短句或换家族</option>
+              <option value="on">on · 强制按家族写</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>CLI 模板
+            <select id="profile" name="profile">
+              <option value="">无</option>
+              <option>cover</option>
+              <option>poster</option>
+              <option>portrait</option>
+              <option>product</option>
+              <option>edit</option>
+              <option>isometric</option>
+              <option>infographic</option>
+              <option>magazine</option>
+              <option>lookbook</option>
+              <option>packshot</option>
+              <option>snapshot</option>
+              <option>graphic</option>
+            </select>
+          </label>
+        </div>
+      </details>
+      <input type="hidden" id="template" value="">
+
+      <div class="refs">
+        <span>参考图（库内路径，可多选）</span>
+        <div id="refs" class="ref-list"></div>
+        <label class="upload">上传到素材库
+          <input id="upload" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="new-take" class="ghost">新画一张</button>
+        <button type="button" id="preview-btn" class="ghost">只预览一稿</button>
+        <button type="submit" id="gen-btn" class="ghost">跳过确认直接生</button>
+      </div>
+      <p class="hint">主路径：在相纸上写一句 → 整理并出图。出图后自动看图，点问题就能改。预览不花额度。</p>
+      <pre id="status" class="status" hidden></pre>
+    </form>
+  </main>
+
+  <div class="dialog-root" id="updates" hidden>
+    <div class="dialog-backdrop" data-updates-close></div>
+    <div class="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="updates-title">
+      <p class="dialog-kicker">版本</p>
+      <h2 id="updates-title">CLI 与更新日志</h2>
+      <p class="dialog-copy" id="updates-status">正在对照 GitHub main…</p>
+      <pre class="changelog" id="updates-log">读取 CHANGELOG.md…</pre>
+      <p class="dialog-copy">更新请在终端跑 <code>local-image-gen update</code>，Studio 不会替你改 git。</p>
+      <div class="dialog-actions">
+        <a class="ghost" id="updates-releases" href="https://github.com/DandreYang/local-image-gen/releases" target="_blank" rel="noreferrer">GitHub Releases</a>
+        <button type="button" id="updates-close" data-updates-close>关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="lightbox" id="lightbox" hidden>
+    <div class="lightbox-backdrop" data-lightbox-close></div>
+    <button type="button" class="lightbox-nav prev" id="lightbox-prev" aria-label="上一张">‹</button>
+    <figure class="lightbox-stage">
+      <img id="lightbox-img" alt="">
+      <figcaption class="lightbox-cap" id="lightbox-cap"></figcaption>
+    </figure>
+    <button type="button" class="lightbox-nav next" id="lightbox-next" aria-label="下一张">›</button>
+  </div>
+
+  <div class="dialog-root" id="confirm" hidden>
+    <div class="dialog-backdrop" data-dialog-cancel></div>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <p class="dialog-kicker">生图确认</p>
+      <h2 id="confirm-title">会消耗这次选中后端的配额</h2>
+      <p class="dialog-copy" id="confirm-copy">图会交给本仓 CLI。预览不花额度；点确认才会真正出图。</p>
+      <div class="dialog-actions">
+        <button type="button" class="ghost" id="confirm-no" data-dialog-cancel>取消</button>
+        <button type="button" id="confirm-yes">确认生图</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=darkroom3"></script>
+</body>
+</html>

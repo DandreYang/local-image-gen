@@ -59,12 +59,12 @@ class DecideOptimizeTests(unittest.TestCase):
             (False, "raw"),
         )
 
-    def test_codex_always_skips(self) -> None:
+    def test_codex_optimize_on_compiles(self) -> None:
         should, reason = prompt_compile.decide_optimize(
             "on", "封面", raw=False, from_file=False, provider="codex"
         )
-        self.assertFalse(should)
-        self.assertEqual(reason, "codex_response_model")
+        self.assertTrue(should)
+        self.assertIsNone(reason)
 
     def test_auto_skips_file_and_specific(self) -> None:
         self.assertEqual(
@@ -157,6 +157,16 @@ class ProfileAndSanitizeTests(unittest.TestCase):
         self.assertIn("wide landscape", text)
         self.assertNotIn("16:9", text)
         self.assertNotIn("Use case:", text)
+
+    def test_isometric_and_snapshot_profiles(self) -> None:
+        tile = prompt_compile.apply_profile("大阪城市沙盘", "isometric", aspect="4:5")
+        self.assertIn("isometric", tile.lower())
+        self.assertIn("大阪", tile)
+        snap = prompt_compile.apply_profile(
+            "黄昏巷口的人", "snapshot", aspect="3:4", family="imagine"
+        )
+        self.assertIn("黄昏巷口", snap)
+        self.assertTrue("phone" in snap.lower() or "snapshot" in snap.lower())
 
     def test_edit_profile_asks_to_keep_identity(self) -> None:
         text = prompt_compile.apply_profile("换成夜间", "edit", aspect="3:4")

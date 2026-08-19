@@ -38,7 +38,7 @@ python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspe
    - Same language as the user. No Midjourney/SD tag soup. Do not invent brands, slogans, people, or extra objects.
    - Edits (`-i`): name what stays and what changes. Do not restyle the whole frame.
    - `--raw` stays verbatim. `--prompt-file` stays verbatim unless `auto` sees a wrong-family format. `--optimize` defaults to `off`; never pass `--optimize on` after you already expanded the prompt for this family.
-   - `--provider codex` still skips `--optimize` (Responses controller can rewrite). The unofficial CLI path is not the Codex `$imagegen` skill.
+   - `--provider codex` still compiles when `--optimize on|auto` (gpt-image family). The unofficial Responses controller may rewrite again; Studio sends the compiled draft with `--raw` when it already compiled.
 5. One image per run unless the user asks for variants (`--n`). Distinct assets are separate calls.
 6. If `doctor` reports `install.update_available`, tell the user to run `local-image-gen update`. Do not `curl | bash`, and do not attach an update to a generate command.
 

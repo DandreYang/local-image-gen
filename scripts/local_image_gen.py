@@ -378,11 +378,13 @@ def assert_saved_aspect(paths: Sequence[Path], *aspects: Optional[str]) -> None:
             continue
         actual = describe_dimensions(width, height)
         wanted = " or ".join(accepted)
-        raise ImageGenError(
+        message = (
             f"Requested aspect {wanted} but {path.name} is {width}x{height} ({actual}). "
             "The backend ignored the ratio (many OpenAI-compatible hosts default to 16:9). "
             "Retry with --provider grok and no XAI_BASE_URL, or pass --size for an explicit canvas."
         )
+        write_aspect_fail_receipt(path, message, wanted, f"{width}x{height}", actual)
+        raise ImageGenError(message)
 
 
 def aspect_from_size(size: str) -> str:
@@ -1944,6 +1946,21 @@ def run_codex(
     image_b64 = stream_codex_image(access, account_id, request_body)
     saved = unique_output_path(output, overwrite)
     save_b64_image(image_b64, saved)
+    write_job_receipt(
+        {
+            "success": True,
+            "provider": "codex",
+            "auth": auth_mode,
+            "experimental": True,
+            "model": model,
+            "image": str(saved),
+            "images": [str(saved)],
+            "aspect_ratio": requested_aspect,
+            "size": size,
+            "quality": quality,
+            "prompt": {"original": prompt, "used": prompt},
+        }
+    )
     mapped = aspect_from_size(size) if size and size != "auto" else None
     assert_saved_aspect([saved], requested_aspect, mapped)
     return {
@@ -2523,9 +2540,6 @@ def compile_job_prompt(
             f"Re-adapting a {source_format} prompt for {family} ({provider})."
         )
         skipped = None
-    if skipped == "codex_response_model" and optimize_mode != "off":
-        notes.append("Skipped --optimize on Codex; that path already rewrites via the response model.")
-
     if not should:
         used = original if raw else fallback_prompt(original, profile, aspect, family)
         return PromptCompileResult(
@@ -2634,6 +2648,95 @@ def compile_job_prompt(
     )
 
 
+def job_image_paths(result: Dict[str, Any]) -> List[Path]:
+    paths: List[Path] = []
+    seen = set()
+    for raw in list(result.get("images") or []) + [result.get("image")]:
+        if not raw:
+            continue
+        path = Path(str(raw))
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        paths.append(path)
+    return paths
+
+
+def read_sidecar(path: Path) -> Dict[str, Any]:
+    sidecar = path if path.suffix.lower() == ".json" else path.with_suffix(".json")
+    if not sidecar.is_file():
+        return {}
+    try:
+        loaded = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def write_aspect_fail_receipt(
+    path: Path,
+    error: str,
+    requested: str,
+    size: str,
+    actual: str,
+) -> Optional[Path]:
+    if not path.is_file():
+        return None
+    existing = read_sidecar(path)
+    receipt = {
+        **existing,
+        "schema": 1,
+        "ok": False,
+        "created_at": existing.get("created_at") or utc_now_iso(),
+        "image": path.name,
+        "error": error,
+        "aspect_ratio": requested,
+        "size": size,
+        "actual_aspect": actual,
+        "cli": "local-image-gen",
+        "version": __version__,
+    }
+    sidecar = path.with_suffix(".json")
+    sidecar.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return sidecar
+
+
+def write_job_receipt(result: Dict[str, Any]) -> Optional[Path]:
+    """Write a sidecar JSON next to each saved image. Prototype primitive."""
+    if result.get("dry_run"):
+        return None
+    if not result.get("success") and not job_image_paths(result):
+        return None
+    written: Optional[Path] = None
+    for path in job_image_paths(result):
+        if not path.is_file():
+            continue
+        receipt = {
+            "schema": 1,
+            "ok": bool(result.get("success")),
+            "created_at": utc_now_iso(),
+            "image": path.name,
+            "provider": result.get("provider"),
+            "auth": result.get("auth"),
+            "model": result.get("model"),
+            "aspect_ratio": result.get("aspect_ratio"),
+            "size": result.get("size"),
+            "quality": result.get("quality"),
+            "resolution": result.get("resolution"),
+            "prompt": result.get("prompt"),
+            "notes": result.get("notes"),
+            "cli": "local-image-gen",
+            "version": __version__,
+        }
+        sidecar = path.with_suffix(".json")
+        sidecar.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        written = sidecar
+    if written:
+        result["receipt"] = str(written)
+    return written
+
+
 def attach_prompt_meta(
     result: Dict[str, Any],
     compiled: PromptCompileResult,
@@ -2643,7 +2746,9 @@ def attach_prompt_meta(
     result["prompt_original"] = compiled.original
     result["prompt_used"] = compiled.used
     result["prompt"] = compiled.as_dict()
-    return attach_workspace(result, workspace, list(notes or []) + compiled.notes)
+    attached = attach_workspace(result, workspace, list(notes or []) + compiled.notes)
+    write_job_receipt(attached)
+    return attached
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -2718,7 +2823,7 @@ def parse_job_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--prompt-profile",
         choices=PROMPT_PROFILES,
-        help="Wrap a short prompt in a deterministic asset template: cover, poster, portrait, product, edit.",
+        help="Wrap a short prompt in a deterministic asset template (cover, isometric, infographic, snapshot, ...).",
     )
     parser.add_argument(
         "--optimize",

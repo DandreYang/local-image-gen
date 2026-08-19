@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>local studio · mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bench: #121417;
+      --zinc: #1b1f24;
+      --hair: #2a3036;
+      --paper: #f3eee3;
+      --print-ink: #1c1914;
+      --mute: #8b8680;
+      --safelight: #e2a54a;
+      --cyanotype: #7ea0b5;
+      --good: #8fbea8;
+      --serif: "Newsreader", "Iowan Old Style", Palatino, "Songti SC", serif;
+      --sans: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bench);
+      color: #ece7de;
+      font-family: var(--sans);
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 0.7rem 1.1rem;
+      border-bottom: 1px solid var(--hair);
+    }
+    .wordmark {
+      font-family: var(--serif);
+      font-size: 1.15rem;
+      letter-spacing: 0.08em;
+      text-transform: lowercase;
+    }
+    .wordmark span { color: var(--mute); letter-spacing: 0.18em; font-size: 0.68rem; margin-left: 0.6rem; }
+    .meta { display: flex; gap: 0.5rem; align-items: center; font-size: 0.72rem; color: var(--mute); }
+    .stamp {
+      border: 1px solid var(--hair);
+      padding: 0.18rem 0.45rem;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--mute);
+    }
+    .views { display: flex; gap: 0.3rem; }
+    .views button {
+      background: transparent;
+      color: var(--mute);
+      border: 1px solid var(--hair);
+      padding: 0.2rem 0.5rem;
+      font: inherit;
+      cursor: pointer;
+    }
+    .views button.on { color: var(--paper); border-color: var(--safelight); }
+    .board {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr) 300px;
+      min-height: 0;
+    }
+    .log, .draft {
+      background: var(--zinc);
+      border-right: 1px solid var(--hair);
+      padding: 0.9rem 0.85rem;
+      overflow: auto;
+    }
+    .draft { border-right: 0; border-left: 1px solid var(--hair); }
+    .kicker {
+      font-family: var(--mono);
+      font-size: 0.64rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--mute);
+      margin: 0 0 0.7rem;
+    }
+    .take {
+      border-top: 1px solid var(--hair);
+      padding: 0.7rem 0 0.15rem;
+    }
+    .take time { font-family: var(--mono); font-size: 0.64rem; color: var(--mute); }
+    .take h3 { margin: 0.15rem 0 0.3rem; font-size: 0.82rem; font-weight: 600; }
+    .note {
+      font-size: 0.78rem;
+      line-height: 1.45;
+      color: #cfc8bb;
+      margin: 0.25rem 0;
+    }
+    .note.look { color: var(--cyanotype); }
+    .note.you { color: var(--paper); }
+    .well {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background:
+        radial-gradient(1200px 500px at 50% 0%, #1c2228 0%, transparent 55%),
+        var(--bench);
+    }
+    .paper {
+      margin: 1.4rem auto 0.6rem;
+      background: var(--paper);
+      color: var(--print-ink);
+      padding: 1.1rem 1.1rem 1.25rem;
+      width: min(420px, calc(100% - 2.4rem));
+      box-shadow: 0 30px 80px rgba(0,0,0,0.55);
+    }
+    .paper.empty { min-height: 28rem; display: flex; flex-direction: column; }
+    .paper img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #cfc6b6;
+    }
+    .paper h1 {
+      font-family: var(--serif);
+      font-weight: 400;
+      font-size: 2.05rem;
+      margin: 1.4rem 0.2rem 0.6rem;
+      line-height: 1.15;
+    }
+    .paper textarea {
+      flex: 1;
+      width: 100%;
+      border: 0;
+      resize: none;
+      background: transparent;
+      font-family: var(--serif);
+      font-size: 1.05rem;
+      line-height: 1.5;
+      color: var(--print-ink);
+      padding: 0.2rem;
+      min-height: 8rem;
+    }
+    .paper textarea:focus { outline: none; }
+    .chips { display: flex; gap: 0.35rem; padding: 0.4rem 0.2rem 0.8rem; flex-wrap: wrap; }
+    .chips button, .go, .ghost {
+      font: inherit;
+      cursor: pointer;
+    }
+    .chips button, .ghost {
+      background: transparent;
+      border: 1px solid #c9c0b0;
+      color: var(--print-ink);
+      padding: 0.25rem 0.5rem;
+      font-size: 0.72rem;
+    }
+    .go {
+      background: var(--safelight);
+      border: 0;
+      color: #2a1b08;
+      padding: 0.55rem 0.8rem;
+      font-weight: 600;
+      width: calc(100% - 0.4rem);
+      margin: 0 0.2rem;
+    }
+    .film {
+      display: flex;
+      gap: 0.45rem;
+      padding: 0.4rem 1rem 0.9rem;
+      overflow: auto;
+      justify-content: center;
+    }
+    .film button {
+      width: 54px;
+      height: 72px;
+      padding: 0;
+      border: 1px solid var(--hair);
+      background: #0b0d0f;
+      cursor: pointer;
+    }
+    .film img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0.75; }
+    .film .on { border-color: var(--safelight); }
+    .film .on img { opacity: 1; }
+    .follow {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.7rem 1rem 1rem;
+      align-items: end;
+    }
+    .follow textarea {
+      flex: 1;
+      background: var(--zinc);
+      border: 1px solid var(--hair);
+      color: var(--paper);
+      font: inherit;
+      padding: 0.5rem 0.6rem;
+      min-height: 2.8rem;
+      resize: vertical;
+    }
+    .follow .go { width: auto; margin: 0; }
+    .draft pre {
+      margin: 0;
+      padding: 0.6rem;
+      background: #12151a;
+      border: 1px solid var(--hair);
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      line-height: 1.45;
+      color: #d7d1c6;
+      white-space: pre-wrap;
+      max-height: 14rem;
+      overflow: auto;
+    }
+    .row { display: flex; gap: 0.4rem; margin: 0.6rem 0; }
+    .row .stamp { flex: 1; color: #cfc8bb; }
+    .hint { font-size: 0.72rem; color: var(--mute); line-height: 1.4; margin: 0.6rem 0 0; }
+    .empty-log { color: var(--mute); font-family: var(--serif); font-size: 0.95rem; margin-top: 2rem; }
+    [data-screen="empty"] .only-take { display: none; }
+    [data-screen="take"] .only-empty { display: none; }
+    @media (max-width: 900px) {
+      .board { grid-template-columns: 1fr; }
+      .log, .draft { border: 0; border-top: 1px solid var(--hair); }
+    }
+  </style>
+</head>
+<body data-screen="empty">
+  <header>
+    <div class="wordmark">local studio<span>本机暗房</span></div>
+    <div class="meta">
+      <div class="views">
+        <button type="button" class="on" data-go="empty">空台</button>
+        <button type="button" data-go="take">这一轮</button>
+      </div>
+      <span class="stamp">127.0.0.1</span>
+      <span class="stamp">Grok · 本机</span>
+    </div>
+  </header>
+
+  <div class="board">
+    <aside class="log">
+      <p class="kicker">本轮</p>
+      <p class="empty-log only-empty">还没有 take。<br>在相纸上写一句就开始。</p>
+      <div class="only-take">
+        <div class="take">
+          <time>Take 01 · 18:06</time>
+          <h3>已出 · 3:4</h3>
+          <p class="note look">看图：人还在，不是静物。副标题被上沿裁掉半个字。</p>
+        </div>
+        <div class="take">
+          <time>你</time>
+          <p class="note you">字再大一点，不要换脸。</p>
+        </div>
+        <div class="take">
+          <time>导演</time>
+          <p class="note">改上一张。锁住同一张脸和衣服，只把标题上移并加大。</p>
+        </div>
+      </div>
+    </aside>
+
+    <section class="well">
+      <div class="paper only-empty empty">
+        <h1>这一张要什么</h1>
+        <textarea placeholder="一句就行。例如：竖幅封面，人物出镜，主标题原文入画。"></textarea>
+        <div class="chips">
+          <button type="button">小红书封面</button>
+          <button type="button">课历</button>
+          <button type="button">形象照</button>
+        </div>
+        <button type="button" class="go">整理并出图</button>
+      </div>
+      <div class="paper only-take">
+        <img src="print.jpg" alt="当前 take">
+      </div>
+      <div class="film only-take">
+        <button type="button" class="on"><img src="print.jpg" alt=""></button>
+        <button type="button"><img src="print.jpg" alt=""></button>
+        <button type="button"><img src="print.jpg" alt=""></button>
+      </div>
+      <div class="follow only-take">
+        <textarea rows="2">字再大一点，不要换脸</textarea>
+        <button type="button" class="ghost">看图</button>
+        <button type="button" class="go">按这句改</button>
+      </div>
+    </section>
+
+    <aside class="draft">
+      <p class="kicker">出图</p>
+      <div class="row">
+        <span class="stamp">Grok</span>
+        <span class="stamp">3:4</span>
+      </div>
+      <p class="kicker only-take">终稿</p>
+      <pre class="only-take">Use case: ads-marketing
+Asset type: 竖幅封面
+Primary request: 单张人物封面，大号主标题入画
+Constraints: 字再大一点，不要换脸
+Avoid: 拼图、静物空镜</pre>
+      <p class="hint">设置默认收成两个章：通路和比例。质量、清晰度、优化折进「更多」，不占主台。</p>
+      <p class="hint">相纸才是主界面。库变成 take 胶片，不再用左边一整列缩略图墙。</p>
+    </aside>
+  </div>
+
+  <script>
+    const root = document.body;
+    document.querySelectorAll("[data-go]").forEach((button) => {
+      button.addEventListener("click", () => {
+        root.setAttribute("data-screen", button.getAttribute("data-go"));
+        document.querySelectorAll("[data-go]").forEach((item) => item.classList.toggle("on", item === button));
+      });
+    });
+  </script>
+</body>
+</html>

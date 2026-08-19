@@ -13,7 +13,20 @@ import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
-PROMPT_PROFILES = ("cover", "poster", "portrait", "product", "edit")
+PROMPT_PROFILES = (
+    "cover",
+    "poster",
+    "portrait",
+    "product",
+    "edit",
+    "isometric",
+    "infographic",
+    "magazine",
+    "lookbook",
+    "packshot",
+    "snapshot",
+    "graphic",
+)
 OPTIMIZE_MODES = ("off", "on", "auto")
 PROMPT_FAMILIES = ("imagine", "gpt_image", "nano_banana")
 
@@ -235,6 +248,9 @@ Examples of the only thing you should output:
 User: 水彩狐狸在雪林里
 雪林里一只停住的水彩狐狸，锈红皮毛衬着淡蓝阴影。纸面带着水渍边，细长松干和落雪，偏低的侧向取景。没有文字、字母、标志或水印。
 
+User: 手机随拍，黄昏巷口的人
+黄昏巷口一个人停住，手机随手拍，轻微过曝和现场混合光，皮肤质感真实，不是棚拍。一个动作一个地点。
+
 User: 保留人物，只把背景换成干净白墙
 保留同一个人、面孔、姿势、衣服和取景。只把背景换成干净白墙和均匀柔光。不要重绘主体，也不要改身份。
 """.strip(),
@@ -249,6 +265,9 @@ Keep the same person, face, pose, clothing, and framing exactly. Change only the
 
 User: 可回收火箭海报，大标题「冲破边界」
 创建一张竖构图航天活动海报：一枚白蓝可回收运载火箭斜向穿出风暴云进入近太空，金蓝尾焰拉出对角线；下方同一枚一子级在夜间海上回收平台受控着陆，灯环倒映水面。左上留出干净深蓝负空间。大标题写「冲破边界」，粗黑体，纯白，必须完整清晰。陶瓷白箭体、栅格舵、凝结、乱云、海面反光。没有其它字，没有商标。
+
+User: 山景人像，手里端杯子
+创建一幅中景人像：一人坐在户外铺着白褥的床上，双手捧着白瓷杯，视线略偏画外。橄榄色长袖、毛绒护腿，背后分层远山在薄雾里。阴天漫射光，长焦浅景深。锁住参考图的脸。不要拼图。
 """.strip(),
     "gpt_image": """
 Examples of the only thing you should output:
@@ -286,6 +305,18 @@ Text (verbatim): "冲破边界"
 Typography: large white Simplified Chinese headline, bold contemporary sans, top left, fully inside the canvas
 Constraints: immediately readable story of launch plus recovery; no other words
 Avoid: extra rockets, astronauts, flags, logos, watermarks, distorted Chinese, science-fiction fantasy hardware
+
+User: 大阪等距沙盘
+Use case: ads-marketing
+Asset type: isometric miniature poster, 4:5
+Primary request: 大阪城市微缩沙盘
+Scene/backdrop: off-white studio; square tile rotated as a diamond; upper third empty for type
+Subject: accurate street grid, landmarks in true relative scale, individual cars trees pedestrians
+Style/medium: tilt-shift miniature photography, everything in focus
+Composition/framing: tile in the lower two-thirds, small margin, never touching the frame
+Lighting/mood: bright even daylight from above, gentle diffuse shadows
+Constraints: one tile only; city name may sit in the upper third if the user named it
+Avoid: four-up contact sheet, exaggerated landmark scale, aerial live-action photograph
 """.strip(),
 }
 
@@ -375,6 +406,123 @@ PROFILE_SPECS: Dict[str, Dict[str, Any]] = {
             "change only what the request names; do not restyle the whole image"
         ),
     },
+    "isometric": {
+        "label": "isometric miniature tile",
+        "constraints": (
+            "one square model tile in diamond isometric view",
+            "accurate relative scale, everything in focus",
+            "upper third reserved for type, never a four-up grid",
+        ),
+        "template": (
+            "Use case: ads-marketing\n"
+            "Asset type: isometric miniature poster, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Scene/backdrop: off-white studio; one square tile rotated as a diamond\n"
+            "Composition/framing: tile in the lower two-thirds, small margin\n"
+            "Style/medium: tilt-shift miniature, entire tile sharp\n"
+            "Constraints: one tile; true relative scale; micro people and vehicles as separate bodies\n"
+            "Avoid: contact sheet, collage, live-action aerial, exaggerated landmarks"
+        ),
+    },
+    "infographic": {
+        "label": "editorial infographic page",
+        "constraints": (
+            "one designed page, not a photo collage",
+            "user titles verbatim",
+            "one central visual plus short labels and generous paper negative space",
+        ),
+        "template": (
+            "Use case: ads-marketing\n"
+            "Asset type: vertical editorial infographic, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Scene/backdrop: textured paper ground, one central map or ribbon hero\n"
+            "Typography: user titles verbatim; short labels only\n"
+            "Constraints: single page; readable hierarchy; no repeated portraits\n"
+            "Avoid: 2x2 grid, nine-panel collage, cartoon sticker food"
+        ),
+    },
+    "magazine": {
+        "label": "magazine cover",
+        "constraints": (
+            "one cover",
+            "masthead, date, and headlines only as the user wrote them",
+            "do not invent a real-world magazine title",
+        ),
+        "template": (
+            "Use case: ads-marketing\n"
+            "Asset type: single magazine cover, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Composition/framing: portrait with reserved masthead space\n"
+            "Constraints: only user-supplied cover lines; no extra slogans\n"
+            "Avoid: collage, extra logos, defaulting to a famous masthead"
+        ),
+    },
+    "lookbook": {
+        "label": "outfit breakdown page",
+        "constraints": (
+            "one editorial page with a full-body hero",
+            "callouts stay in the margins",
+            "identity lock if a reference is present",
+        ),
+        "template": (
+            "Use case: ads-marketing\n"
+            "Asset type: fashion breakdown board, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Composition/framing: full-body hero most of the page; short labels at edges\n"
+            "Constraints: one person; feet in frame; user title verbatim; no trademarks\n"
+            "Avoid: four identical faces, contact sheet, brand marks"
+        ),
+    },
+    "packshot": {
+        "label": "product packshot",
+        "constraints": (
+            "product as the only hero",
+            "name material, edge, contact shadow, and key light",
+            "no invented packaging copy",
+        ),
+        "template": (
+            "Use case: product-mockup\n"
+            "Asset type: catalog packshot, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Lighting/mood: named key light and a clean contact shadow\n"
+            "Materials/textures: honest product surfaces\n"
+            "Constraints: no extra logos or slogans unless the user supplied verbatim text\n"
+            "Avoid: crowds, lifestyle sets, fake certifications"
+        ),
+    },
+    "snapshot": {
+        "label": "casual phone snapshot",
+        "constraints": (
+            "one candid scene",
+            "phone-camera light and slight real-world flaws",
+            "no studio beauty pass",
+        ),
+        "template": (
+            "Use case: photorealistic-natural\n"
+            "Asset type: candid phone snapshot, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Style/medium: amateur phone photograph, slight softness allowed\n"
+            "Lighting/mood: available light on location\n"
+            "Constraints: one action, one place; believable skin; no collage\n"
+            "Avoid: beauty-filter plastic skin, three-point studio kit, multi-panel"
+        ),
+    },
+    "graphic": {
+        "label": "few-element graphic",
+        "constraints": (
+            "few shapes, closed palette",
+            "medium first (foil, mosaic, woodcut, line)",
+            "no camera-spec soup",
+        ),
+        "template": (
+            "Use case: illustration-story\n"
+            "Asset type: graphic plate, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Style/medium: named craft, limited palette\n"
+            "Constraints: one scene; few elements\n"
+            "Avoid: 8k tag soup, photoreal clutter, collage"
+        ),
+    },
 }
 
 PROFILE_PROSE: Dict[str, str] = {
@@ -397,6 +545,34 @@ PROFILE_PROSE: Dict[str, str] = {
     "edit": (
         "{prompt}. Keep identity, pose, framing, and unmentioned details. "
         "Change only what the request names. Do not restyle the whole image."
+    ),
+    "isometric": (
+        "{prompt}. {aspect} isometric miniature on one square tile, diamond view, "
+        "true relative scale, everything sharp, upper third quiet for type. One tile only."
+    ),
+    "infographic": (
+        "{prompt}. {aspect} one editorial infographic page, user titles verbatim, "
+        "one central visual, short labels, paper ground. No photo collage."
+    ),
+    "magazine": (
+        "{prompt}. {aspect} one magazine cover. Only the cover lines the user wrote. "
+        "Do not invent a famous masthead."
+    ),
+    "lookbook": (
+        "{prompt}. {aspect} one outfit-breakdown page, full-body hero, short edge labels. "
+        "No four-up faces, no trademarks."
+    ),
+    "packshot": (
+        "{prompt}. {aspect} product packshot, honest materials, named key light and contact shadow. "
+        "No invented packaging copy."
+    ),
+    "snapshot": (
+        "{prompt}. {aspect} candid phone snapshot, available light, slight real-world softness. "
+        "One action, one place. No studio beauty pass."
+    ),
+    "graphic": (
+        "{prompt}. {aspect} few-element graphic in a named medium and a closed palette. "
+        "No camera-spec soup."
     ),
 }
 
@@ -561,8 +737,6 @@ def decide_optimize(
         return False, "off"
     if mode == "off":
         return False, "off"
-    if provider == "codex":
-        return False, "codex_response_model"
     if mode == "on":
         return True, "family_mismatch" if mismatch else None
     if mismatch:
