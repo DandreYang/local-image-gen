@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.5
 
+- Grok: stop sending the pixel `size` parameter to the official xAI Imagine API, which rejects it with HTTP 400 (`Argument not supported: size`). `aspect_ratio` alone is sent to the official endpoint; custom OpenAI-compatible bases (e.g. via `XAI_BASE_URL`) still get an explicit pixel `size`.
 - Docs: point READMEs at GitHub Releases; align `update` origin/`main` rules in `providers.md` / SKILL; sidecar plan uses `doctor` and the 0.1.4 envelope.
 
 ## 0.1.4

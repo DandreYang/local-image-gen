@@ -88,11 +88,11 @@ class RequestShapeTests(unittest.TestCase):
                 [str(path)],
             )
             self.assertEqual(payload["aspect_ratio"], "16:9")
-            self.assertEqual(payload["size"], "2048x1152")
+            self.assertNotIn("size", payload)
             self.assertEqual(payload["resolution"], "2k")
             self.assertTrue(payload["image"]["url"].startswith("data:image/"))
 
-    def test_portrait_payload_sends_explicit_tall_size(self) -> None:
+    def test_portrait_payload_keeps_aspect_without_pixel_size(self) -> None:
         payload = image_gen.grok_image_payload(
             "wardrobe",
             "grok-imagine-image-2.0",
@@ -103,6 +103,19 @@ class RequestShapeTests(unittest.TestCase):
             [],
         )
         self.assertEqual(payload["aspect_ratio"], "9:16")
+        self.assertNotIn("size", payload)
+
+    def test_custom_base_payload_pins_pixel_size(self) -> None:
+        payload = image_gen.grok_image_payload(
+            "wardrobe",
+            "grok-imagine-image-2.0",
+            "9:16",
+            "medium",
+            "2k",
+            1,
+            [],
+            base_url="https://proxy.example/v1",
+        )
         self.assertEqual(payload["size"], "1152x2048")
 
 
@@ -335,15 +348,15 @@ class DryRunTests(unittest.TestCase):
         self.assertEqual(result["request"]["resolution"], "2k")
         self.assertEqual(result["request"]["quality"], "medium")
         self.assertEqual(result["request"]["aspect_ratio"], "16:9")
-        self.assertEqual(result["request"]["size"], "2048x1152")
+        self.assertNotIn("size", result["request"])
 
-    def test_grok_dry_run_keeps_portrait_size(self) -> None:
+    def test_grok_dry_run_keeps_portrait_aspect(self) -> None:
         args = image_gen.parse_args(
             ["wardrobe", "--provider", "grok", "--aspect-ratio", "9:16", "--quality", "high", "--resolution", "2k", "--dry-run"]
         )
         result = image_gen.run_job(args)
         self.assertEqual(result["request"]["aspect_ratio"], "9:16")
-        self.assertEqual(result["request"]["size"], "1152x2048")
+        self.assertNotIn("size", result["request"])
 
     def test_antigravity_dry_run(self) -> None:
         args = image_gen.parse_args(

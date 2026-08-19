@@ -1822,7 +1822,14 @@ def grok_image_payload(
     resolution: Optional[str],
     n: int,
     images: Sequence[str],
+    base_url: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Build the xAI /images/generations body.
+
+    The official Imagine API takes ``aspect_ratio`` and rejects a pixel
+    ``size`` (HTTP 400). Custom OpenAI-compatible bases may ignore the ratio
+    and default to 16:9, so only those get an explicit pixel ``size``.
+    """
     payload: Dict[str, Any] = {
         "model": model,
         "prompt": prompt,
@@ -1831,7 +1838,8 @@ def grok_image_payload(
     }
     if aspect:
         payload["aspect_ratio"] = aspect
-        payload["size"] = pixel_size_for_aspect(aspect, resolution)
+        if base_url and base_url.rstrip("/") != GROK_API_BASE:
+            payload["size"] = pixel_size_for_aspect(aspect, resolution)
     if quality and model == "grok-imagine-image-2.0":
         payload["quality"] = quality
     if resolution:
@@ -1859,7 +1867,7 @@ def run_grok(
     dry_run: bool,
     base_url: Optional[str] = None,
 ) -> Dict[str, Any]:
-    payload = grok_image_payload(prompt, model, aspect, quality, resolution, n, images)
+    payload = grok_image_payload(prompt, model, aspect, quality, resolution, n, images, base_url)
     endpoint = f"{(base_url or GROK_API_BASE).rstrip('/')}/{'images/edits' if images else 'images/generations'}"
     if dry_run:
         return {

@@ -48,7 +48,7 @@ python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspe
 | --- | --- | --- |
 | Provider | `--provider auto\|grok\|codex\|agy\|antigravity\|cursor\|gemini\|openai\|xai` | `agy` is the short name for Antigravity. Nano Banana chain: Antigravity → Cursor CLI → `GEMINI_API_KEY` |
 | Model | `--model` | See `--list-models`. Examples: `grok-imagine-image-2.0`, `gpt-image-2`, `gemini-3.1-flash-image` |
-| Aspect | `--aspect-ratio` / `--aspect` | `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`, `2:1`, `1:2`, or `square` / `landscape` / `portrait`. Grok also sends an explicit `size` (9:16 at 2k → `1152x2048`). The script fails if the saved file is a different ratio |
+| Aspect | `--aspect-ratio` / `--aspect` | `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`, `2:1`, `1:2`, or `square` / `landscape` / `portrait`. Grok sends `aspect_ratio` to the official xAI API (it rejects a pixel `size`); custom OpenAI-compatible bases also get an explicit `size` (9:16 at 2k → `1152x2048`). The script fails if the saved file is a different ratio |
 | Exact size | `--size WIDTHxHEIGHT` | Used when the backend accepts pixel sizes (Codex / OpenAI-compatible). Do not combine with `--aspect-ratio` |
 | Quality | `--quality auto\|low\|medium\|high` | Mapped per backend |
 | Clarity / resolution | `--resolution 1k\|2k\|4k` | Grok Imagine: `1k`/`2k`. Gemini: `1K`/`2K`/`4K`. High quality with no resolution becomes `2k` |
