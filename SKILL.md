@@ -61,7 +61,7 @@ python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspe
 | Keys file | `--api-key-file` | Optional dotenv with `XAI_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, plus optional `*_BASE_URL` |
 | API base | `--base-url` / `--api-base` | API-key path only. Defaults to the official host. Also `XAI_BASE_URL`, `OPENAI_BASE_URL`, `GEMINI_BASE_URL` |
 | Diagnose | `doctor` (`--doctor`) | Backends, optional Dyro detection, and whether `main` is newer. Does not spend quota |
-| Self-update | `update` | `git pull --ff-only` plus `install.sh`. `update --dry-run` is read-only. Dirty trees, unreadable git status, and non-git installs fail. |
+| Self-update | `update` | `git pull --ff-only origin main` plus `install.sh`. Official `github.com` origin only; `main`/`master` only. Dirty / unknown / non-git fail. |
 
 Details and mapping tables live in `references/providers.md`. Prompt grammar lives in `references/prompts.md`. The script is the source of truth — run `--list-models` rather than inventing IDs.
 

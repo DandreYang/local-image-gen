@@ -48,11 +48,11 @@ Dyro 只认 PATH 上的 `local-image-gen` 包装命令。仅有 skill 目录、�
 {
   "success": true,
   "command": "doctor",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "cli": "local-image-gen",
   "harness": "grok",
   "install": {
-    "version": "0.1.3",
+    "version": "0.1.4",
     "latest": null,
     "update_available": null,
     "root": "/Users/you/.local/share/local-image-gen",

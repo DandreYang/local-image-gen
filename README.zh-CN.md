@@ -58,7 +58,7 @@ local-image-gen doctor    # 后端、Dyro，以及 main 是否更新
 local-image-gen update    # git pull --ff-only，再刷新包装脚本和 skill 链接
 ```
 
-`update` 遇到脏工作区、读不了 git status、或不是 git 仓库会拒绝。它不会再跑 `curl | bash`。生图命令不会去 GitHub 查新版本。`LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` 会跳过 doctor 的新鲜度 GET（Dyro 的 5 秒 spawn 应设置此项）。
+`update` 遇到脏工作区、读不了 git status、不是 git 仓库、origin 不是官方 GitHub、或不在 `main`/`master` 会拒绝。它只跑 `git pull --ff-only origin main`。不会再跑 `curl | bash`。生图命令不会去 GitHub 查新版本。`LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` 会跳过 doctor 的新鲜度 GET（Dyro 的 5 秒 spawn 应设置此项）。
 
 ## 可选的 Dyro
 

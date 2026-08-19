@@ -595,7 +595,7 @@ class CliContractTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("0.1.3", result.stdout)
+        self.assertIn("0.1.4", result.stdout)
 
     def test_list_models_json(self) -> None:
         result = subprocess.run(
@@ -1184,9 +1184,9 @@ class DyroOptionalTests(unittest.TestCase):
         self.assertTrue(payload["success"])
         self.assertEqual(payload["command"], "doctor")
         self.assertTrue(payload["dyro"]["optional"])
-        self.assertEqual(payload["version"], "0.1.3")
+        self.assertEqual(payload["version"], "0.1.4")
         self.assertEqual(payload["cli"], "local-image-gen")
-        self.assertEqual(payload["install"]["version"], "0.1.3")
+        self.assertEqual(payload["install"]["version"], "0.1.4")
         self.assertEqual(payload["install"]["check_error"], "skipped")
         self.assertIsNone(payload["install"]["latest"])
         self.assertIsNone(payload["install"]["update_available"])
@@ -1211,6 +1211,25 @@ class DyroOptionalTests(unittest.TestCase):
         self.assertEqual(payload["install"]["check_error"], "skipped")
         self.assertIsNone(payload["install"]["latest"])
         self.assertIsNone(payload["install"]["update_available"])
+
+
+def _official_git_fake(status_out: str = "", on_pull=None):
+    def fake_git(_path, *args, timeout=60):
+        if args[:2] == ("status", "--porcelain"):
+            return subprocess.CompletedProcess(["git"], 0, status_out, "")
+        if args[:3] == ("remote", "get-url", "origin"):
+            return subprocess.CompletedProcess(
+                ["git"], 0, "https://github.com/DandreYang/local-image-gen.git\n", ""
+            )
+        if args[:2] == ("rev-parse", "--abbrev-ref"):
+            return subprocess.CompletedProcess(["git"], 0, "main\n", "")
+        if args[0] == "pull":
+            if on_pull is not None:
+                on_pull(args)
+            return subprocess.CompletedProcess(["git"], 0, "Already up to date.\n", "")
+        return subprocess.CompletedProcess(["git"], 1, "", "unexpected")
+
+    return fake_git
 
 
 class SelfUpdateTests(unittest.TestCase):
@@ -1243,12 +1262,12 @@ class SelfUpdateTests(unittest.TestCase):
 
     def test_published_version_compare(self) -> None:
         self.assertEqual(
-            image_gen.parse_published_version('__version__ = "0.1.3"\n'),
-            "0.1.3",
+            image_gen.parse_published_version('__version__ = "0.1.4"\n'),
+            "0.1.4",
         )
-        self.assertTrue(image_gen.version_is_newer("0.1.3", "0.1.2"))
-        self.assertFalse(image_gen.version_is_newer("0.1.2", "0.1.3"))
-        self.assertFalse(image_gen.version_is_newer("0.1.3", "0.1.3"))
+        self.assertTrue(image_gen.version_is_newer("0.1.4", "0.1.3"))
+        self.assertFalse(image_gen.version_is_newer("0.1.3", "0.1.4"))
+        self.assertFalse(image_gen.version_is_newer("0.1.4", "0.1.4"))
 
     def test_fetch_latest_uses_official_raw(self) -> None:
         captured: dict = {}
@@ -1313,23 +1332,17 @@ class SelfUpdateTests(unittest.TestCase):
             (root / ".git").mkdir()
             (root / "install.sh").write_text("#!/bin/bash\necho hi\n", encoding="utf-8")
             installer_cmds = []
-
             pull_args = []
 
-            def fake_git(_path, *args, timeout=60):
-                if args[:2] == ("status", "--porcelain"):
-                    return subprocess.CompletedProcess(["git"], 0, "", "")
-                if args[0] == "pull":
-                    pull_args.append(args)
-                    return subprocess.CompletedProcess(["git"], 0, "Already up to date.\n", "")
-                return subprocess.CompletedProcess(["git"], 1, "", "unexpected")
+            def on_pull(args):
+                pull_args.append(args)
 
             def fake_run(cmd, **kwargs):
                 installer_cmds.append(list(cmd))
                 return subprocess.CompletedProcess(cmd, 0, "would   write wrapper\n", "")
 
             with patch.object(image_gen, "package_root", return_value=root), patch.object(
-                image_gen, "git_run", side_effect=fake_git
+                image_gen, "git_run", side_effect=_official_git_fake(on_pull=on_pull)
             ), patch.object(image_gen.subprocess, "run", side_effect=fake_run), patch.object(
                 image_gen, "update_check_enabled", return_value=False
             ):
@@ -1337,7 +1350,7 @@ class SelfUpdateTests(unittest.TestCase):
             self.assertTrue(payload["success"])
             self.assertTrue(payload["dry_run"])
             self.assertEqual(payload["command"], "update")
-            self.assertEqual(pull_args, [("pull", "--ff-only", "--dry-run")])
+            self.assertEqual(pull_args, [("pull", "--ff-only", "origin", "main", "--dry-run")])
             self.assertEqual(installer_cmds[0][:2], ["bash", str(root / "install.sh")])
             self.assertIn("--dry-run", installer_cmds[0])
             self.assertEqual(payload["steps"][0]["step"], "git pull --ff-only")
@@ -1370,21 +1383,16 @@ class SelfUpdateTests(unittest.TestCase):
             scripts = root / "scripts"
             scripts.mkdir()
             (scripts / "local_image_gen.py").write_text(
-                '__version__ = "0.1.3"\n', encoding="utf-8"
+                '__version__ = "0.1.4"\n', encoding="utf-8"
             )
             (root / "install.sh").write_text("#!/bin/bash\n", encoding="utf-8")
             pull_args = []
 
-            def fake_git(_path, *args, timeout=60):
-                if args[:2] == ("status", "--porcelain"):
-                    return subprocess.CompletedProcess(["git"], 0, "", "")
-                if args[0] == "pull":
-                    pull_args.append(args)
-                    (scripts / "local_image_gen.py").write_text(
-                        '__version__ = "0.9.9"\n', encoding="utf-8"
-                    )
-                    return subprocess.CompletedProcess(["git"], 0, "Updating\n", "")
-                return subprocess.CompletedProcess(["git"], 1, "", "unexpected")
+            def on_pull(args):
+                pull_args.append(args)
+                (scripts / "local_image_gen.py").write_text(
+                    '__version__ = "0.9.9"\n', encoding="utf-8"
+                )
 
             def fake_run(cmd, **kwargs):
                 self.assertEqual(list(cmd)[:2], ["bash", str(root / "install.sh")])
@@ -1392,20 +1400,20 @@ class SelfUpdateTests(unittest.TestCase):
                 return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
 
             with patch.object(image_gen, "package_root", return_value=root), patch.object(
-                image_gen, "git_run", side_effect=fake_git
+                image_gen, "git_run", side_effect=_official_git_fake(on_pull=on_pull)
             ), patch.object(image_gen.subprocess, "run", side_effect=fake_run), patch.object(
                 image_gen, "update_check_enabled", return_value=False
             ):
                 payload = image_gen.run_update(dry_run=False)
-            self.assertEqual(pull_args, [("pull", "--ff-only")])
-            self.assertEqual(payload["from"], "0.1.3")
+            self.assertEqual(pull_args, [("pull", "--ff-only", "origin", "main")])
+            self.assertEqual(payload["from"], "0.1.4")
             self.assertEqual(payload["to"], "0.9.9")
             self.assertEqual(payload["install"]["version"], "0.9.9")
             self.assertFalse(payload["dry_run"])
 
     def test_attach_latest_version_failure_is_null(self) -> None:
         info = {
-            "version": "0.1.3",
+            "version": "0.1.4",
             "latest": "stale",
             "update_available": True,
             "check_error": None,
@@ -1436,6 +1444,79 @@ class SelfUpdateTests(unittest.TestCase):
             with patch.object(image_gen, "default_share_home", return_value=share.resolve()):
                 self.assertEqual(image_gen.install_source(share), "share")
                 self.assertEqual(image_gen.install_source(other), "checkout")
+
+    def test_redact_secrets_strips_url_userinfo(self) -> None:
+        text = image_gen.redact_secrets(
+            "fatal: https://ghp_secret@github.com/DandreYang/local-image-gen.git"
+        )
+        self.assertNotIn("ghp_secret", text)
+        self.assertIn("https://***@github.com/", text)
+        self.assertIn("***", image_gen.redact_secrets("Authorization: Bearer sk-live"))
+
+    def test_origin_is_official(self) -> None:
+        slug = "DandreYang/local-image-gen"
+        self.assertTrue(image_gen.origin_is_official("https://github.com/DandreYang/local-image-gen.git", slug))
+        self.assertTrue(image_gen.origin_is_official("git@github.com:DandreYang/local-image-gen.git", slug))
+        self.assertTrue(
+            image_gen.origin_is_official(
+                "https://x-access-token:pat@github.com/DandreYang/local-image-gen.git",
+                slug,
+            )
+        )
+        self.assertFalse(image_gen.origin_is_official("https://github.com/evil/local-image-gen.git", slug))
+        self.assertFalse(image_gen.origin_is_official("https://example.com/DandreYang/local-image-gen.git", slug))
+
+    def test_update_refuses_unofficial_origin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            (root / "install.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+            calls = []
+
+            def fake_git(_path, *args, timeout=60):
+                calls.append(args)
+                if args[:2] == ("status", "--porcelain"):
+                    return subprocess.CompletedProcess(["git"], 0, "", "")
+                if args[:3] == ("remote", "get-url", "origin"):
+                    return subprocess.CompletedProcess(
+                        ["git"], 0, "https://github.com/evil/local-image-gen.git\n", ""
+                    )
+                return subprocess.CompletedProcess(["git"], 1, "", "unexpected")
+
+            with patch.object(image_gen, "package_root", return_value=root), patch.object(
+                image_gen, "git_run", side_effect=fake_git
+            ):
+                with self.assertRaises(image_gen.ImageGenError) as ctx:
+                    image_gen.run_update(dry_run=True)
+            self.assertIn("origin is not github.com/", str(ctx.exception))
+            self.assertFalse(any(args and args[0] == "pull" for args in calls))
+
+    def test_update_refuses_non_main_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            (root / "install.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+            calls = []
+
+            def fake_git(_path, *args, timeout=60):
+                calls.append(args)
+                if args[:2] == ("status", "--porcelain"):
+                    return subprocess.CompletedProcess(["git"], 0, "", "")
+                if args[:3] == ("remote", "get-url", "origin"):
+                    return subprocess.CompletedProcess(
+                        ["git"], 0, "https://github.com/DandreYang/local-image-gen.git\n", ""
+                    )
+                if args[:2] == ("rev-parse", "--abbrev-ref"):
+                    return subprocess.CompletedProcess(["git"], 0, "feature\n", "")
+                return subprocess.CompletedProcess(["git"], 1, "", "unexpected")
+
+            with patch.object(image_gen, "package_root", return_value=root), patch.object(
+                image_gen, "git_run", side_effect=fake_git
+            ):
+                with self.assertRaises(image_gen.ImageGenError) as ctx:
+                    image_gen.run_update(dry_run=True)
+            self.assertIn("feature", str(ctx.exception))
+            self.assertFalse(any(args and args[0] == "pull" for args in calls))
 
 
 if __name__ == "__main__":

@@ -58,7 +58,7 @@ local-image-gen doctor    # backends, Dyro, and whether main is newer
 local-image-gen update    # git pull --ff-only, then refresh the wrapper and skill links
 ```
 
-`update` refuses a dirty checkout, a tree whose git status cannot be read, and a non-git copy. It does not run `curl | bash`. Generate commands never check GitHub for a new version. `LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` skips the doctor freshness GET (Dyro's 5s spawn should set this).
+`update` refuses a dirty checkout, a tree whose git status cannot be read, a non-git copy, a non-official `origin`, and any branch other than `main`/`master`. It only runs `git pull --ff-only origin main`. It does not run `curl | bash`. Generate commands never check GitHub for a new version. `LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` skips the doctor freshness GET (Dyro's 5s spawn should set this).
 
 ## Optional Dyro
 

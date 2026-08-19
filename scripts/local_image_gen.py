@@ -48,7 +48,7 @@ from prompt_compile import (  # noqa: E402
     sanitize_optimized_prompt,
 )
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 CODEX_AUTH_PATH = Path("~/.codex/auth.json").expanduser()
 GROK_AUTH_PATH = Path("~/.grok/auth.json").expanduser()
@@ -516,11 +516,13 @@ def iso_expired(value: str, *, now: Optional[dt.datetime] = None) -> bool:
 
 SECRET_QUERY_RE = re.compile(r"([?&](?:key|api_key|access_token)=)[^&\s]+", re.IGNORECASE)
 BEARER_RE = re.compile(r"(Bearer\s+)\S+", re.IGNORECASE)
+USERINFO_RE = re.compile(r"(https?://)[^/\s]+@", re.IGNORECASE)
 
 
 def redact_secrets(text: str) -> str:
     out = SECRET_QUERY_RE.sub(r"\1***", text)
-    return BEARER_RE.sub(r"\1***", out)
+    out = BEARER_RE.sub(r"\1***", out)
+    return USERINFO_RE.sub(r"\1***@", out)
 
 
 def http_request(
@@ -584,6 +586,22 @@ def repo_slug() -> str:
 
 def latest_version_url(slug: Optional[str] = None) -> str:
     return f"https://raw.githubusercontent.com/{slug or repo_slug()}/main/scripts/local_image_gen.py"
+
+
+def strip_remote_userinfo(url: str) -> str:
+    return USERINFO_RE.sub(r"\1", (url or "").strip()).rstrip("/")
+
+
+def origin_is_official(url: str, slug: Optional[str] = None) -> bool:
+    text = strip_remote_userinfo(url)
+    escaped = re.escape(slug or repo_slug())
+    return bool(
+        re.fullmatch(
+            rf"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/){escaped}(?:\.git)?",
+            text,
+            re.IGNORECASE,
+        )
+    )
 
 
 def parse_published_version(text: str) -> Optional[str]:
@@ -763,7 +781,17 @@ def run_update(*, dry_run: bool = False) -> Dict[str, Any]:
         raise ImageGenError(
             f"Could not determine whether {root} is clean. Refusing to update."
         )
-    pull_args = ["pull", "--ff-only"]
+    origin = git_output(root, "remote", "get-url", "origin").strip()
+    if not origin_is_official(origin):
+        raise ImageGenError(
+            f"origin is not github.com/{repo_slug()}. Refusing to update."
+        )
+    branch = git_output(root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    if branch not in {"main", "master"}:
+        raise ImageGenError(
+            f"Refusing to update branch {branch!r}. Checkout main first."
+        )
+    pull_args = ["pull", "--ff-only", "origin", "main" if branch == "main" else branch]
     if dry_run:
         pull_args.append("--dry-run")
     pull = git_run(root, *pull_args, timeout=120)
