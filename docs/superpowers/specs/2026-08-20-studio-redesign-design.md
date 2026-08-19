@@ -8,7 +8,7 @@
 
 ## 1. 背景
 
-Studio 当前是一个可用的原型：纯 stdlib HTTP 服务 + 单文件 vanilla 前端（`app.js` 1275 行、`app.css` 728 行、`index.html` 225 行），后端由 `job.py`（任务整理与检索）、`director.py`（看图与改稿）、`templates.py`（24 个模板）组成。
+Studio 当前是一个可用的原型：纯 stdlib HTTP 服务 + 单文件 vanilla 前端（`app.js` 1431 行、`app.css` 775 行、`index.html` 243 行），后端 `server.py` 1004 行，由 `job.py`（任务整理与检索）、`director.py`（看图与改稿）、`templates.py`（**31** 个模板）支撑。行数为 2026-08-20 工作树实测。
 
 它的**内核领先于外观**。三个能力在同类产品里稀缺，重设计必须全部保留：
 
@@ -20,18 +20,19 @@ Studio 当前是一个可用的原型：纯 stdlib HTTP 服务 + 单文件 vanil
 
 | # | 问题 | 证据 |
 |---|---|---|
-| 1 | 四个入口都能生图，语义打架 | 相纸「整理并出图」+ 右栏「新画一张 / 只预览一稿 / 跳过确认直接生」；最后一个是 `<form>` submit，回车即触发，会跳过确认卡直接烧配额 |
+| 1 | 四个入口都能生图，语义打架 | 相纸「整理并出图」+ 右栏「新画一张 / 只预览一稿 / 跳过确认直接生」；最后一个是 `<form>` submit，在参数区按回车即触发。它**绕过的是终稿核对卡**（`askConfirm` 的成本同意仍在，需第二次回车才真正花配额）——但用户因此看不到将要发给模型的终稿 |
 | 2 | 信息架构与用户心智垂直 | 心智是时间线（想→核对→出→看→改），界面是三个空间栏，走完一轮需在三栏间扫视五次 |
 | 3 | 串行单张的赌博循环 | `execute_parallel` 存在但 UI 只显示一个 spinner、只取最后一张结果 |
 | 4 | 生成阻塞整个界面 | `startBusy()` 给 body 加 `is-busy`，等待期间无法做任何事 |
-| 5 | 24 个模板是纯文字标签墙 | `pick_template()` 已能自动匹配，界面仍平铺 24 个标签再问一遍 |
+| 5 | 31 个模板是纯文字标签墙 | `pick_template()` 已能自动匹配，界面仍平铺标签再问一遍。注意 `app.js` 的 `TEMPLATES` 常量只列了 24 个，`templates.py` 实际有 31 个——前端已经漏了 7 个 |
 | 6 | 引擎细节泄漏给终端用户 | 「优化 off/auto/on」「CLI 模板」「通路」是维护者概念 |
 | 7 | 缩略图加载原图 | `renderLibrary()` 的 `img.src` 指向 `/media/` 原图，CSS 缩到 56×76px。实测 29 张 = 58MB，最大单张 6.9MB |
 | 8 | 图片元数据被浪费 | receipt 有 11 个字段，界面只提供一个纯文本搜索框 |
 | 9 | 图片谱系全丢 | 改稿链、候选组、`cropped_from` 派生，全部拍平成 mtime 时间线 |
 | 10 | 贴图最后一米断裂 | 模板约束要求「码区留白」、`job.py` 警告「后贴真码」，但产品不提供贴的工具 |
 | 11 | 错误处理甩 JSON | `setStatus(payload)` 直接 `JSON.stringify` |
-| 12 | 对比度不达 AA | `--muted #9a8c7b` on `--panel #1b1612` 约 4.3:1，小字不达标 |
+
+会审删除了原第 12 条「对比度不达 AA」：实测 `--muted #9a8c7b` on `--panel #1b1612` 是 **5.48:1**（原文写 4.3:1 有误），且 `:root` 内找不到任何不达标的文字对。新色板仍会提升对比度，但不能拿一个不存在的问题当理由。
 
 ---
 
@@ -56,13 +57,25 @@ Studio 当前是一个可用的原型：纯 stdlib HTTP 服务 + 单文件 vanil
 
 `<html data-mode="simple|pro">`，持久化到 `localStorage`。差异如下：
 
+下表必须覆盖**本 spec 引入的每一个新概念**。会审指出原表只有 5 行、而 spec 后文引入了 10 个概念，照字面执行会让 simple 模式把它们全部呈现——新手面对的概念数反而高于当前原型。
+
 | 元素 | simple | pro |
 |---|---|---|
-| 工序流侧栏 | 收起，第 2 轮迭代时自动展开 | 常驻 |
+| 工序流侧栏 | 收起，第 2 轮迭代时自动展开，首次展开带一句说明 | 常驻 |
 | 专业抽屉（通路/模型/质量/清晰度/优化/CLI 模板） | 隐藏 | 常驻可展开 |
 | 画布底 | 环境光 | 纯中性 |
 | 模板 | 仅推断徽章 | 徽章 + 快捷切换 |
 | 比例 | 跟随模板 | 可显式覆盖 |
+| 候选网格 | 显示，但不出现「候选」字样，只是「2 张，挑一张打磨」 | 显示批次 id、每格通路与耗时 |
+| 「再来 N 张」 | 显示，文案含配额提示 | 显示，可指定跨通路组合 |
+| 确认 sheet | 显示，默认折叠终稿全文，只露事实与报价 | 显示，终稿全文展开可编辑 |
+| 贴图工作台 | 从「导出」菜单进入，只有「贴二维码 / 贴 logo」两个具名入口 | 完整工作台，含槽位与静区参数 |
+| 框选局部重绘 | 隐藏。simple 只提供「改这句话」的整图改稿 | 显示框选工具与 A/B 路径说明 |
+| 素材库层级词汇 | 只出现「项目」与「这一组」，不出现会话/批次/候选/派生 | 全部六层可见并可筛选 |
+| ⌘K 命令面板 | 不提示，但快捷键可用 | 顶栏常驻入口 |
+| 项目徽章 | 仅在已归入项目时出现 | 常驻，未归类时显示「未归类」 |
+
+**判定规则**：任何新增 UI 概念必须在本表登记；未登记的一律视为 pro-only。这条规则让分层不随功能增长而失效。
 
 两种模式下都提供「纯色画布」开关，随手可切。
 
@@ -225,7 +238,9 @@ dock 常驻「再来 2 张」，追加是用户的主动决策，配额消耗为
 
 - **左 · 工序流侧栏（86px）**：垂直版本时间线。每个节点 = 缩略图 + 版本号 + 该轮用户说的那句话。点击切换舞台到该版本。simple 模式下收起，第 2 轮迭代时自动展开。
   - 替代当前的「按住空格对比上一张」——该交互无任何视觉提示，不可发现。空格对比作为快捷键保留。
-  - 数据源已存在：`state.director.turns` 记录逐轮对话，`previousTake()` 计算上一张。
+  - **数据源必须新建，不能复用 `state.director.turns`**（会审纠正）。原方案称「数据源已存在」是错的：`turns` 在每次切换图片时被重建（`app.js:530-539`，没有任何调用方传入 `turns`），且条目只有 `{role, text}`、**不含任何图片指针**，无法还原到某一版。
+  - 正确来源是 receipt 的 `parent` 链：从当前图沿 `parent` 上溯即得版本序列，每个节点的「那句话」取该版 receipt 的 `prompt_original`。这条链在服务端持久化，刷新页面、重启服务器都不丢——比内存里的 `turns` 更可靠。
+  - **这意味着第 3 期的工作量高于原估算**：侧栏不是把已有数据换个样子显示，而是要先让 `parent` 字段被正确写入，再新建一套版本链读取逻辑。
 - **中 · 舞台**：contain 画布 + 底部 dock（评语 chips + 输入框 + 主行动）。
 - **右 · 专业抽屉（32px 收起态）**：通路 / 模型 / 比例 / 质量 / 清晰度 / 优化 / CLI 模板。simple 模式下整条隐藏。
 
@@ -248,14 +263,21 @@ dock 常驻「再来 2 张」，追加是用户的主动决策，配额消耗为
 
 **展开态**：点「换」打开独立浮层 sheet（不是内联展开——案例图需要 132px 才可读，内联放不下）。按产出物分六组：
 
-| 组 | 模板 |
-|---|---|
-| 封面与社媒 | xiaohongshu, cover, social, magazine, reel |
-| 人物 | portrait, period, ccd, snapshot, panning, lookbook |
-| 产品 | product, packshot, framebreak, material |
-| 版面与信息 | infographic, calendar-poster, invite, travel-poster, split |
-| 场景与图形 | isometric, environment, graphic |
-| 改图 | edit |
+`templates.py` 当前有 **31** 个模板（不是 24）。分组必须覆盖全部 31 个——任何遗漏的模板仍可被 `pick_template()` 的关键词命中，届时徽章会显示一个选择器既无法展示、也无法还原的模板，验收 #15 对它不可达。
+
+| 组 | 模板 | 数量 |
+|---|---|---|
+| 封面与社媒 | xiaohongshu, cover, social, magazine, reel | 5 |
+| 人物 | portrait, period, ccd, snapshot, panning, lookbook, photo | 7 |
+| 产品 | product, packshot, framebreak, material | 4 |
+| 版面与信息 | infographic, calendar-poster, invite, travel-poster, split, card | 6 |
+| 场景与图形 | isometric, environment, graphic, habitat, void | 5 |
+| 手作与介质 | beads, paper, sketch | 3 |
+| 改图 | edit | 1 |
+
+合计 31。新增第六组「手作与介质」收拢那些以**物理介质**为命题的模板（拼豆、层叠剪纸、街头素描）——它们既不是产品也不是版面，塞进现有任何一组都会让分组语义失效。`photo`（实写分层）归人物，`card`（手持资料卡）归版面，`habitat`（人居地形）与 `void`（负空间剪影）归场景与图形。
+
+**维护约束**：`templates.py` 新增模板时必须同步加进本表。`scripts/build_template_thumbs.py` 应在发现未分组模板时**报错退出**，而不是静默跳过——这样分组表不会随模板增长而腐化。
 
 **缩略图三级降级链**：
 
@@ -266,7 +288,7 @@ dock 常驻「再来 2 张」，追加是用户的主动决策，配额消耗为
 内置案例图的三个约束：
 
 - **必须本地打包，绝不外链。** `cases.md` 里的 22 条 X 链接不能直接引用——是他人内容，且外链会让本机工具联网、链接会失效。
-- **用 local-image-gen 自己重新生成。** 压成约 360px 的 WebP 放入 `studio/static/templates/`，预计总量 250–350KB。需给 `.gitignore` 添加 `!studio/static/templates/*.webp`。这同时是最好的 dogfooding：每张缩略图都是该模板能跑通的证据。
+- **用 local-image-gen 自己重新生成，压成 JPEG（不是 WebP）。** 会审实测 `sips` 对 WebP **只读**，产不出 WebP。缩略图压成约 360px 的 JPEG 放入 `studio/static/templates/`，31 张预计总量 400–550KB（JPEG 比 WebP 大约 40–60%，原 250–350KB 的估算是基于 WebP 的，已作废）。需给 `.gitignore` 添加 `!studio/static/templates/*.jpg`。这同时是最好的 dogfooding：每张缩略图都是该模板能跑通的证据。
 - **每张标注产出它的模型家族**（`gpt-image` / `imagine` / `nano banana`）。既是诚实披露——避免漂亮案例图过度承诺——又顺手把「该用哪个后端」教给用户。数据来源是 `cases.md` 的家族列。
 
 **维护脚本**：`scripts/build_template_thumbs.py`，一条命令重新生成全部缩略图，保证与 `templates.py` 的 `ban` 约束保持一致、不会腐化。
@@ -324,7 +346,11 @@ dock 常驻「再来 2 张」，追加是用户的主动决策，配额消耗为
 
 **删除进废纸篓**，移到 `outputs/.trash/` 而非直接 `unlink`。需连带处理 sidecar、缩略图缓存与派生图。删除改稿链中间版本时，谱系断点显示为灰色占位而非消失。
 
-**缩略图缓存**（性能修复）：服务端 `sips -Z 480` 生成 JPEG 缓存到 `outputs/.thumbs/`，按 mtime 失效，新增 `GET /thumb/<rel>` 路由（`<rel>` 与 `/media/<rel>` 同一套相对路径）。`sips` 已在 `crop_to_aspect()` 与 `director.py` 中使用，不是新依赖。非 macOS 回退到原图（即当前行为）。预期 58MB → 约 1.5MB。
+**缩略图缓存**（性能修复）：服务端生成 JPEG 缓存到 `outputs/.thumbs/`，按 mtime 失效，新增 `GET /thumb/<rel>` 路由（`<rel>` 与 `/media/<rel>` 同一套相对路径）。`sips` 已在 `crop_to_aspect()` 与 `director.py` 中使用，不是新依赖。
+
+**命令必须是 `sips -s format jpeg -Z 480`，不能只写 `-Z 480`。** 会审实测：`sips -Z 480 src.png --out x.jpg` 输出的是一个**扩展名叫 `.jpg` 的 218KB PNG**——`sips` 不会因为输出后缀而转格式。加上 `-s format jpeg` 后是 48.8KB。**4.5 倍之差，正好决定验收 #16 是否达标。**
+
+非 macOS 回退到原图（即当前行为）。这意味着**验收 #16（首屏 < 3MB）在 Linux 上不成立**，见 §12 第 2 条。macOS 上预期 58MB → 约 1.5MB。
 
 ---
 
@@ -349,8 +375,9 @@ dock 常驻「再来 2 张」，追加是用户的主动决策，配额消耗为
 
 **实现要点**：
 
-- 框选坐标以**百分比**记录，与分辨率无关，与贴图槽位共用同一套坐标系统。
-- 路径 A 的回贴需要羽化边缘，默认过渡带为框选短边的 2%。
+- 框选坐标以**百分比**记录（与分辨率无关，与贴图槽位共用同一套坐标系统），但**送进 `drawImage` 之前必须取整到原图整数像素**。会审实测：`900px → 31.96% → 899.994px` 这样的小数坐标让 `drawImage` 做了重采样，**框外糊了 600 个像素**；整数坐标下框外 0 像素变化。
+- **羽化带必须严格位于框内**，不得居中于边界。会审实测：居中羽化糊了框外 8064 个像素、最大偏差 Δ84/255——**肉眼完全看不出**，所以验收 #7 会假通过。默认过渡带为框选短边的 2%，向内收。
+- 这两条是「框外字节级不变」这个承诺能否成立的前提。会审用真实 Chromium 探针验证过：整数坐标 + 向内羽化时，13,381,632 个 RGB 字节往返完全一致；违反任一条，承诺即失效且**不可目视察觉**。因此验收 #7 必须用逐字节比对，不能靠人眼看。
 - 路径 B 的遮罩 PNG 同样由 Canvas 生成：新建与原图等大的画布，填不透明，对框选区 `clearRect`，`toBlob` 出 PNG。零依赖。遮罩 POST 到 `/api/upload?kind=mask` 落到 `.masks/`，再把相对路径作为 `mask` 字段传给 `/api/generate`。
 - **`parse_generate()` 当前不接受 mask**，需新增：读 `body["mask"]`，用 `resolve_library_image()` 同款校验（必须在 `OUTPUTS` 之内、必须存在），追加 `--mask <path>`；provider 非 `openai` 时直接拒绝并回退到路径 A，不要让 CLI 抛错。
 - 与贴图一样非破坏性：原图保留，结果另存，receipt 记 `composed_from` 与框选坐标，可重编辑。
@@ -509,6 +536,15 @@ outputs/
 
 点号开头的四项全部可再生或临时。备份与迁移只需拷 `outputs/`。`.gitignore` 已整个忽略 `outputs/`，无需改动。
 
+**`list_library()` 必须跳过点目录（P1，两席独立发现）**
+
+现有过滤是 `path.name.startswith(".")`，它只检查**叶子文件名**，而 `rglob("*")` 仍会下潜进点目录——`.trash/deleted.png` 的叶子名不以点开头，于是照样进库。后果有两个，都很实：
+
+- **删除功能变成 no-op**：移进废纸篓的图立刻从 `.trash/` 回到库列表里。
+- **缩略图缓存让扫描项翻倍**：`.thumbs/` 里的每张缓存都被当成一张独立的库内图片，与验收 #16 的目标正好相反。`.masks/` 同理。
+
+修法：改成检查**相对路径的任一段**是否以点开头，而不是只看叶子名。等价地，可在遍历时剪枝跳过点目录（比 rglob 后过滤更省 IO）。`.index.json` 的构建走同一套过滤规则。
+
 **写入必须原子且加锁（P0，会审收口）**
 
 `merge_sidecar()` 目前是 read-modify-write 后直接 `write_text()`：既非原子，也无锁。会审实测 6 线程 × 60 次写同一 sidecar，**丢失 6 个键中的 4 个且不抛任何异常**；写到一半崩溃留下截断 JSON 后，`read_sidecar()` 返回 `{}`、`load_receipt()` 返回 `None`——**静默抹掉整张图的全部溯源**。而本节恰恰称 sidecar 是唯一真相源。本次重设计新增 `template` / `session_id` / `parent` / `composed_from` / `overlays` / `starred` / `project_id` 七个字段和三个新的写入端点（`/api/composite`、`/api/receipt`、`/api/projects`），写频率显著上升，这个缺陷会被放大。
@@ -534,7 +570,7 @@ outputs/
 
 ## 8. 前端结构
 
-保持零依赖、无构建步骤。当前单文件 `app.js`（1275 行）拆成原生 ES Modules：
+保持零依赖、无构建步骤。当前单文件 `app.js`（1431 行）拆成原生 ES Modules：
 
 ```
 studio/static/
