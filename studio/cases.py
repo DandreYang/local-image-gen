@@ -310,7 +310,7 @@ CASES: List[Dict[str, Any]] = [
             "框内是平面广告，框外是真实空间；内外必须连成同一件东西。"
             "锁包装与外形。不要发明文案，不要双产品，不要拼图。"
         ),
-        "why": "Frame Escape 高收藏：破框必须证明利益点，不是随便撕纸。",
+        "why": "破框必须证明利益点，不是随便撕纸。",
         "source": "https://x.com/aziz4ai/status/2089985351930544254",
         "engagement": {
             "author": "aziz4ai",
@@ -472,7 +472,7 @@ CASES: List[Dict[str, Any]] = [
             "小人只占画面高度约 1%，只作尺度。封闭冷色，金色只允许擦边。"
             "单空间命题，不要第二座主角建筑。"
         ),
-        "why": "李岳「天上宫阙」把尺度写成相机事件：你站在露台上，宫殿是倒悬的地形。",
+        "why": "把尺度写成相机事件：你站在露台上，宫殿是倒悬的地形。",
         "source": "https://x.com/liyue_ai/status/2087836754535686382",
         "engagement": {
             "author": "liyue_ai",
@@ -495,7 +495,7 @@ CASES: List[Dict[str, Any]] = [
             "衣服颜色是焦点，不得污染肤色和环境。"
             "极弱柔闪只补眼神光。轻颗粒。一人一动作。不要泳装，不要影楼。"
         ),
-        "why": "李岳 CCD 系列把生活照做成可替换字段表，同一骨架能换场景和衣服。",
+        "why": "把生活照做成可替换字段表，同一骨架能换场景和衣服。",
         "source": "https://x.com/liyue_ai/status/2085651434813772273",
         "engagement": {
             "author": "liyue_ai",
@@ -519,7 +519,7 @@ CASES: List[Dict[str, Any]] = [
             "下半只换介质（水彩、蜡笔剪影、网点），轮廓仍要一眼认出原物。"
             "大留白。字少，并进构图，不要电商标题。"
         ),
-        "why": "小小东上下转绘把「对照」写成版式：一半真、一半介质，身份不断。",
+        "why": "上下转绘把「对照」写成版式：一半真、一半介质，身份不断。",
         "source": "https://x.com/xiaoxiaodong01/status/2089702197365985649",
         "engagement": {
             "author": "xiaoxiaodong01",
@@ -542,7 +542,7 @@ CASES: List[Dict[str, Any]] = [
             "把角度、距离、光线交给这个视角去发明，不要补镜头参数汤。"
             "一人。有参考图就锁脸。不要拼图。"
         ),
-        "why": "94 的抽卡法：关系视角代替参数表，GPT Image 2 会自己补镜头语言。",
+        "why": "关系视角代替参数表，镜头语言交给这个视角去发明。",
         "source": "https://x.com/94vanAI/status/2079924115650256936",
         "engagement": {
             "author": "94vanAI",
@@ -565,7 +565,7 @@ CASES: List[Dict[str, Any]] = [
             "开口里才是层叠建筑，小人只作尺度。矿物色，饱和克制。"
             "负空间是结构不是空白。单场景，不要赛博，不要堆人。"
         ),
-        "why": "Emily 的 Imperial Void：留白当构图，宫殿藏在剪影里，和站在露台上的超尺度不是同一件事。",
+        "why": "留白当构图，宫殿藏在剪影里，和站在露台上的超尺度不是同一件事。",
         "source": "https://x.com/IamEmily2050/status/2089939630170812591",
         "engagement": {
             "author": "IamEmily2050",
@@ -588,7 +588,7 @@ CASES: List[Dict[str, Any]] = [
             "颜色有主人：水、玻璃、金属才积颜色，不要整图罩一层青金滤镜。"
             "两到四处线场转折要有光学或物理原因。留一块低细节区。"
         ),
-        "why": "Isoline Reservoir 把线当几何、把颜色当容器，不是斑马纹装饰。",
+        "why": "把线当几何、把颜色当容器，不是斑马纹装饰。",
         "source": "https://x.com/IamEmily2050/status/2088458140194861520",
         "engagement": {
             "author": "IamEmily2050",
@@ -611,7 +611,7 @@ CASES: List[Dict[str, Any]] = [
             "一条人居路线：路、田、船或聚落解释谁怎么上去。"
             "一种天气有原因。有尺度锚。远处减细节。不要散落小屋，不要旅行册。"
         ),
-        "why": "Foldline Habitat 把地形物理和一条人居路线写死，比堆绿山小屋稳。",
+        "why": "把地形物理和一条人居路线写死，比堆绿山小屋稳。",
         "source": "https://x.com/IamEmily2050/status/2086121326129934561",
         "engagement": {
             "author": "IamEmily2050",
@@ -635,7 +635,7 @@ CASES: List[Dict[str, Any]] = [
             "机位写高度和谁被画面切断。负向锁住点名的姿态和主角道具。"
             "一人一场景。不要泳装，不要插画，不要磨皮。"
         ),
-        "why": "CyberTotal 的 GPT Image 2 日更把实写人像做成字段表：结构、裁切、负向锁定，同一骨架能换衣服和光。",
+        "why": "把实写人像做成字段表：结构、裁切、负向锁定，同一骨架能换衣服和光。",
         "source": "https://x.com/CyberTotal2026/status/2089519397110960432",
         "engagement": {
             "author": "CyberTotal2026",
@@ -658,7 +658,7 @@ CASES: List[Dict[str, Any]] = [
             "是拼豆不是乐高，不是马赛克滤镜。单主体，温馨简单。"
             "有参考图就锁脸，不要残留摄影。"
         ),
-        "why": "鱼哥的拼豆帖把介质写死：圆豆拼出来的人，不是照片加一层圆点。",
+        "why": "把介质写死：圆豆拼出来的人，不是照片加一层圆点。",
         "source": "https://x.com/MrGafish/status/2054830871048589661",
         "engagement": {
             "author": "MrGafish",
@@ -681,7 +681,7 @@ CASES: List[Dict[str, Any]] = [
             "卡片上的字原文入画。一人一卡。浅景深，接触阴影。"
             "不要漂浮图标墙，不要拼图，不要假二维码。"
         ),
-        "why": "鱼哥资料卡把「人坐在卡上」写成空间关系，不是把头贴进一张扁平 UI。",
+        "why": "把「人坐在卡上」写成空间关系，不是把头贴进一张扁平 UI。",
         "source": "https://x.com/MrGafish/status/2052323461268467860",
         "engagement": {
             "author": "MrGafish",
@@ -704,7 +704,7 @@ CASES: List[Dict[str, Any]] = [
             "解剖和表情可以夸张，身份还要认得。有参考图就锁脸。"
             "单张速写。不要整身九宫格，不要网红精修。"
         ),
-        "why": "鱼哥把「怪诞时尚素描」写成裁切和夸张，而不是滤镜里的漫画脸。",
+        "why": "把头像写成街头速写的裁切和夸张，而不是滤镜里的漫画脸。",
         "source": "https://x.com/MrGafish/status/2056584785196450129",
         "engagement": {
             "author": "MrGafish",
