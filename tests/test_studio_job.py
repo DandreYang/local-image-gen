@@ -66,6 +66,14 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(pick_template("天上宫阙，超尺度云海露台"), "environment")
         self.assertEqual(pick_template("冷白清透CCD生活照，办公材料室"), "ccd")
         self.assertEqual(pick_template("上摄下绘，上半部分保留原片"), "split")
+        self.assertEqual(pick_template("负空间剪影开口里是宫殿"), "void")
+        self.assertEqual(pick_template("褶皱地形上一条人居路线"), "habitat")
+        self.assertEqual(pick_template("等值线画形体，颜色有材料主人"), "graphic")
+        self.assertEqual(pick_template("实写分层，服装结构写清，裁切点锁姿态"), "photo")
+        self.assertEqual(pick_template("参考图改成拼豆风"), "beads")
+        self.assertEqual(pick_template("小红书资料卡，人坐在镂空边"), "card")
+        self.assertEqual(pick_template("小红书封面，主标题「开营」"), "xiaohongshu")
+        self.assertEqual(pick_template("怪诞素描，只画头肩"), "sketch")
 
     def test_split_styles(self) -> None:
         self.assertEqual(template_split("三种风格的课历"), 3)

@@ -553,6 +553,168 @@ CASES: List[Dict[str, Any]] = [
             "sampled": "2026-08-20",
         },
     },
+    {
+        "id": "imperial-void",
+        "family": "gpt_image",
+        "template": "void",
+        "title": "负空间剪影",
+        "aspect": "3:4",
+        "when": "一张图要靠巨大留白或剪影开口，开口里才是宫殿或山水",
+        "craft": (
+            "先定一个主手势：黑色开口、枝干横断、或屋脊切开干净色场。"
+            "开口里才是层叠建筑，小人只作尺度。矿物色，饱和克制。"
+            "负空间是结构不是空白。单场景，不要赛博，不要堆人。"
+        ),
+        "why": "Emily 的 Imperial Void：留白当构图，宫殿藏在剪影里，和站在露台上的超尺度不是同一件事。",
+        "source": "https://x.com/IamEmily2050/status/2089939630170812591",
+        "engagement": {
+            "author": "IamEmily2050",
+            "followers": 48741,
+            "views": 4139,
+            "likes": 136,
+            "replies": 19,
+            "sampled": "2026-08-20",
+        },
+    },
+    {
+        "id": "isoline-field",
+        "family": "gpt_image",
+        "template": "graphic",
+        "title": "等值线形体",
+        "aspect": "1:1",
+        "when": "形体要用黑白条带画出来，颜色只存在于有材料原因的地方",
+        "craft": (
+            "等值线跟一个可见变量走：曲率、压力、流向或高度，疏密随形体变。"
+            "颜色有主人：水、玻璃、金属才积颜色，不要整图罩一层青金滤镜。"
+            "两到四处线场转折要有光学或物理原因。留一块低细节区。"
+        ),
+        "why": "Isoline Reservoir 把线当几何、把颜色当容器，不是斑马纹装饰。",
+        "source": "https://x.com/IamEmily2050/status/2088458140194861520",
+        "engagement": {
+            "author": "IamEmily2050",
+            "followers": 48741,
+            "views": 5675,
+            "likes": 105,
+            "replies": 14,
+            "sampled": "2026-08-20",
+        },
+    },
+    {
+        "id": "foldline-habitat",
+        "family": "gpt_image",
+        "template": "habitat",
+        "title": "人居地形",
+        "aspect": "16:9",
+        "when": "风景要像能住人的一块地，不是明信片山",
+        "craft": (
+            "一块地形：褶皱、盆地、海岸或台地，坡面相连，水走低处。"
+            "一条人居路线：路、田、船或聚落解释谁怎么上去。"
+            "一种天气有原因。有尺度锚。远处减细节。不要散落小屋，不要旅行册。"
+        ),
+        "why": "Foldline Habitat 把地形物理和一条人居路线写死，比堆绿山小屋稳。",
+        "source": "https://x.com/IamEmily2050/status/2086121326129934561",
+        "engagement": {
+            "author": "IamEmily2050",
+            "followers": 48741,
+            "views": 4231,
+            "likes": 94,
+            "replies": 12,
+            "sampled": "2026-08-20",
+        },
+    },
+    {
+        "id": "photo-fields",
+        "family": "gpt_image",
+        "template": "photo",
+        "title": "实写分层",
+        "aspect": "3:4",
+        "when": "要一张能复拍的实写人像，衣服、光和裁切得写成可替换字段",
+        "craft": (
+            "按字段写：主题、主体、表情、服装结构、背景与光、机位、质感、负向。"
+            "衣服写肩带、接缝、褶皱和怎么贴身，不要只写颜色词。"
+            "机位写高度和谁被画面切断。负向锁住点名的姿态和主角道具。"
+            "一人一场景。不要泳装，不要插画，不要磨皮。"
+        ),
+        "why": "CyberTotal 的 GPT Image 2 日更把实写人像做成字段表：结构、裁切、负向锁定，同一骨架能换衣服和光。",
+        "source": "https://x.com/CyberTotal2026/status/2089519397110960432",
+        "engagement": {
+            "author": "CyberTotal2026",
+            "followers": 9668,
+            "views": 8578,
+            "likes": 114,
+            "replies": 6,
+            "sampled": "2026-08-20",
+        },
+    },
+    {
+        "id": "bead-sprite",
+        "family": "gpt_image",
+        "template": "beads",
+        "title": "拼豆",
+        "aspect": "1:1",
+        "when": "参考图要整幅重做成拼豆，而不是给照片盖圆点",
+        "craft": (
+            "锁住身份、姿态和主色。全部用均匀圆豆拼出来，背景压成大色块。"
+            "是拼豆不是乐高，不是马赛克滤镜。单主体，温馨简单。"
+            "有参考图就锁脸，不要残留摄影。"
+        ),
+        "why": "鱼哥的拼豆帖把介质写死：圆豆拼出来的人，不是照片加一层圆点。",
+        "source": "https://x.com/MrGafish/status/2054830871048589661",
+        "engagement": {
+            "author": "MrGafish",
+            "followers": 20855,
+            "views": 45199,
+            "likes": 317,
+            "replies": 23,
+            "sampled": "2026-08-20",
+        },
+    },
+    {
+        "id": "profile-card",
+        "family": "gpt_image",
+        "template": "card",
+        "title": "手持资料卡",
+        "aspect": "3:4",
+        "when": "要一张手持立体卡片，人坐在镂空边沿，卡上的字原文入画",
+        "craft": (
+            "一只手握一张有厚度的卡片，中间方形镂空，人坐在镂空边沿，身体挡住一部分字。"
+            "卡片上的字原文入画。一人一卡。浅景深，接触阴影。"
+            "不要漂浮图标墙，不要拼图，不要假二维码。"
+        ),
+        "why": "鱼哥资料卡把「人坐在卡上」写成空间关系，不是把头贴进一张扁平 UI。",
+        "source": "https://x.com/MrGafish/status/2052323461268467860",
+        "engagement": {
+            "author": "MrGafish",
+            "followers": 20855,
+            "views": 66254,
+            "likes": 448,
+            "replies": 53,
+            "sampled": "2026-08-20",
+        },
+    },
+    {
+        "id": "street-sketch",
+        "family": "gpt_image",
+        "template": "sketch",
+        "title": "街头素描",
+        "aspect": "3:4",
+        "when": "参考人要画成街头速写本上的漫画头像，不是精修写真",
+        "craft": (
+            "只保留头或头肩，像速写师即兴画在素描本上。"
+            "解剖和表情可以夸张，身份还要认得。有参考图就锁脸。"
+            "单张速写。不要整身九宫格，不要网红精修。"
+        ),
+        "why": "鱼哥把「怪诞时尚素描」写成裁切和夸张，而不是滤镜里的漫画脸。",
+        "source": "https://x.com/MrGafish/status/2056584785196450129",
+        "engagement": {
+            "author": "MrGafish",
+            "followers": 20855,
+            "views": 15187,
+            "likes": 172,
+            "replies": 12,
+            "sampled": "2026-08-20",
+        },
+    },
 ]
 
 

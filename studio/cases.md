@@ -36,6 +36,12 @@
 | 背景拉丝、脸还清楚 | 跟拍虚化 | `panning` | gpt_image |
 | 关系视角代替参数表 | 随拍 | `snapshot` | gpt_image |
 | 手机随拍质感 | 随拍 | `snapshot` | imagine |
+| 剪影开口里藏宫殿 | 负空间剪影 | `void` | gpt_image |
+| 能住人的一块地 | 人居地形 | `habitat` | gpt_image |
+| 实写人像要写成可替换字段 | 实写分层 | `photo` | gpt_image |
+| 参考图整幅做成拼豆 | 拼豆 | `beads` | gpt_image |
+| 人坐在镂空资料卡边沿 | 手持资料卡 | `card` | gpt_image |
+| 街头速写本漫画头像 | 街头素描 | `sketch` | gpt_image |
 | 锁参考脸再换装 | 形象照 | `portrait` | nano_banana |
 | 衣服/手/视线都写清的人像 | 形象照 | `portrait` | nano_banana |
 
@@ -71,3 +77,10 @@
 - https://x.com/liyue_ai/status/2085651434813772273 CCD 字段生活照 · 41k / 23k / 153 / 24
 - https://x.com/xiaoxiaodong01/status/2089702197365985649 上摄下绘 · 20k / 76k / 901 / 46
 - https://x.com/94vanAI/status/2079924115650256936 关系视角 · 17k / 47k / 264 / 57
+- https://x.com/IamEmily2050/status/2089939630170812591 负空间剪影 · 49k / 4k / 136 / 19
+- https://x.com/IamEmily2050/status/2088458140194861520 等值线形体 · 49k / 6k / 105 / 14
+- https://x.com/IamEmily2050/status/2086121326129934561 人居地形 · 49k / 4k / 94 / 12
+- https://x.com/CyberTotal2026/status/2089519397110960432 实写分层 · 10k / 9k / 114 / 6
+- https://x.com/MrGafish/status/2054830871048589661 拼豆 · 21k / 45k / 317 / 23
+- https://x.com/MrGafish/status/2052323461268467860 手持资料卡 · 21k / 66k / 448 / 53
+- https://x.com/MrGafish/status/2056584785196450129 街头素描 · 21k / 15k / 172 / 12

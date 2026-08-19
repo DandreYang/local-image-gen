@@ -34,6 +34,12 @@ PROMPT_PROFILES = (
     "environment",
     "ccd",
     "split",
+    "void",
+    "habitat",
+    "photo",
+    "beads",
+    "card",
+    "sketch",
 )
 OPTIMIZE_MODES = ("off", "on", "auto")
 PROMPT_FAMILIES = ("imagine", "gpt_image", "nano_banana")
@@ -553,6 +559,7 @@ PROFILE_SPECS: Dict[str, Dict[str, Any]] = {
         "constraints": (
             "one adult East-Asian subject",
             "makeup, hair, wardrobe, setting, and light as separate facts",
+            "name the dynasty or garment system; do not mix periods or studio xianxia costume",
             "wardrobe color must not stain the face",
             "identity lock if a reference is present",
         ),
@@ -670,6 +677,106 @@ PROFILE_SPECS: Dict[str, Dict[str, Any]] = {
             "Avoid: nine-panel grid, ecommerce headline, stretching the subject"
         ),
     },
+    "void": {
+        "label": "negative-space silhouette with an inner world",
+        "constraints": (
+            "negative space is structure, not leftover empty",
+            "one major gesture: a void, branch, or roofline cutting a clean field",
+            "architecture or landscape lives inside the opening; people are only scale",
+        ),
+        "template": (
+            "Use case: illustration-story\n"
+            "Asset type: negative-space art print, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Composition/framing: one decisive silhouette or void; inner world nested inside\n"
+            "Color palette: ink, ivory, mineral blue-green, restrained cinnabar\n"
+            "Constraints: tiny figures if any; quiet, no cyberpunk, no postcard realism\n"
+            "Avoid: clutter, neon, glossy 3D, crowded people"
+        ),
+    },
+    "habitat": {
+        "label": "inhabited landform",
+        "constraints": (
+            "one landform that could be lived on",
+            "one habitation route with a cause",
+            "one weather event with a cause",
+        ),
+        "template": (
+            "Use case: illustration-story\n"
+            "Asset type: inhabited landform still, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Scene/backdrop: slopes connect; water occupies low ground\n"
+            "Composition/framing: one route, one scale anchor, detail falling with distance\n"
+            "Constraints: no scattered cottages; no travel-brochure saturation\n"
+            "Avoid: generic green hills, pasted mountain, HDR halo"
+        ),
+    },
+    "photo": {
+        "label": "layered photoreal portrait",
+        "constraints": (
+            "write fields, not prose: subject, expression, clothing construction, light, camera, texture, negatives",
+            "clothing is straps, seams, and folds, not a color word",
+            "name camera height and what the frame cuts; lock the named pose and hero prop",
+        ),
+        "template": (
+            "Use case: photorealistic-natural\n"
+            "Asset type: layered photoreal portrait, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Composition/framing: one camera height; state what the frame edge cuts\n"
+            "Materials/textures: garment construction, skin grain, named light direction\n"
+            "Constraints: one adult, one scene; lock named pose and hero prop\n"
+            "Avoid: swimsuit, illustration, beauty-pass skin, extra people"
+        ),
+    },
+    "beads": {
+        "label": "perler-bead sprite",
+        "constraints": (
+            "rebuild the whole figure as even round beads, not a photo with a dot filter",
+            "lock identity and pose; simplify the background to large color fields",
+            "perler beads, not LEGO, not a mosaic filter",
+        ),
+        "template": (
+            "Use case: illustration-story\n"
+            "Asset type: perler-bead sprite, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Style/medium: uniform round fuse beads, visible plastic sheen, simple ground\n"
+            "Constraints: lock identity if referenced; one subject; no photo leftover\n"
+            "Avoid: LEGO bricks, mosaic filter, collage, extra people"
+        ),
+    },
+    "card": {
+        "label": "handheld die-cut profile card",
+        "constraints": (
+            "one hand holds one thick card with a square die-cut",
+            "the person sits on the cutout edge; card text is verbatim",
+            "one person, one card, one scene",
+        ),
+        "template": (
+            "Use case: photorealistic-natural\n"
+            "Asset type: handheld die-cut card still, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Composition/framing: hand in foreground, person seated on the hollow, contact shadow\n"
+            "Text (verbatim): only lines the user supplied, printed on the card\n"
+            "Constraints: one adult; no floating icon swarm; no QR invention\n"
+            "Avoid: collage, extra people, fake UI stickers"
+        ),
+    },
+    "sketch": {
+        "label": "street caricature sketch",
+        "constraints": (
+            "head or head-and-shoulders on a sketchbook page",
+            "exaggerated anatomy is allowed; identity must still be readable",
+            "one sketch, not a beauty portrait",
+        ),
+        "template": (
+            "Use case: illustration-story\n"
+            "Asset type: street caricature sketch, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Style/medium: ink and wash on sketchbook paper, fashion-caricature exaggeration\n"
+            "Constraints: lock face if referenced; crop to head or bust; one page\n"
+            "Avoid: full-body nine-grid, beauty pass, collage"
+        ),
+    },
 }
 
 PROFILE_PROSE: Dict[str, str] = {
@@ -752,6 +859,30 @@ PROFILE_PROSE: Dict[str, str] = {
     "split": (
         "{prompt}. {aspect} one editorial page split in half: photograph above, one medium "
         "below. Lock identity. Do not collage multiple photos."
+    ),
+    "void": (
+        "{prompt}. {aspect} negative-space print. One silhouette or void holds the inner world. "
+        "People only for scale. Mineral palette, no clutter."
+    ),
+    "habitat": (
+        "{prompt}. {aspect} inhabited landform. One terrain, one route, one caused weather. "
+        "No brochure cottages."
+    ),
+    "photo": (
+        "{prompt}. {aspect} photoreal portrait in fields: clothing construction, camera height, "
+        "frame cuts, locked pose. No swimsuit, no illustration, no beauty pass."
+    ),
+    "beads": (
+        "{prompt}. {aspect} perler-bead sprite. Rebuild the subject from round beads, "
+        "lock pose, simple ground. No photo leftover, no LEGO."
+    ),
+    "card": (
+        "{prompt}. {aspect} one hand holding one die-cut card; a person sits on the hollow. "
+        "Card text verbatim. No floating icons, no collage."
+    ),
+    "sketch": (
+        "{prompt}. {aspect} street caricature on a sketchbook page, head or bust, "
+        "exaggerated but recognizable. No beauty pass, no nine-grid."
     ),
 }
 
