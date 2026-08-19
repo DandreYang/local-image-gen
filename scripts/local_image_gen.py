@@ -25,10 +25,30 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-__version__ = "0.1.1"
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from prompt_compile import (  # noqa: E402
+    OPTIMIZE_MODES,
+    PROMPT_PROFILES,
+    PromptCompileResult,
+    apply_profile,
+    build_optimize_messages,
+    decide_optimize,
+    default_text_model,
+    detect_prompt_format,
+    fallback_prompt,
+    preferred_text_backends,
+    prompt_family,
+    sanitize_optimized_prompt,
+)
+
+__version__ = "0.1.2"
 
 CODEX_AUTH_PATH = Path("~/.codex/auth.json").expanduser()
 GROK_AUTH_PATH = Path("~/.grok/auth.json").expanduser()
@@ -36,7 +56,7 @@ GROK_AUTH_PATH = Path("~/.grok/auth.json").expanduser()
 CODEX_RESPONSES_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
 CODEX_REFRESH_ENDPOINT = "https://auth.openai.com/oauth/token"
 CODEX_REFRESH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
-CODEX_RESPONSE_MODEL = os.environ.get("CODEX_RESPONSE_MODEL", "gpt-5.5")
+CODEX_RESPONSE_MODEL = os.environ.get("CODEX_RESPONSE_MODEL", "gpt-5.6-terra")
 
 GROK_REFRESH_ENDPOINT = "https://auth.x.ai/oauth2/token"
 GROK_DEFAULT_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
@@ -62,6 +82,8 @@ API_BASE_ENV_NAMES = {
 }
 
 REQUEST_TIMEOUT = 300
+OPTIMIZE_TIMEOUT = 25
+GROK_MAX_REFERENCE_IMAGES = 3
 TOKEN_EXPIRY_SKEW_SECONDS = 60
 DEFAULT_OUTPUT_STEM = "local-generated-image"
 DYRO_TOML_NAME = "dyro.toml"
@@ -98,6 +120,8 @@ GROK_ASPECTS = set(SUPPORTED_ASPECTS)
 GEMINI_ASPECTS = set(SUPPORTED_ASPECTS)
 
 PROVIDERS = ("auto", "grok", "codex", "gemini", "antigravity", "agy", "cursor", "openai", "xai")
+# Generic --provider auto when the user did not name a model family.
+AUTO_PROVIDER_ORDER = ("grok", "codex", "antigravity", "cursor", "gemini", "xai", "openai")
 PROVIDER_ALIASES = {"agy": "antigravity"}
 QUALITY_CHOICES = ("auto", "low", "medium", "high")
 RESOLUTION_CHOICES = ("1k", "2k", "4k")
@@ -484,6 +508,15 @@ def iso_expired(value: str, *, now: Optional[dt.datetime] = None) -> bool:
     return current.timestamp() >= (stamp.timestamp() - TOKEN_EXPIRY_SKEW_SECONDS)
 
 
+SECRET_QUERY_RE = re.compile(r"([?&](?:key|api_key|access_token)=)[^&\s]+", re.IGNORECASE)
+BEARER_RE = re.compile(r"(Bearer\s+)\S+", re.IGNORECASE)
+
+
+def redact_secrets(text: str) -> str:
+    out = SECRET_QUERY_RE.sub(r"\1***", text)
+    return BEARER_RE.sub(r"\1***", out)
+
+
 def http_request(
     url: str,
     *,
@@ -505,13 +538,15 @@ def http_request(
             if not text.strip():
                 return response.status, {}, header_map
             return response.status, json.loads(text), header_map
+    except TimeoutError as exc:
+        raise ImageGenError("Request timed out.") from exc
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
         raise ImageGenError(f"HTTP {exc.code}: {raw.strip() or exc.reason}") from exc
     except urllib.error.URLError as exc:
         raise ImageGenError(f"Network error: {exc.reason}") from exc
     except json.JSONDecodeError as exc:
-        raise ImageGenError(f"Non-JSON response from {url}: {exc}") from exc
+        raise ImageGenError(f"Non-JSON response from {redact_secrets(url)}: {exc}") from exc
 
 
 def guess_mime(path: Path) -> str:
@@ -564,6 +599,53 @@ def load_local_image_bytes(source: str) -> Tuple[bytes, str]:
     if not path.is_file():
         raise ImageGenError(f"Image not found: {path}")
     return path.read_bytes(), guess_mime(path)
+
+
+def suffix_for_mime(mime: str) -> str:
+    return {"image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}.get(mime, ".png")
+
+
+def materialize_image_file(source: str, directory: Path, index: int) -> Path:
+    raw, mime = load_local_image_bytes(source)
+    target = directory / f"input-{index}{suffix_for_mime(mime)}"
+    target.write_bytes(raw)
+    return target
+
+
+def encode_multipart(
+    fields: Dict[str, Any],
+    file_fields: Sequence[Tuple[str, Path]],
+) -> Tuple[str, bytes]:
+    boundary = f"----local-image-gen-{uuid.uuid4().hex}"
+    chunks: List[bytes] = []
+    for name, value in fields.items():
+        if value is None:
+            continue
+        chunks.extend(
+            [
+                f"--{boundary}\r\n".encode("utf-8"),
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"),
+                str(value).encode("utf-8"),
+                b"\r\n",
+            ]
+        )
+    for field_name, path in file_fields:
+        filename = path.name
+        content_type = guess_mime(path)
+        chunks.extend(
+            [
+                f"--{boundary}\r\n".encode("utf-8"),
+                (
+                    f'Content-Disposition: form-data; name="{field_name}"; '
+                    f'filename="{filename}"\r\n'
+                ).encode("utf-8"),
+                f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"),
+                path.read_bytes(),
+                b"\r\n",
+            ]
+        )
+    chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return boundary, b"".join(chunks)
 
 
 def unique_output_path(path: Path, overwrite: bool) -> Path:
@@ -1659,10 +1741,14 @@ def run_gemini(
 
     if not api_key:
         raise ImageGenError("Gemini API key is missing.")
-    url = f"{api_root}/models/{model}:generateContent?key={urllib.parse.quote(api_key)}"
+    url = f"{api_root}/models/{model}:generateContent"
     _, payload, _ = http_request(
         url,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "x-goog-api-key": api_key,
+        },
         body=json.dumps({"contents": contents, "generationConfig": generation_config}).encode("utf-8"),
     )
 
@@ -1704,6 +1790,7 @@ def run_openai_compat(
     output: Path,
     overwrite: bool,
     dry_run: bool,
+    mask: Optional[Path] = None,
 ) -> Dict[str, Any]:
     endpoint = f"{base_url}/{'images/edits' if images else 'images/generations'}"
     body: Dict[str, Any] = {
@@ -1714,6 +1801,11 @@ def run_openai_compat(
         "quality": quality,
     }
     if dry_run:
+        request = dict(body)
+        if images and provider != "xai":
+            request["transport"] = "multipart"
+            request["image_count"] = len(images)
+            request["mask"] = str(mask) if mask else None
         return {
             "success": True,
             "dry_run": True,
@@ -1721,13 +1813,12 @@ def run_openai_compat(
             "auth": "api_key",
             "model": model,
             "endpoint": endpoint,
-            "request": body,
+            "request": request,
             "images": list(images),
             "output": str(output),
         }
     if images:
-        # OpenAI-compatible edits: send JSON with data URLs when talking to xAI Imagine,
-        # otherwise fall back to JSON-only prompt+image_url style used by many proxies.
+        # xAI Imagine edits stay JSON. Official OpenAI Images edits are multipart.
         if provider == "xai":
             payload = grok_image_payload(prompt, model, None, None if quality == "auto" else quality, None, n, images)
             payload["size"] = size
@@ -1741,20 +1832,24 @@ def run_openai_compat(
                 body=json.dumps(payload).encode("utf-8"),
             )
         else:
-            _, response, _ = http_request(
-                endpoint,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
-                body=json.dumps(
-                    {
-                        **body,
-                        "image": normalize_image_source(images[0]),
-                    }
-                ).encode("utf-8"),
-            )
+            with tempfile.TemporaryDirectory(prefix="local-image-gen-edit-") as tmp:
+                tmpdir = Path(tmp)
+                file_fields: List[Tuple[str, Path]] = [
+                    ("image", materialize_image_file(source, tmpdir, index))
+                    for index, source in enumerate(images)
+                ]
+                if mask:
+                    file_fields.append(("mask", mask))
+                boundary, payload = encode_multipart(body, file_fields)
+                _, response, _ = http_request(
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": f"multipart/form-data; boundary={boundary}",
+                        "Accept": "application/json",
+                    },
+                    body=payload,
+                )
     else:
         _, response, _ = http_request(
             endpoint,
@@ -1907,7 +2002,7 @@ def choose_auto_provider(model: Optional[str], loaded_files: Sequence[Path]) -> 
         )
     if harness and usable(harness):
         return harness
-    for name in ("grok", "antigravity", "codex", "cursor", "gemini", "xai", "openai"):
+    for name in AUTO_PROVIDER_ORDER:
         if usable(name):
             return name
     raise ImageGenError(
@@ -1928,6 +2023,351 @@ def resolve_provider(requested: str, model: Optional[str], loaded_files: Sequenc
     return choose_auto_provider(model, loaded_files)
 
 
+def extract_chat_text(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        raise ImageGenError("Prompt compiler returned a non-object.")
+    choices = payload.get("choices")
+    if isinstance(choices, list) and choices:
+        first = choices[0]
+        if isinstance(first, dict):
+            message = first.get("message")
+            if isinstance(message, dict) and isinstance(message.get("content"), str):
+                return message["content"]
+            if isinstance(first.get("text"), str):
+                return first["text"]
+    raise ImageGenError("Prompt compiler returned no text.")
+
+
+def extract_gemini_text(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        raise ImageGenError("Prompt compiler returned a non-object.")
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        raise ImageGenError("Gemini prompt compiler returned no text.")
+    chunks: List[str] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("thought") is True:
+                return
+            text = node.get("text")
+            if isinstance(text, str) and text.strip():
+                chunks.append(text)
+            for key, value in node.items():
+                if key in {"text", "thought"}:
+                    continue
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(candidates)
+    if chunks:
+        return "\n".join(chunks)
+    raise ImageGenError("Gemini prompt compiler returned no text.")
+
+
+def grok_optimize_token(loaded_files: Sequence[Path], base_override: Optional[str]) -> Optional[Dict[str, str]]:
+    if grok_auth_available():
+        return {"provider": "grok", "auth": "subscription", "token": "", "base_url": GROK_API_BASE}
+    key = first_env(ENV_KEY_NAMES["xai"], loaded_files)
+    if not key:
+        return None
+    base, _source = resolve_api_base("xai", loaded_files, base_override)
+    return {"provider": "grok", "auth": "api_key", "token": key, "base_url": base}
+
+
+def openai_optimize_token(loaded_files: Sequence[Path], base_override: Optional[str]) -> Optional[Dict[str, str]]:
+    key = first_env(ENV_KEY_NAMES["openai"], loaded_files)
+    if not key:
+        return None
+    base, _source = resolve_api_base("openai", loaded_files, base_override)
+    return {"provider": "openai", "auth": "api_key", "token": key, "base_url": base}
+
+
+def gemini_optimize_token(loaded_files: Sequence[Path], base_override: Optional[str]) -> Optional[Dict[str, str]]:
+    key = first_env(ENV_KEY_NAMES["gemini"], loaded_files)
+    if not key:
+        return None
+    base, _source = resolve_api_base("gemini", loaded_files, base_override)
+    return {"provider": "gemini", "auth": "api_key", "token": key, "base_url": base}
+
+
+def _optimize_base_override(text_backend: str, image_provider: str, override: Optional[str]) -> Optional[str]:
+    if not override:
+        return None
+    if text_backend == "grok" and image_provider in {"grok", "xai"}:
+        return override
+    if text_backend == "openai" and image_provider == "openai":
+        return override
+    if text_backend == "gemini" and image_provider == "gemini":
+        return override
+    return None
+
+
+def list_optimize_backends(
+    family: str,
+    loaded_files: Sequence[Path],
+    *,
+    allow_missing_preferred: bool,
+    image_provider: str,
+    base_override: Optional[str],
+) -> List[Dict[str, str]]:
+    resolvers = {
+        "grok": grok_optimize_token,
+        "openai": openai_optimize_token,
+        "gemini": gemini_optimize_token,
+    }
+    order = preferred_text_backends(family)
+    available: List[Dict[str, str]] = []
+    for name in order:
+        try:
+            resolved = resolvers[name](
+                loaded_files, _optimize_base_override(name, image_provider, base_override)
+            )
+        except ImageGenError:
+            continue
+        if resolved:
+            available.append(resolved)
+    if not available:
+        return []
+    preferred_name = order[0]
+    preferred = [item for item in available if item["provider"] == preferred_name]
+    others = [item for item in available if item["provider"] != preferred_name]
+    if preferred:
+        return preferred + others
+    if allow_missing_preferred:
+        return others
+    return []
+
+
+def resolve_optimize_token(backend: Dict[str, str]) -> Dict[str, str]:
+    if backend.get("provider") == "grok" and backend.get("auth") == "subscription":
+        token, _auth = refresh_grok_auth()
+        resolved = dict(backend)
+        resolved["token"] = token
+        return resolved
+    return backend
+
+
+def invoke_optimize_model(
+    backend: Dict[str, str],
+    family: str,
+    system: str,
+    user: str,
+    model_override: Optional[str] = None,
+) -> Tuple[str, str]:
+    backend = resolve_optimize_token(backend)
+    provider = backend["provider"]
+    preferred = preferred_text_backends(family)[0]
+    model = default_text_model(
+        provider,
+        model_override,
+        allow_override=provider == preferred,
+    )
+    if provider in {"grok", "openai"}:
+        endpoint = f"{backend['base_url'].rstrip('/')}/chat/completions"
+        body: Dict[str, Any] = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.35,
+            "max_tokens": 500,
+        }
+        # grok-4.6 defaults to high reasoning and can stall a 2-5 sentence compile.
+        if provider == "grok" and "grok-4." in model:
+            body["reasoning_effort"] = "low"
+        if provider == "openai" and "gpt-5.6" in model:
+            body["reasoning_effort"] = "low"
+        _, payload, _ = http_request(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {backend['token']}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            body=json.dumps(body).encode("utf-8"),
+            timeout=OPTIMIZE_TIMEOUT,
+        )
+        return extract_chat_text(payload), model
+    api_root = backend["base_url"].rstrip("/")
+    url = f"{api_root}/models/{model}:generateContent"
+    _, payload, _ = http_request(
+        url,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "x-goog-api-key": backend["token"],
+        },
+        body=json.dumps(
+            {
+                "contents": [{"role": "user", "parts": [{"text": f"{system}\n\n---\n\n{user}"}]}],
+                "generationConfig": {"temperature": 0.35, "maxOutputTokens": 500},
+            }
+        ).encode("utf-8"),
+        timeout=OPTIMIZE_TIMEOUT,
+    )
+    return extract_gemini_text(payload), model
+
+
+def compile_job_prompt(
+    args: argparse.Namespace,
+    provider: str,
+    aspect: Optional[str],
+    images: Sequence[str],
+    loaded_files: Sequence[Path],
+) -> PromptCompileResult:
+    original = str(args.prompt).strip()
+    profile = getattr(args, "prompt_profile", None)
+    optimize_mode = getattr(args, "optimize", "off") or "off"
+    raw = bool(getattr(args, "raw", False))
+    from_file = bool(getattr(args, "prompt_from_file", False))
+    family = prompt_family(provider)
+    source_format = detect_prompt_format(original)
+    notes: List[str] = []
+
+    if raw and (profile or optimize_mode != "off"):
+        notes.append("--raw sent the prompt verbatim and ignored --prompt-profile / --optimize.")
+
+    should, skipped = decide_optimize(
+        optimize_mode,
+        original,
+        raw=raw,
+        from_file=from_file,
+        provider=provider,
+    )
+    adapt_reason = None
+    if should and skipped == "family_mismatch":
+        adapt_reason = "family_mismatch"
+        notes.append(
+            f"Re-adapting a {source_format} prompt for {family} ({provider})."
+        )
+        skipped = None
+    if skipped == "codex_response_model" and optimize_mode != "off":
+        notes.append("Skipped --optimize on Codex; that path already rewrites via the response model.")
+
+    if not should:
+        used = original if raw else fallback_prompt(original, profile, aspect, family)
+        return PromptCompileResult(
+            original,
+            used,
+            profile=None if raw else profile,
+            optimize_mode=optimize_mode,
+            applied=False,
+            skipped_reason=skipped,
+            family=family,
+            source_format=source_format,
+            notes=notes,
+        )
+
+    backends = list_optimize_backends(
+        family,
+        loaded_files,
+        allow_missing_preferred=optimize_mode == "on",
+        image_provider=provider,
+        base_override=getattr(args, "base_url", None),
+    )
+    if not backends:
+        if optimize_mode == "on":
+            raise ImageGenError(
+                "--optimize on needs a text backend: grok login / XAI_API_KEY, "
+                "OPENAI_API_KEY, or GEMINI_API_KEY. It will not launch agy or cursor-agent."
+            )
+        notes.append("Skipped --optimize auto; no family-matched text backend is available.")
+        used = fallback_prompt(original, profile, aspect, family)
+        return PromptCompileResult(
+            original,
+            used,
+            profile=profile,
+            optimize_mode=optimize_mode,
+            applied=False,
+            skipped_reason="no_text_backend",
+            family=family,
+            source_format=source_format,
+            adapt_reason=adapt_reason,
+            notes=notes,
+        )
+
+    preferred = preferred_text_backends(family)[0]
+    system, user = build_optimize_messages(
+        original,
+        family=family,
+        edit=bool(images),
+        aspect=aspect,
+        profile=None if raw else profile,
+        image_count=len(images),
+    )
+    last_error: Optional[str] = None
+    last_backend: Optional[Dict[str, str]] = None
+    last_model: Optional[str] = None
+    for backend in backends:
+        last_backend = backend
+        if backend["provider"] != preferred:
+            notes.append(
+                f"Optimize trying {backend['provider']} text; preferred family backend is {preferred}."
+            )
+        try:
+            raw_text, model = invoke_optimize_model(
+                backend, family, system, user, getattr(args, "optimize_model", None)
+            )
+        except ImageGenError as exc:
+            last_error = redact_secrets(str(exc))
+            last_model = None
+            notes.append(f"{backend['provider']} optimize failed: {last_error}")
+            continue
+        last_model = model
+        compiled = sanitize_optimized_prompt(raw_text)
+        if compiled:
+            return PromptCompileResult(
+                original,
+                compiled,
+                profile=profile,
+                optimize_mode=optimize_mode,
+                applied=True,
+                family=family,
+                text_model=model,
+                text_provider=backend["provider"],
+                source_format=source_format,
+                adapt_reason=adapt_reason,
+                notes=notes,
+            )
+        last_error = "compiler output was empty or a refusal"
+        notes.append(f"{backend['provider']} optimize returned unusable text.")
+
+    if optimize_mode == "on":
+        raise ImageGenError(f"Prompt optimize failed: {last_error or 'no usable text'}")
+    notes.append(f"Skipped --optimize auto after text-model errors: {last_error or 'no usable text'}")
+    used = fallback_prompt(original, profile, aspect, family)
+    return PromptCompileResult(
+        original,
+        used,
+        profile=profile,
+        optimize_mode=optimize_mode,
+        applied=False,
+        skipped_reason="optimize_failed",
+        family=family,
+        text_model=last_model,
+        text_provider=last_backend["provider"] if last_backend else None,
+        source_format=source_format,
+        adapt_reason=adapt_reason,
+        notes=notes,
+    )
+
+
+def attach_prompt_meta(
+    result: Dict[str, Any],
+    compiled: PromptCompileResult,
+    workspace: Optional[Path],
+    notes: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    result["prompt_original"] = compiled.original
+    result["prompt_used"] = compiled.used
+    result["prompt"] = compiled.as_dict()
+    return attach_workspace(result, workspace, list(notes or []) + compiled.notes)
+
+
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate or edit images via local subscriptions or official API keys.")
     parser.add_argument("--version", action="version", version=f"local-image-gen {__version__}")
@@ -1936,6 +2376,20 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("-o", "--output", type=Path, help="Output image path.")
     parser.add_argument("--out-dir", type=Path, help="Output directory when --output is omitted.")
     parser.add_argument("-i", "--image", "--reference-image", action="append", dest="images", default=[], help="Reference/edit image. Repeatable.")
+    parser.add_argument("--mask", type=Path, help="PNG mask for OpenAI inpaint. Transparent regions are edited. Only --provider openai.")
+    parser.add_argument("--raw", action="store_true", help="Send the prompt verbatim. Skips --prompt-profile and --optimize.")
+    parser.add_argument(
+        "--prompt-profile",
+        choices=PROMPT_PROFILES,
+        help="Wrap a short prompt in a deterministic asset template: cover, poster, portrait, product, edit.",
+    )
+    parser.add_argument(
+        "--optimize",
+        choices=OPTIMIZE_MODES,
+        default="off",
+        help="Compile the prompt for the target image family. Default off. auto rewrites short/generic prompts and remaps a prompt written for a different family.",
+    )
+    parser.add_argument("--optimize-model", help="Override the text model used by --optimize.")
     parser.add_argument("--provider", choices=PROVIDERS, default="auto")
     parser.add_argument("--model", help="Image model id or alias.")
     parser.add_argument("--aspect-ratio", "--aspect", dest="aspect_ratio", help="Aspect ratio such as 16:9, 9:16, square, landscape, portrait.")
@@ -1964,11 +2418,17 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         return args
     if args.prompt and args.prompt_file:
         parser.error("Use either a prompt argument or --prompt-file, not both.")
+    args.prompt_from_file = False
     if args.prompt_file:
         args.prompt = args.prompt_file.expanduser().read_text(encoding="utf-8")
+        args.prompt_from_file = True
     if not args.prompt or not str(args.prompt).strip():
         parser.error("A prompt is required unless --list-providers, --list-models, or --doctor is set.")
     args.prompt = str(args.prompt).strip()
+    if args.mask:
+        args.mask = args.mask.expanduser()
+        if not args.mask.is_file():
+            parser.error(f"Mask file not found: {args.mask}")
     if args.n < 1 or args.n > 10:
         parser.error("--n must be between 1 and 10.")
     if args.size and args.aspect_ratio:
@@ -2022,6 +2482,18 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
     notes: List[str] = []
     output, workspace = prepare_output(args)
     images = list(args.images or [])
+    mask = getattr(args, "mask", None)
+    if mask and provider != "openai":
+        raise ImageGenError("--mask is only supported with --provider openai.")
+    if mask and not images:
+        raise ImageGenError("--mask requires at least one --image.")
+    if provider in {"grok", "xai"} and len(images) > GROK_MAX_REFERENCE_IMAGES:
+        raise ImageGenError(
+            f"Grok Imagine accepts at most {GROK_MAX_REFERENCE_IMAGES} reference images."
+        )
+
+    compiled = compile_job_prompt(args, provider, aspect, images, loaded_files)
+    prompt = compiled.used
 
     if provider == "grok":
         grok_quality, grok_resolution, map_notes = map_grok_quality(args.quality, args.resolution)
@@ -2038,7 +2510,7 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
             token, auth_mode = key or "dry-run", "api_key"
             grok_base, _source = resolve_api_base("xai", loaded_files, getattr(args, "base_url", None))
         result = run_grok(
-            args.prompt,
+            prompt,
             model,
             aspect,
             grok_quality,
@@ -2052,7 +2524,7 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
             args.dry_run,
             grok_base,
         )
-        return attach_workspace(result, workspace, notes)
+        return attach_prompt_meta(result, compiled, workspace, notes)
 
     if provider == "codex":
         if not (codex_auth_available() or args.dry_run):
@@ -2061,19 +2533,20 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
         quality = "high" if args.quality == "auto" and args.resolution in {"2k", "4k"} else args.quality
         if quality == "auto":
             quality = "medium"
-        return attach_workspace(
+        return attach_prompt_meta(
             run_codex(
-                args.prompt, model, size, quality, images, output, args.overwrite, args.dry_run, aspect
+                prompt, model, size, quality, images, output, args.overwrite, args.dry_run, aspect
             ),
+            compiled,
             workspace,
             notes,
         )
 
     if provider == "antigravity":
         image_size = map_gemini_image_size(args.quality, args.resolution)
-        return attach_workspace(
+        return attach_prompt_meta(
             run_antigravity(
-                args.prompt,
+                prompt,
                 model,
                 aspect,
                 image_size,
@@ -2082,15 +2555,16 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
                 args.overwrite,
                 args.dry_run,
             ),
+            compiled,
             workspace,
             notes,
         )
 
     if provider == "cursor":
         image_size = map_gemini_image_size(args.quality, args.resolution)
-        return attach_workspace(
+        return attach_prompt_meta(
             run_cursor(
-                args.prompt,
+                prompt,
                 model,
                 aspect,
                 image_size,
@@ -2099,6 +2573,7 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
                 args.overwrite,
                 args.dry_run,
             ),
+            compiled,
             workspace,
             notes,
         )
@@ -2111,9 +2586,9 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
                 "Gemini API key is missing. Use --provider antigravity after `agy` login, or set GEMINI_API_KEY."
             )
         gemini_base, _source = resolve_api_base("gemini", loaded_files, getattr(args, "base_url", None))
-        return attach_workspace(
+        return attach_prompt_meta(
             run_gemini(
-                args.prompt,
+                prompt,
                 model,
                 aspect,
                 image_size,
@@ -2124,6 +2599,7 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
                 args.dry_run,
                 gemini_base,
             ),
+            compiled,
             workspace,
             notes,
         )
@@ -2141,7 +2617,7 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
             notes.extend(map_notes)
             token = api_key or "dry-run"
             result = run_grok(
-                args.prompt,
+                prompt,
                 model,
                 aspect,
                 grok_quality,
@@ -2156,11 +2632,11 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
                 key_base,
             )
             result["provider"] = "xai"
-            return attach_workspace(result, workspace, notes)
-        return attach_workspace(
+            return attach_prompt_meta(result, compiled, workspace, notes)
+        return attach_prompt_meta(
             run_openai_compat(
                 provider,
-                args.prompt,
+                prompt,
                 model,
                 size,
                 quality,
@@ -2171,7 +2647,9 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
                 output,
                 args.overwrite,
                 args.dry_run,
+                mask if provider == "openai" else None,
             ),
+            compiled,
             workspace,
             notes,
         )

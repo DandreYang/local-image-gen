@@ -66,7 +66,7 @@ python3 scripts/local_image_gen.py --list-providers
 python3 scripts/local_image_gen.py --list-models
 
 python3 scripts/local_image_gen.py "极简科技封面，无文字" \
-  --aspect-ratio 16:9 --quality high -o outputs/cover.png
+  --aspect-ratio 16:9 --quality high --optimize auto -o outputs/cover.png
 
 python3 scripts/local_image_gen.py "电影感城市夜景" \
   --provider grok --model grok-imagine-image-2.0 \
@@ -97,9 +97,27 @@ python3 scripts/local_image_gen.py "test" --dry-run --aspect-ratio 1:1
 | `openai` | `gpt-image-2` | — | `OPENAI_API_KEY` |
 | `xai` | `grok-imagine-image-2.0` | — | `XAI_API_KEY` |
 
-未指定 Nano Banana 模型时，`auto` 优先 Grok，然后 Antigravity，再 Codex。Cursor 只加入 Nano Banana 链路，或在你写 `--provider cursor` 时使用。
+未点名模型族时，`auto` 优先 Grok，然后 Codex，再 Antigravity（`agy`），再 Cursor。点名 Nano Banana 时仍是 Antigravity → Cursor → `GEMINI_API_KEY`。当前 harness 已登录且可用时，仍优先走当前 harness。
 
 参数对照见 [`references/providers.md`](references/providers.md)。模型清单以 `--list-models` 为准。
+
+## 提示词
+
+多数人和多数编程助手不会写生产级生图提示词。CLI **不会**默认改写你的原文。
+
+| 参数 | 作用 |
+| --- | --- |
+| `--raw` | 原文直送 |
+| `--prompt-profile cover\|poster\|portrait\|product\|edit` | 用确定性模板包一层，不调文本模型 |
+| `--optimize auto` | 短/空泛提示词会编译；上一张图若是另一家的成品提示词，也会按目标家族重适配。同族文本模型（`grok login` 或官方 Key），冻结系统提示，无工具，不拉起 `agy` / `cursor-agent` |
+| `--optimize on` | 总是按目标家族编译；`--raw` 和 `--provider codex` 除外。Imagine 与 Nano Banana 互转要用这个 |
+| `--optimize off` | 默认。原文传输 |
+
+`--dry-run --optimize auto` 可以只打文本模型，看 JSON 里的 `prompt.used`，不消耗生图配额。每次结果都带 `prompt.original` / `prompt.used` / `prompt.optimize`。省略 `-o` 时，默认文件名的 hash 用的是原文。
+
+写法见 [`references/prompts.md`](references/prompts.md)。
+
+`--mask` 只支持官方 OpenAI Images 局部重绘（`--provider openai`）。Grok Imagine 编辑最多 3 张参考图。
 
 ## 配置
 

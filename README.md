@@ -68,7 +68,7 @@ python3 scripts/local_image_gen.py --list-models
 
 # Auto: prefer the current harness login, then any other login, then official keys
 python3 scripts/local_image_gen.py "minimal tech cover, no text" \
-  --aspect-ratio 16:9 --quality high -o outputs/cover.png
+  --aspect-ratio 16:9 --quality high --optimize auto -o outputs/cover.png
 
 # Grok Imagine 2.0 via grok login
 python3 scripts/local_image_gen.py "cinematic night city" \
@@ -103,9 +103,27 @@ Agents that have the skill installed should run `scripts/local_image_gen.py` ins
 | `openai` | `gpt-image-2` | — | `OPENAI_API_KEY` |
 | `xai` | `grok-imagine-image-2.0` | — | `XAI_API_KEY` |
 
-`auto` without a Nano Banana model prefers Grok, then Antigravity, then Codex. Cursor is only used for the Nano Banana family, or when you pass `--provider cursor`.
+`auto` without a named model family prefers Grok, then Codex, then Antigravity (`agy`), then Cursor. A named Nano Banana model still uses Antigravity → Cursor → `GEMINI_API_KEY`. The current harness login still wins when it is usable.
 
 Parameter mapping lives in [`references/providers.md`](references/providers.md). `--list-models` is the executable catalog.
+
+## Prompts
+
+Most people (and most coding agents) do not write a production image prompt. The CLI will not silently rewrite you.
+
+| Flag | What it does |
+| --- | --- |
+| `--raw` | Send the prompt unchanged |
+| `--prompt-profile cover\|poster\|portrait\|product\|edit` | Wrap a short request in a deterministic template. No extra model call |
+| `--optimize auto` | Compile short/generic prompts, and remap a prompt written for a different image family. Family-matched text model (Grok login / official keys). Frozen system prompt, no tools, no `agy`/`cursor-agent` |
+| `--optimize on` | Always compile for the target family, unless `--raw` or `--provider codex`. Use this when switching Imagine ↔ Nano Banana |
+| `--optimize off` | Default. Transport the prompt as given |
+
+`--dry-run --optimize auto` can call the **text** model so you can read `prompt.used` without spending an image. The JSON always includes `prompt.original`, `prompt.used`, and `prompt.optimize`. If you omit `-o`, the default filename hash is the original prompt.
+
+Grammar and examples: [`references/prompts.md`](references/prompts.md).
+
+`--mask` is official OpenAI Images inpaint only (`--provider openai`). Grok Imagine edits take at most 3 reference images.
 
 ## Configuration
 

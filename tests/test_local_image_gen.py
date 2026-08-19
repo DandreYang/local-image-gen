@@ -276,6 +276,42 @@ class RoutingTests(unittest.TestCase):
             image_gen.list_provider_status = original  # type: ignore[method-assign]
             image_gen.detect_harness = original_harness  # type: ignore[method-assign]
 
+    def test_auto_order_is_grok_codex_agy_cursor(self) -> None:
+        original = image_gen.list_provider_status
+        original_harness = image_gen.detect_harness
+        all_up = [
+            {"provider": "grok", "subscription": True, "api_key": False},
+            {"provider": "codex", "subscription": True, "api_key": False},
+            {"provider": "antigravity", "subscription": True, "api_key": False},
+            {"provider": "cursor", "subscription": True, "api_key": False},
+            {"provider": "gemini", "subscription": False, "api_key": False},
+            {"provider": "openai", "subscription": False, "api_key": False},
+            {"provider": "xai", "subscription": False, "api_key": False},
+        ]
+        try:
+            image_gen.detect_harness = lambda: None  # type: ignore[method-assign]
+            image_gen.list_provider_status = lambda _files: all_up  # type: ignore[method-assign]
+            self.assertEqual(image_gen.choose_auto_provider(None, []), "grok")
+            image_gen.list_provider_status = lambda _files: [  # type: ignore[method-assign]
+                {**row, "subscription": row["provider"] != "grok"} for row in all_up
+            ]
+            self.assertEqual(image_gen.choose_auto_provider(None, []), "codex")
+            image_gen.list_provider_status = lambda _files: [  # type: ignore[method-assign]
+                {
+                    **row,
+                    "subscription": row["provider"] in {"antigravity", "cursor"},
+                }
+                for row in all_up
+            ]
+            self.assertEqual(image_gen.choose_auto_provider(None, []), "antigravity")
+            image_gen.list_provider_status = lambda _files: [  # type: ignore[method-assign]
+                {**row, "subscription": row["provider"] == "cursor"} for row in all_up
+            ]
+            self.assertEqual(image_gen.choose_auto_provider(None, []), "cursor")
+        finally:
+            image_gen.list_provider_status = original  # type: ignore[method-assign]
+            image_gen.detect_harness = original_harness  # type: ignore[method-assign]
+
 
 class DryRunTests(unittest.TestCase):
     def test_codex_dry_run(self) -> None:
@@ -287,6 +323,7 @@ class DryRunTests(unittest.TestCase):
         self.assertEqual(result["provider"], "codex")
         self.assertTrue(result["experimental"])
         self.assertEqual(result["request"]["size"], "1536x1024")
+        self.assertEqual(result["request"]["response_model"], "gpt-5.6-terra")
 
     def test_grok_dry_run_maps_high(self) -> None:
         args = image_gen.parse_args(
@@ -367,10 +404,29 @@ BASE_ENV_KEYS = (
     "GEMINI_BASE_URL",
     "GEMINI_API_BASE",
 )
+API_ENV_KEYS = (
+    "XAI_API_KEY",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "NANOBANANA_API_KEY",
+    "NANOBANANA_GEMINI_API_KEY",
+    "LOCAL_IMAGE_GEN_OPTIMIZE_MODEL",
+    "LOCAL_IMAGE_GEN_OPTIMIZE_MODEL_GROK",
+    "LOCAL_IMAGE_GEN_OPTIMIZE_MODEL_OPENAI",
+    "LOCAL_IMAGE_GEN_OPTIMIZE_MODEL_GEMINI",
+)
 
 
 def _env_without_bases(**extra: str) -> dict:
     cleaned = {key: value for key, value in os.environ.items() if key not in BASE_ENV_KEYS}
+    cleaned.update(extra)
+    return cleaned
+
+
+def _env_without_credentials(**extra: str) -> dict:
+    blocked = set(BASE_ENV_KEYS) | set(API_ENV_KEYS)
+    cleaned = {key: value for key, value in os.environ.items() if key not in blocked}
     cleaned.update(extra)
     return cleaned
 
@@ -514,6 +570,10 @@ class CliContractTests(unittest.TestCase):
             "--base-url",
             "--version",
             "--doctor",
+            "--optimize",
+            "--prompt-profile",
+            "--raw",
+            "--mask",
         ):
             self.assertIn(token, result.stdout)
 
@@ -530,7 +590,7 @@ class CliContractTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("0.1.1", result.stdout)
+        self.assertIn("0.1.2", result.stdout)
 
     def test_list_models_json(self) -> None:
         result = subprocess.run(
@@ -568,6 +628,509 @@ class CliContractTests(unittest.TestCase):
         self.assertEqual(rows["gemini"]["api_base"], "https://generativelanguage.googleapis.com/v1beta")
         self.assertTrue(rows["codex"]["experimental"])
         self.assertNotIn("yai", rows)
+
+
+class PromptCompileCliTests(unittest.TestCase):
+    def test_profile_wraps_without_text_model(self) -> None:
+        result = image_gen.run_job(
+            image_gen.parse_args(
+                [
+                    "蓝白极简课程封面",
+                    "--provider",
+                    "grok",
+                    "--prompt-profile",
+                    "cover",
+                    "--aspect-ratio",
+                    "16:9",
+                    "--dry-run",
+                ]
+            )
+        )
+        self.assertIn("蓝白极简课程封面", result["prompt_used"])
+        self.assertIn("editorial cover", result["prompt_used"])
+        self.assertIn("wide landscape", result["prompt_used"])
+        self.assertNotIn("16:9", result["prompt_used"])
+        self.assertEqual(result["prompt"]["profile"], "cover")
+        self.assertFalse(result["prompt"]["optimize"]["applied"])
+        self.assertEqual(result["request"]["prompt"], result["prompt_used"])
+
+    def test_raw_beats_profile(self) -> None:
+        result = image_gen.run_job(
+            image_gen.parse_args(
+                [
+                    "原文封面",
+                    "--provider",
+                    "openai",
+                    "--prompt-profile",
+                    "cover",
+                    "--raw",
+                    "--dry-run",
+                ]
+            )
+        )
+        self.assertEqual(result["prompt_used"], "原文封面")
+        self.assertIsNone(result["prompt"]["profile"])
+        self.assertEqual(result["prompt"]["optimize"]["skipped_reason"], "raw")
+
+    def test_optimize_auto_skips_without_text_backend(self) -> None:
+        original = image_gen.grok_auth_available
+        try:
+            image_gen.grok_auth_available = lambda: False  # type: ignore[method-assign]
+            with patch.object(image_gen, "env_search_files", return_value=[]), patch.dict(
+                os.environ, _env_without_credentials(), clear=True
+            ):
+                result = image_gen.run_job(
+                    image_gen.parse_args(
+                        [
+                            "封面",
+                            "--provider",
+                            "grok",
+                            "--optimize",
+                            "auto",
+                            "--dry-run",
+                        ]
+                    )
+                )
+        finally:
+            image_gen.grok_auth_available = original  # type: ignore[method-assign]
+        self.assertEqual(result["prompt_used"], "封面")
+        self.assertFalse(result["prompt"]["optimize"]["applied"])
+        self.assertEqual(result["prompt"]["optimize"]["skipped_reason"], "no_text_backend")
+
+    def test_optimize_on_without_backend_fails(self) -> None:
+        original = image_gen.grok_auth_available
+        try:
+            image_gen.grok_auth_available = lambda: False  # type: ignore[method-assign]
+            with patch.object(image_gen, "env_search_files", return_value=[]), patch.dict(
+                os.environ, _env_without_credentials(), clear=True
+            ):
+                with self.assertRaises(image_gen.ImageGenError) as ctx:
+                    image_gen.run_job(
+                        image_gen.parse_args(
+                            ["封面", "--provider", "grok", "--optimize", "on", "--dry-run"]
+                        )
+                    )
+        finally:
+            image_gen.grok_auth_available = original  # type: ignore[method-assign]
+        self.assertIn("text backend", str(ctx.exception))
+
+    def test_optimize_auto_uses_mocked_compiler(self) -> None:
+        compiled = "A calm editorial cover in powder-blue negative space. No text, letters, logos, or watermarks."
+        original = image_gen.grok_auth_available
+        try:
+            image_gen.grok_auth_available = lambda: True  # type: ignore[method-assign]
+            with patch.object(
+                image_gen,
+                "invoke_optimize_model",
+                return_value=(compiled, "grok-4.6"),
+            ), patch.object(
+                image_gen,
+                "list_optimize_backends",
+                return_value=[
+                    {
+                        "provider": "grok",
+                        "auth": "subscription",
+                        "token": "t",
+                        "base_url": "https://api.x.ai/v1",
+                    }
+                ],
+            ):
+                result = image_gen.run_job(
+                    image_gen.parse_args(
+                        [
+                            "封面",
+                            "--provider",
+                            "grok",
+                            "--optimize",
+                            "auto",
+                            "--aspect-ratio",
+                            "16:9",
+                            "--dry-run",
+                        ]
+                    )
+                )
+        finally:
+            image_gen.grok_auth_available = original  # type: ignore[method-assign]
+        self.assertTrue(result["prompt"]["optimize"]["applied"])
+        self.assertEqual(result["prompt_original"], "封面")
+        self.assertEqual(result["prompt_used"], compiled)
+        self.assertEqual(result["request"]["prompt"], compiled)
+        self.assertEqual(result["prompt"]["optimize"]["text_model"], "grok-4.6")
+
+    def test_optimize_auto_fails_over_after_first_backend_error(self) -> None:
+        compiled = "A quiet product still on matte stone. No text, letters, logos, or watermarks."
+
+        def invoke(backend, family, system, user, model_override=None):
+            if backend["provider"] == "grok":
+                raise image_gen.ImageGenError("Request timed out.")
+            return compiled, "gpt-5.6-terra"
+
+        with patch.object(image_gen, "invoke_optimize_model", side_effect=invoke), patch.object(
+            image_gen,
+            "list_optimize_backends",
+            return_value=[
+                {"provider": "grok", "auth": "subscription", "token": "t", "base_url": "https://api.x.ai/v1"},
+                {"provider": "openai", "auth": "api_key", "token": "k", "base_url": "https://api.openai.com/v1"},
+            ],
+        ):
+            result = image_gen.run_job(
+                image_gen.parse_args(
+                    ["产品静物", "--provider", "grok", "--optimize", "auto", "--dry-run"]
+                )
+            )
+        self.assertTrue(result["prompt"]["optimize"]["applied"])
+        self.assertEqual(result["prompt"]["optimize"]["text_provider"], "openai")
+        self.assertEqual(result["prompt_used"], compiled)
+        self.assertTrue(any("timed out" in item for item in result.get("notes") or []))
+
+    def test_http_timeout_becomes_image_error(self) -> None:
+        with patch.object(image_gen.urllib.request, "urlopen", side_effect=TimeoutError("slow")):
+            with self.assertRaises(image_gen.ImageGenError) as ctx:
+                image_gen.http_request("https://api.x.ai/v1/chat/completions", body=b"{}")
+        self.assertIn("timed out", str(ctx.exception))
+
+    def test_codex_skips_optimize(self) -> None:
+        result = image_gen.run_job(
+            image_gen.parse_args(
+                ["封面", "--provider", "codex", "--optimize", "on", "--dry-run"]
+            )
+        )
+        self.assertEqual(result["prompt_used"], "封面")
+        self.assertEqual(result["prompt"]["optimize"]["skipped_reason"], "codex_response_model")
+
+    def test_openai_edit_dry_run_is_multipart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.png"
+            path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            result = image_gen.run_job(
+                image_gen.parse_args(
+                    [
+                        "保留主体",
+                        "--provider",
+                        "openai",
+                        "-i",
+                        str(path),
+                        "--dry-run",
+                    ]
+                )
+            )
+        self.assertTrue(result["endpoint"].endswith("/images/edits"))
+        self.assertEqual(result["request"]["transport"], "multipart")
+        self.assertEqual(result["request"]["image_count"], 1)
+
+    def test_mask_rejected_off_openai(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "draft.png"
+            mask = Path(tmp) / "mask.png"
+            image.write_bytes(b"\x89PNG\r\n\x1a\n")
+            mask.write_bytes(b"\x89PNG\r\n\x1a\n")
+            with self.assertRaises(image_gen.ImageGenError) as ctx:
+                image_gen.run_job(
+                    image_gen.parse_args(
+                        [
+                            "inpaint",
+                            "--provider",
+                            "grok",
+                            "-i",
+                            str(image),
+                            "--mask",
+                            str(mask),
+                            "--dry-run",
+                        ]
+                    )
+                )
+        self.assertIn("--mask", str(ctx.exception))
+
+    def test_grok_rejects_four_references(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for index in range(4):
+                path = Path(tmp) / f"ref-{index}.png"
+                path.write_bytes(b"\x89PNG\r\n\x1a\n")
+                paths.extend(["-i", str(path)])
+            with self.assertRaises(image_gen.ImageGenError) as ctx:
+                image_gen.run_job(
+                    image_gen.parse_args(
+                        ["edit", "--provider", "grok", "--dry-run", *paths]
+                    )
+                )
+        self.assertIn("at most 3", str(ctx.exception))
+
+    def test_stale_grok_login_falls_through_to_openai(self) -> None:
+        compiled = "A quiet ceramic cup on stone. No text, letters, logos, or watermarks."
+
+        def fake_http(url: str, **kwargs):
+            self.assertIn("api.openai.com", url)
+            self.assertEqual(json.loads(kwargs["body"])["model"], "gpt-5.6-terra")
+            return (
+                200,
+                {"choices": [{"message": {"content": compiled}}]},
+                {},
+            )
+
+        original = image_gen.grok_auth_available
+        try:
+            image_gen.grok_auth_available = lambda: True  # type: ignore[method-assign]
+            with patch.object(
+                image_gen, "refresh_grok_auth", side_effect=image_gen.ImageGenError("expired")
+            ), patch.object(image_gen, "http_request", side_effect=fake_http), patch.object(
+                image_gen, "env_search_files", return_value=[]
+            ), patch.dict(os.environ, _env_without_credentials(OPENAI_API_KEY="sk-test"), clear=True):
+                result = image_gen.run_job(
+                    image_gen.parse_args(
+                        ["封面", "--provider", "grok", "--optimize", "auto", "--dry-run"]
+                    )
+                )
+        finally:
+            image_gen.grok_auth_available = original  # type: ignore[method-assign]
+        self.assertTrue(result["prompt"]["optimize"]["applied"])
+        self.assertEqual(result["prompt"]["optimize"]["text_provider"], "openai")
+        self.assertEqual(result["prompt"]["optimize"]["text_model"], "gpt-5.6-terra")
+        self.assertEqual(result["prompt_used"], compiled)
+        self.assertTrue(any("expired" in item for item in result.get("notes") or []))
+
+    def test_prompt_file_auto_keeps_verbatim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "prompt.txt"
+            path.write_text("封面", encoding="utf-8")
+            result = image_gen.run_job(
+                image_gen.parse_args(
+                    [
+                        "--prompt-file",
+                        str(path),
+                        "--provider",
+                        "openai",
+                        "--optimize",
+                        "auto",
+                        "--dry-run",
+                    ]
+                )
+            )
+        self.assertEqual(result["prompt_used"], "封面")
+        self.assertEqual(result["prompt"]["optimize"]["skipped_reason"], "prompt_file")
+
+    def test_prompt_file_auto_remaps_labeled_spec_to_imagine(self) -> None:
+        compiled = "一枚白蓝火箭斜向穿云，左上留白，没有商标。"
+        labeled = (
+            "Use case: ads-marketing\n"
+            "Asset type: campaign poster\n"
+            "Primary request: reusable rocket\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "prompt.txt"
+            path.write_text(labeled, encoding="utf-8")
+            with patch.object(
+                image_gen, "invoke_optimize_model", return_value=(compiled, "grok-4.6")
+            ), patch.object(
+                image_gen,
+                "list_optimize_backends",
+                return_value=[
+                    {
+                        "provider": "grok",
+                        "auth": "login",
+                        "token": "t",
+                        "base_url": "https://api.x.ai/v1",
+                    }
+                ],
+            ):
+                result = image_gen.run_job(
+                    image_gen.parse_args(
+                        [
+                            "--prompt-file",
+                            str(path),
+                            "--provider",
+                            "grok",
+                            "--optimize",
+                            "auto",
+                            "--dry-run",
+                        ]
+                    )
+                )
+        self.assertTrue(result["prompt"]["optimize"]["applied"])
+        self.assertEqual(result["prompt"]["optimize"]["adapt_reason"], "family_mismatch")
+        self.assertEqual(result["prompt"]["optimize"]["source_format"], "gpt_image")
+        self.assertEqual(result["prompt"]["optimize"]["family"], "imagine")
+        self.assertEqual(result["prompt_used"], compiled)
+        self.assertTrue(
+            any("Re-adapting a gpt_image prompt for imagine" in item for item in result.get("notes") or [])
+        )
+
+    def test_auto_unusable_output_falls_back(self) -> None:
+        with patch.object(
+            image_gen, "invoke_optimize_model", return_value=("short", "grok-4.6")
+        ), patch.object(
+            image_gen,
+            "list_optimize_backends",
+            return_value=[
+                {
+                    "provider": "grok",
+                    "auth": "api_key",
+                    "token": "t",
+                    "base_url": "https://api.x.ai/v1",
+                }
+            ],
+        ):
+            result = image_gen.run_job(
+                image_gen.parse_args(
+                    ["封面", "--provider", "grok", "--optimize", "auto", "--dry-run"]
+                )
+            )
+        self.assertFalse(result["prompt"]["optimize"]["applied"])
+        self.assertEqual(result["prompt"]["optimize"]["skipped_reason"], "optimize_failed")
+        self.assertEqual(result["prompt_used"], "封面")
+
+    def test_invoke_openai_fallback_uses_openai_model(self) -> None:
+        captured: dict = {}
+
+        def fake_http(url: str, **kwargs):
+            captured["url"] = url
+            captured["body"] = json.loads(kwargs["body"])
+            return (
+                200,
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "A quiet ceramic cup on stone. No text, letters, logos, or watermarks."
+                            }
+                        }
+                    ]
+                },
+                {},
+            )
+
+        with patch.object(image_gen, "http_request", side_effect=fake_http):
+            _text, model = image_gen.invoke_optimize_model(
+                {
+                    "provider": "openai",
+                    "auth": "api_key",
+                    "token": "sk",
+                    "base_url": "https://api.openai.com/v1",
+                },
+                "imagine",
+                "sys",
+                "user",
+            )
+        self.assertEqual(model, "gpt-5.6-terra")
+        self.assertEqual(captured["body"]["model"], "gpt-5.6-terra")
+        self.assertEqual(captured["body"]["reasoning_effort"], "low")
+
+    def test_invoke_grok_uses_low_reasoning(self) -> None:
+        captured: dict = {}
+
+        def fake_http(url: str, **kwargs):
+            captured["body"] = json.loads(kwargs["body"])
+            return (
+                200,
+                {
+                    "choices": [
+                        {"message": {"content": "A quiet ceramic cup on stone. No text, letters, logos, or watermarks."}}
+                    ]
+                },
+                {},
+            )
+
+        with patch.object(image_gen, "http_request", side_effect=fake_http):
+            _text, model = image_gen.invoke_optimize_model(
+                {
+                    "provider": "grok",
+                    "auth": "api_key",
+                    "token": "xai",
+                    "base_url": "https://api.x.ai/v1",
+                },
+                "imagine",
+                "sys",
+                "user",
+            )
+        self.assertEqual(model, "grok-4.6")
+        self.assertEqual(captured["body"]["model"], "grok-4.6")
+        self.assertEqual(captured["body"]["reasoning_effort"], "low")
+
+    def test_invoke_gemini_sends_header_not_query_key(self) -> None:
+        captured: dict = {}
+
+        def fake_http(url: str, headers=None, **kwargs):
+            captured["url"] = url
+            captured["headers"] = headers
+            return (
+                200,
+                {
+                    "candidates": [
+                        {"content": {"parts": [{"text": "雪林里一只狐狸。没有文字、字母、标志或水印。"}]}}
+                    ]
+                },
+                {},
+            )
+
+        with patch.object(image_gen, "http_request", side_effect=fake_http):
+            image_gen.invoke_optimize_model(
+                {
+                    "provider": "gemini",
+                    "auth": "api_key",
+                    "token": "SECRETKEY",
+                    "base_url": "https://generativelanguage.googleapis.com/v1beta",
+                },
+                "nano_banana",
+                "sys",
+                "user",
+            )
+        self.assertNotIn("key=", captured["url"])
+        self.assertNotIn("SECRETKEY", captured["url"])
+        self.assertEqual(captured["headers"]["x-goog-api-key"], "SECRETKEY")
+
+    def test_non_json_error_redacts_gemini_key(self) -> None:
+        class FakeHeaders(dict):
+            def get_content_charset(self) -> str:
+                return "utf-8"
+
+        class FakeResp:
+            headers = FakeHeaders()
+            status = 200
+
+            def read(self) -> bytes:
+                return b"<html>nope</html>"
+
+            def __enter__(self) -> "FakeResp":
+                return self
+
+            def __exit__(self, *args: object) -> bool:
+                return False
+
+        url = "https://generativelanguage.googleapis.com/v1beta/models/x:generateContent?key=SECRETKEY"
+        with patch.object(image_gen.urllib.request, "urlopen", return_value=FakeResp()):
+            with self.assertRaises(image_gen.ImageGenError) as ctx:
+                image_gen.http_request(url, body=b"{}")
+        self.assertNotIn("SECRETKEY", str(ctx.exception))
+        self.assertIn("key=***", str(ctx.exception))
+
+    def test_extract_gemini_text_skips_thoughts(self) -> None:
+        text = image_gen.extract_gemini_text(
+            {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {"thought": True, "text": "I should write a fox"},
+                                {"text": "雪林狐狸。没有文字、字母、标志或水印。"},
+                            ]
+                        }
+                    }
+                ]
+            }
+        )
+        self.assertEqual(text, "雪林狐狸。没有文字、字母、标志或水印。")
+        with self.assertRaises(image_gen.ImageGenError):
+            image_gen.extract_gemini_text({"candidates": []})
+
+    def test_encode_multipart_includes_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "draft.png"
+            path.write_bytes(b"png-bytes")
+            boundary, payload = image_gen.encode_multipart({"prompt": "keep subject"}, [("image", path)])
+        self.assertIn(boundary.encode(), payload)
+        self.assertIn(b'name="prompt"', payload)
+        self.assertIn(b'filename="draft.png"', payload)
+        self.assertIn(b"png-bytes", payload)
 
 
 class DyroOptionalTests(unittest.TestCase):

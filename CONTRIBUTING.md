@@ -4,7 +4,7 @@ Thanks for helping. Keep the project small and honest.
 
 ## Rules
 
-- Standard library only in `scripts/local_image_gen.py`.
+- Standard library only in `scripts/local_image_gen.py` and `scripts/prompt_compile.py`.
 - API-key defaults must stay official vendor hosts. Custom bases are explicit (`--base-url` or `*_BASE_URL`).
 - Do not add a named third-party proxy as a provider.
 - Do not print tokens, keys, or auth files.

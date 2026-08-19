@@ -18,6 +18,12 @@
       "prompt": "把 draft.png 改成干净的白板商业插图，比例 16:9。",
       "expected_output": "Agent 使用 -i draft.png 做编辑；文件不存在时先报清楚。",
       "files": ["draft.png"]
+    },
+    {
+      "id": 4,
+      "prompt": "帮我画一张封面，我不会写提示词。",
+      "expected_output": "Agent 使用 --optimize auto 或按 references/prompts.md 展开提示词，二者只选其一；不使用 --optimize on 叠在自己已经写好的长提示词上。",
+      "files": []
     }
   ]
 }

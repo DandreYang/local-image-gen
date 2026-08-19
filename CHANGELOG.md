@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.1.2
+
+- Prompt contract: `references/prompts.md`, `--prompt-profile`, `--raw`, and optional `--optimize off|on|auto`.
+- `--optimize` uses a frozen, family-matched text model (Grok login or official keys). It does not launch `agy`, `cursor-agent`, or Codex as an agent. Codex image jobs skip it because that path already rewrites. Grok 4.6 compiles with `reasoning_effort=low`. Fallback text calls use that vendor's own model, not the image-family id. `--optimize auto` keeps the original or profile wrap if every text backend fails; `--optimize on` fails the job. A broken `~/.grok/auth.json` no longer aborts listing other text backends.
+- JSON results include `prompt.original`, `prompt.used`, and `prompt.optimize`. `--dry-run` can compile without generating an image.
+- Official OpenAI Images edits now use multipart form data. `--mask` is supported on `--provider openai` only.
+- Prompt compiler uses each family's own craft: Imagine cinematic prose, gpt-image-2 `$imagegen` labels (including color, materials, typography), Nano Banana director briefs. `--optimize auto` remaps a finished prompt when switching labeled spec ↔ prose. Imagine ↔ Nano Banana stays prose unless `--optimize on`.
+- `--provider auto` without a named family prefers Grok, then Codex, then Antigravity, then Cursor.
+- Prompt-compiler OpenAI fallback uses `gpt-5.6-terra` with `reasoning_effort=low` (not Sol / `gpt-5.6`, not `gpt-4.1-mini`). The unofficial Codex Responses controller defaults to `gpt-5.6-terra` as well (`CODEX_RESPONSE_MODEL`).
+- Grok Imagine edits reject more than 3 reference images.
+
 ## 0.1.1
 
 - One-line install: clone or update, put `local-image-gen` on PATH, and link agent skills.

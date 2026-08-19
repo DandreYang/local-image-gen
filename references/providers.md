@@ -16,7 +16,7 @@ The executable source of truth is `scripts/local_image_gen.py --list-models`. Th
 
 Gemini CLI personal OAuth is not used. Nano Banana subscriptions go through Antigravity `agy --print generate_image` first. If `agy` is missing or not logged in, the Nano Banana family falls back to Cursor CLI `GenerateImage` (Nano Banana Pro). A Gemini API key is last.
 
-`auto` without a Nano Banana model still prefers Grok, then Antigravity, then Codex. Cursor is not a generic default; it only joins the Nano Banana chain, or when `--provider cursor` is set.
+`auto` without a named model family prefers Grok, then Codex, then Antigravity (`agy`), then Cursor, then official API keys. A named Nano Banana model still uses Antigravity → Cursor → Gemini key. The current harness login still wins when it is usable.
 
 ## API bases (non-subscription)
 
@@ -30,7 +30,7 @@ API-key calls default to the official host. Custom proxies are explicit only.
 
 Grok subscription, Antigravity, and Cursor stay on official login/CLI paths. A custom base never hijacks a local login.
 
-The `codex` provider is experimental: it reuses a local `codex auth login` session against an unofficial ChatGPT Codex image endpoint. Treat it as best-effort. For a supported `gpt-image-2` path, use `--provider openai` with `OPENAI_API_KEY`.
+The `codex` provider is experimental: it reuses a local `codex auth login` session against an unofficial ChatGPT Codex image endpoint. Treat it as best-effort. For a supported `gpt-image-2` path, use `--provider openai` with `OPENAI_API_KEY`. The Responses controller that invokes `image_generation` defaults to `gpt-5.6-terra` (not Sol). Override with `CODEX_RESPONSE_MODEL`. This is not an official OpenAI recommendation for that unofficial host.
 
 ## Model aliases
 
@@ -71,6 +71,29 @@ The `codex` provider is experimental: it reuses a local `codex auth login` sessi
 | `--resolution 4k` | error | error | `4K` |
 
 `--quality high` is not a Grok Imagine enum. The script upgrades omitted resolution to `2k` and keeps Grok's maximum quality (`medium` on 2.0).
+
+## Prompt compiler
+
+See [`prompts.md`](prompts.md). `--optimize` talks to official text endpoints only (Grok chat, OpenAI chat, Gemini `generateContent`). It never launches `agy`, `cursor-agent`, or Codex.
+
+| Image family | Preferred text backend | Default text model |
+| --- | --- | --- |
+| Imagine (`grok`, `xai`) | Grok login or `XAI_API_KEY` | `grok-4.6` |
+| gpt-image-2 (`openai`) | `OPENAI_API_KEY` | `gpt-5.6-terra` |
+| Nano Banana (`agy`, `cursor`, `gemini`) | `GEMINI_API_KEY` | `gemini-2.5-flash` |
+
+`--provider codex` skips `--optimize`. Override models with `--optimize-model` or `LOCAL_IMAGE_GEN_OPTIMIZE_MODEL_*`.
+
+Grok 4.6 chat defaults to high reasoning. The compiler sends `reasoning_effort=low` so a family rewrite does not stall. Fallback backends use that vendor's text model, not the image-family id. If the preferred text backend times out or a Grok login refresh fails, `--optimize auto` tries the next official text backend and then keeps the original prompt. `--optimize on` fails the job after every backend was attempted. Gemini keys go in `x-goog-api-key`, never in a logged URL.
+
+## Edits and masks
+
+| Backend | Reference images | Mask / inpaint |
+| --- | --- | --- |
+| Grok Imagine | at most 3 | not supported |
+| Official OpenAI Images | multipart `image` files | `--mask` PNG, transparent = edit |
+| Codex | `input_image` on the Responses request | not supported |
+| Antigravity / Cursor / Gemini | passed as reference paths or inline parts | not supported |
 
 ## Login repair
 
