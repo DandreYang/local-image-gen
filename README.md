@@ -49,6 +49,8 @@ local-image-gen doctor
 
 If `~/.local/bin` is not on your PATH, the installer prints the one `export` to add.
 
+Tagged releases: [v0.1.4](https://github.com/DandreYang/local-image-gen/releases/tag/v0.1.4) ([all releases](https://github.com/DandreYang/local-image-gen/releases)).
+
 From a git checkout, `./install.sh` uses that checkout instead of cloning again. The installer only creates symlinks; it will not replace an existing real skill directory.
 
 Already installed:
@@ -94,6 +96,7 @@ python3 scripts/local_image_gen.py "clean product still" \
   --provider openai --model gpt-image-2 --aspect-ratio 1:1 -o outputs/still.png
 
 # Diagnose without spending quota
+python3 scripts/local_image_gen.py doctor
 python3 scripts/local_image_gen.py "test" --dry-run --aspect-ratio 1:1
 ```
 
@@ -151,7 +154,9 @@ CLI override for one request: `--base-url` / `--api-base`. Subscriptions ignore 
 
 ```bash
 python3 tests/test_local_image_gen.py
+python3 tests/test_prompt_compile.py
 python3 scripts/local_image_gen.py --version
+python3 scripts/local_image_gen.py doctor
 ```
 
 No third-party Python dependencies.

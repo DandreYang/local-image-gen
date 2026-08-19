@@ -49,6 +49,8 @@ local-image-gen doctor
 
 如果 `~/.local/bin` 不在 PATH 里，安装脚本会打印需要加的那一行 `export`。
 
+带标签的发布： [v0.1.4](https://github.com/DandreYang/local-image-gen/releases/tag/v0.1.4)（[全部 Release](https://github.com/DandreYang/local-image-gen/releases)）。
+
 已经 clone 过的话，在仓库里跑 `./install.sh` 会用当前目录，不会再下一份。安装脚本只建符号链接，不会覆盖已有的实体 skill 目录。
 
 已经装过：
@@ -88,6 +90,7 @@ python3 scripts/local_image_gen.py "水彩狐狸在雪林里" \
 python3 scripts/local_image_gen.py "干净的产品静物" \
   --provider openai --model gpt-image-2 --aspect-ratio 1:1 -o outputs/still.png
 
+python3 scripts/local_image_gen.py doctor
 python3 scripts/local_image_gen.py "test" --dry-run --aspect-ratio 1:1
 ```
 
@@ -145,7 +148,9 @@ Key 和可选自定义 base，进程环境之后按下面顺序取第一个：
 
 ```bash
 python3 tests/test_local_image_gen.py
+python3 tests/test_prompt_compile.py
 python3 scripts/local_image_gen.py --version
+python3 scripts/local_image_gen.py doctor
 ```
 
 没有第三方 Python 依赖。

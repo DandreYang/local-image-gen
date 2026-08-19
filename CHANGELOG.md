@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Docs: point READMEs at GitHub Releases; align `update` origin/`main` rules in `providers.md` / SKILL; sidecar plan uses `doctor` and the 0.1.4 envelope.
+
 ## 0.1.4
 
 - `update` only fast-forwards `origin/main` when `origin` is `github.com/DandreYang/local-image-gen` (HTTPS or SSH). Other remotes and non-main branches refuse.

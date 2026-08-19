@@ -42,7 +42,7 @@
 
 Dyro 只认 PATH 上的 `local-image-gen` 包装命令。仅有 skill 目录、没有 wrapper 的机器算 `absent`。不要为了发现它去扫用户 skill 目录。
 
-`--doctor` 成功时是**恰好一份 JSON**，形状如下（路径字段视为本机敏感信息，**禁止原样透传到 Dyro 默认输出**）：
+`local-image-gen doctor` 成功时是**恰好一份 JSON**（`--doctor` 别名相同），形状如下（路径字段视为本机敏感信息，**禁止原样透传到 Dyro 默认输出**）：
 
 ```json
 {
@@ -147,7 +147,7 @@ dyro image install [--dry-run] [--yes]
 
 `dyro --dry-run image doctor` 与 `dyro --dry-run image install` 都不得 spawn sidecar、不得打开浏览器。这是**新增**纪律：`cmd_doctor` 今天并不看全局 `--dry-run`，不要把「git 只读体检仍会跑」理解成「可以跑 sidecar」。
 
-安装完成后用户自己跑 `local-image-gen --doctor`；Dyro 只再探测 PATH。
+安装完成后用户自己跑 `local-image-gen doctor`；Dyro 只再探测 PATH。
 
 **不要**做成 `dyro image generate …` 的计费封装。生图命令仍是 `local-image-gen`。
 
@@ -208,7 +208,7 @@ dyro --dry-run doctor              # 不得启动 local-image-gen
   "id": "local-image-gen",
   "optional": true,
   "state": "absent" | "needs_setup" | "ready" | "unavailable",
-  "version": "0.1.1",
+  "version": "0.1.4",
   "usable_providers": ["grok", "codex"]
 }
 ```
@@ -276,7 +276,7 @@ CLI 文案用中文，与现有 `dyro` 一致。
 ## 7. 验收清单（给 reviewer）
 
 - [ ] 未安装 wrapper 时，`dyro doctor` 仍成功，JSON `state=absent`
-- [ ] 已安装 wrapper 时，`dyro doctor --format json` 为 `state=present`，且**不**执行 `local-image-gen --doctor`
+- [ ] 已安装 wrapper 时，`dyro doctor --format json` 为 `state=present`，且**不**执行 `local-image-gen doctor`
 - [ ] `dyro --dry-run doctor` 与 `dyro --dry-run image doctor` 都不执行 `local-image-gen`
 - [ ] `dyro image doctor`：至少有一个订阅/Key 时 `state=ready`；无后端时 `needs_setup`，不是工作区 error
 - [ ] `dyro image doctor --format json` 默认不含路径、auth 文件、`api_base`
@@ -290,7 +290,7 @@ CLI 文案用中文，与现有 `dyro` 一致。
 
 ## 8. 给 Dyro agent 的开工顺序
 
-1. 读本文件 + 若本机有 wrapper，跑一遍 `local-image-gen --doctor` 看真实 JSON（注意 `login` 可能是路径）。
+1. 读本文件 + 若本机有 wrapper，跑一遍 `local-image-gen doctor` 看真实 JSON（注意 `login` 可能是路径）。
 2. 从 `origin/main` 开枝。定位 `cmd_doctor` 与 `_print_control_plane_json`，**不要**改 `workspace.doctor()` / `host doctor`。
 3. 落地阶段 B：`image doctor`（唯一 spawn）+ `image install`（remote_script_only）+ 单测。
 4. 落地阶段 A：`cmd_doctor` 的廉价 `which` + JSON `sidecars`。

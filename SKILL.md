@@ -138,6 +138,7 @@ The script prints one JSON object. Report to the user:
 - model, aspect/size, quality, resolution
 - whether reference images were used
 - `prompt.original` vs `prompt.used` when they differ, and whether `--optimize` ran
+- for `doctor`: `install.version`, `install.latest`, `install.update_available`
 
 ## Failures
 
@@ -149,3 +150,4 @@ The script prints one JSON object. Report to the user:
 - Cursor missing / not logged in → `cursor-agent login`, or set `CURSOR_AGENT`
 - Agent CLI finished with no image → the wrapper skipped `generate_image`; retry inside `agy` or Cursor
 - No backend → run `--list-providers` and show the empty rows
+- `update` refuses dirty / unknown git status / non-git / unofficial origin / non-main branch → report the error; do not `curl | bash`

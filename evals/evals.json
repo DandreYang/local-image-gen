@@ -24,6 +24,12 @@
       "prompt": "帮我画一张封面，我不会写提示词。",
       "expected_output": "Agent 使用 --optimize auto 或按 references/prompts.md 展开提示词，二者只选其一；不使用 --optimize on 叠在自己已经写好的长提示词上。",
       "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "看看 local-image-gen 装的是不是最新版，旧的话帮我更新。",
+      "expected_output": "Agent 先跑 local-image-gen doctor（或 scripts/local_image_gen.py doctor），看 install.update_available；需要更新时跑 local-image-gen update，不要 curl | bash，也不要叠在生图命令上。",
+      "files": []
     }
   ]
 }
