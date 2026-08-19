@@ -16,10 +16,11 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from director import look_at_image, revise_turn
 from job import brief as build_brief
+from snippets import add_snippet, color_sentence, delete_snippet, list_snippets as load_snippets
 import local_image_gen as cli
 
 WORKSPACE = Path(__file__).resolve().parents[1]
@@ -650,6 +651,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/library":
             self._send(*json_bytes({"success": True, "items": list_library()}))
             return
+        if path == "/api/snippets":
+            self._send(*json_bytes({"success": True, "snippets": load_snippets()}))
+            return
         self._send(*json_bytes({"error": "not found"}, 404))
 
     def do_POST(self) -> None:  # noqa: N802
@@ -728,7 +732,31 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/upload":
             self._send(*json_bytes(self._save_upload()))
             return
+        if path == "/api/snippets":
+            try:
+                body = self._read_json()
+                if body.get("color"):
+                    text = color_sentence(str(body.get("color") or ""))
+                    self._send(*json_bytes({"success": True, "text": text}))
+                    return
+                row = add_snippet(str(body.get("label") or ""), str(body.get("text") or ""))
+            except (ValueError, json.JSONDecodeError) as exc:
+                self._send(*json_bytes({"success": False, "error": str(exc)}, 400))
+                return
+            self._send(*json_bytes({"success": True, "snippet": row, "snippets": load_snippets()}))
+            return
         self._send(*json_bytes({"error": "not found"}, 404))
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/snippets":
+            self._send(*json_bytes({"error": "not found"}, 404))
+            return
+        snippet_id = (parse_qs(parsed.query).get("id") or [""])[0].strip()
+        if not delete_snippet(snippet_id):
+            self._send(*json_bytes({"success": False, "error": "没有这句。"}, 404))
+            return
+        self._send(*json_bytes({"success": True, "snippets": load_snippets()}))
 
     def _save_upload(self) -> Dict[str, Any]:
         content_type = self.headers.get("Content-Type") or ""

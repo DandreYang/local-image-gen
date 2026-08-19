@@ -278,6 +278,42 @@ body.is-busy .viewer img { opacity: 0.28; }
 }
 .paper .chips button:hover { border-color: var(--print-ink); filter: none; }
 .paper .chips button.on { background: var(--print-ink); border-color: var(--print-ink); color: var(--paper); }
+.paper .snippet-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.2rem 0.85rem;
+}
+.paper .snippet-row .chips { padding: 0; flex: 1 1 12rem; }
+.paper .color-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border: 1px solid var(--paper-line);
+  color: var(--print-ink);
+  padding: 0.18rem 0.45rem 0.18rem 0.4rem;
+  font-size: 0.72rem;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.paper .color-chip input {
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.paper .snippet-save {
+  padding: 0.26rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  border-color: var(--paper-line);
+  color: var(--print-ink);
+  background: transparent;
+}
+.paper .snippet-save:hover { border-color: var(--print-ink); filter: none; }
 .paper .go {
   width: 100%;
   background: linear-gradient(180deg, var(--accent-hi), var(--accent));

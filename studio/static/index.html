@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>local studio · 本机暗房</title>
-  <link rel="stylesheet" href="/static/app.css?v=darkroom8">
+  <link rel="stylesheet" href="/static/app.css?v=darkroom9">
 </head>
 <body>
   <header class="top">
@@ -51,8 +51,16 @@
           <h1>这一张要什么</h1>
           <textarea id="prompt" rows="5" required placeholder="一句就行。例如：小红书封面，人物出镜，主标题「夏季训练营」原文入画。"></textarea>
           <div class="chips" id="templates"></div>
+          <div class="snippet-row">
+            <div class="chips snippets" id="snippets"></div>
+            <label class="color-chip" title="插入主色，不要改成别的色">
+              色
+              <input id="snippet-color" type="color" value="#c45c26">
+            </label>
+            <button type="button" class="ghost snippet-save" id="snippet-save" title="把相纸上选中的那句收到常用">收这句话</button>
+          </div>
           <button type="button" class="go" id="brief-btn">整理并出图</button>
-          <p class="paper-hint">先整理任务、核对终稿，确认才花额度。出图后会自动看图写评语。</p>
+          <p class="paper-hint">手艺芯片选骨架。常用句点一下写进相纸，确认卡里看得见。Option 点击常用句可删。</p>
         </div>
         <img id="hero" alt="" hidden>
         <article class="brief-card" id="brief-card" hidden></article>
@@ -226,6 +234,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=darkroom8"></script>
+  <script src="/static/app.js?v=darkroom9"></script>
 </body>
 </html>

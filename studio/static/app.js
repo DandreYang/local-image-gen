@@ -40,6 +40,7 @@ const state = {
   director: null,
   busyTimer: null,
   busyStarted: 0,
+  snippets: [],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -886,6 +887,87 @@ function renderTemplates() {
   }
 }
 
+function insertIntoPrompt(text) {
+  const node = $("prompt");
+  if (!node || !text) return;
+  const start = node.selectionStart || 0;
+  const end = node.selectionEnd || 0;
+  const value = node.value || "";
+  const before = value.slice(0, start);
+  const after = value.slice(end);
+  const pad = before && !/\s$/.test(before) ? " " : "";
+  const next = before + pad + text + after;
+  node.value = next;
+  const pos = (before + pad + text).length;
+  node.setSelectionRange(pos, pos);
+  node.focus();
+}
+
+function colorSentence(hex) {
+  const color = String(hex || "").trim().toUpperCase();
+  return "主色 " + color + "，不要改成别的色。";
+}
+
+function renderSnippets() {
+  const root = $("snippets");
+  if (!root) return;
+  root.innerHTML = "";
+  for (const item of state.snippets) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = item.label || item.text;
+    button.title = (item.text || "") + " · Option 点击删除";
+    button.addEventListener("click", async (event) => {
+      if (event.altKey) {
+        event.preventDefault();
+        await removeSnippet(item.id);
+        return;
+      }
+      insertIntoPrompt(item.text);
+    });
+    root.appendChild(button);
+  }
+}
+
+async function refreshSnippets() {
+  const payload = await getJson("/api/snippets");
+  state.snippets = payload.snippets || [];
+  renderSnippets();
+}
+
+async function removeSnippet(id) {
+  const payload = await getJson("/api/snippets?id=" + encodeURIComponent(id), { method: "DELETE" });
+  if (payload.success === false) {
+    setStatus(payload.error || "删不掉这句。", true);
+    return;
+  }
+  state.snippets = payload.snippets || [];
+  renderSnippets();
+}
+
+async function saveSnippetFromSelection() {
+  const node = $("prompt");
+  const start = node.selectionStart || 0;
+  const end = node.selectionEnd || 0;
+  const picked = (start !== end ? node.value.slice(start, end) : "").trim();
+  if (!picked) {
+    setStatus("先在相纸上选中要收藏的那句。", true);
+    return;
+  }
+  const payload = await getJson("/api/snippets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: picked }),
+  });
+  if (payload.success === false) {
+    setStatus(payload.error || "没收下。", true);
+    return;
+  }
+  state.snippets = payload.snippets || [];
+  renderSnippets();
+  setStatus("已收到常用句。");
+}
+
 function renderBrief(card) {
   state.brief = card;
   const node = $("brief-card");
@@ -1082,6 +1164,7 @@ async function boot() {
   fillFollowModels();
   renderTemplates();
   await refreshLibrary();
+  await refreshSnippets();
   refreshVersionBadge();
 }
 
@@ -1158,6 +1241,10 @@ $("lightbox").addEventListener("touchend", (event) => {
 $("follow-provider").addEventListener("change", fillFollowModels);
 
 $("brief-btn").addEventListener("click", runBrief);
+$("snippet-save").addEventListener("click", () => saveSnippetFromSelection());
+$("snippet-color").addEventListener("change", (event) => {
+  insertIntoPrompt(colorSentence(event.target.value));
+});
 $("new-take").addEventListener("click", newTake);
 $("director-look").addEventListener("click", () => lookSelected());
 $("director-revise").addEventListener("click", reviseSelected);
