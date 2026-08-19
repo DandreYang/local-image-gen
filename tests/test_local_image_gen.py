@@ -608,7 +608,7 @@ class CliContractTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("0.1.4", result.stdout)
+        self.assertIn("0.1.5", result.stdout)
 
     def test_list_models_json(self) -> None:
         result = subprocess.run(
@@ -1197,9 +1197,9 @@ class DyroOptionalTests(unittest.TestCase):
         self.assertTrue(payload["success"])
         self.assertEqual(payload["command"], "doctor")
         self.assertTrue(payload["dyro"]["optional"])
-        self.assertEqual(payload["version"], "0.1.4")
+        self.assertEqual(payload["version"], "0.1.5")
         self.assertEqual(payload["cli"], "local-image-gen")
-        self.assertEqual(payload["install"]["version"], "0.1.4")
+        self.assertEqual(payload["install"]["version"], "0.1.5")
         self.assertEqual(payload["install"]["check_error"], "skipped")
         self.assertIsNone(payload["install"]["latest"])
         self.assertIsNone(payload["install"]["update_available"])

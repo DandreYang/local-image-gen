@@ -49,7 +49,7 @@ local-image-gen doctor
 
 如果 `~/.local/bin` 不在 PATH 里，安装脚本会打印需要加的那一行 `export`。
 
-带标签的发布： [v0.1.4](https://github.com/DandreYang/local-image-gen/releases/tag/v0.1.4)（[全部 Release](https://github.com/DandreYang/local-image-gen/releases)）。
+带标签的发布： [v0.1.5](https://github.com/DandreYang/local-image-gen/releases/tag/v0.1.5)（[全部 Release](https://github.com/DandreYang/local-image-gen/releases)）。
 
 已经 clone 过的话，在仓库里跑 `./install.sh` 会用当前目录，不会再下一份。安装脚本只建符号链接，不会覆盖已有的实体 skill 目录。
 

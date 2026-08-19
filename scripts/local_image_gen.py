@@ -48,7 +48,7 @@ from prompt_compile import (  # noqa: E402
     sanitize_optimized_prompt,
 )
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 
 CODEX_AUTH_PATH = Path("~/.codex/auth.json").expanduser()
 GROK_AUTH_PATH = Path("~/.grok/auth.json").expanduser()

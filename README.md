@@ -49,7 +49,7 @@ local-image-gen doctor
 
 If `~/.local/bin` is not on your PATH, the installer prints the one `export` to add.
 
-Tagged releases: [v0.1.4](https://github.com/DandreYang/local-image-gen/releases/tag/v0.1.4) ([all releases](https://github.com/DandreYang/local-image-gen/releases)).
+Tagged releases: [v0.1.5](https://github.com/DandreYang/local-image-gen/releases/tag/v0.1.5) ([all releases](https://github.com/DandreYang/local-image-gen/releases)).
 
 From a git checkout, `./install.sh` uses that checkout instead of cloning again. The installer only creates symlinks; it will not replace an existing real skill directory.
 
