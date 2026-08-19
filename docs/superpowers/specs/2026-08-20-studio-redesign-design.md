@@ -186,17 +186,32 @@ Studio 当前是一个可用的原型：纯 stdlib HTTP 服务 + 单文件 vanil
 - 先完成的先显示，不等全部完成。
 - 数据源为 `GET /api/batch?id=<batch_id>`，轮询间隔 1000ms。
 
-**候选数量自适应**（关键决策）：
+**候选必须与多风格分道（P0，会审收口）**
 
-`MAX_PARALLEL = 2`。**默认批量必须等于并发上限**——大于 2 会产生第二轮排队，用户感知到的是延迟翻倍而非选择变多。Codex 单张 1–3 分钟，4 张需两轮即 2–6 分钟，比出 1 张还慢且烧 4 倍配额。
+这是本节最容易接错的地方，先钉死。现有代码里通往「一次出多张」的唯一路径是 `split_count()` → `default_styles()`，而 `default_styles(2)` 返回 `['暖金杂志', '玫瑰红商务']`，`build_job_prompt()`（`studio/job.py:243`）会把 `风格：{style}。` 拼进终稿。**照这条路接线，2 张候选会变成 2 个不同风格，而不是同一句话的 2 次采样**——§5 的核心论证（生图的本质是采样）随之落空。
 
-| 任务类型 | 默认数量 | 判定依据 |
-|---|---|---|
-| 探索型首次生成 | 2 | 无 `extract_headlines()` 结果且无参考图 |
-| 定向型首次生成 | 1 | 有原文标题或有参考图锁脸，方差本来就小 |
-| 改图（edit） | 1 | `revise_turn()` 返回 `mode:"edit"` |
-| 多风格 | 用户指定数 | `split_count()` |
-| 套图 / 三视图 | 按 beats 串行 | `is_series_request()` + `execute_series()` |
+因此 `brief()` 必须返回三种互斥的 `mode`，各走各的路：
+
+| mode | 语义 | 终稿 | 执行 |
+|---|---|---|---|
+| `candidates` | **同一份编译终稿提交 N 次**，靠模型随机性取样 | 完全相同，`style` 留空 | `execute_parallel` |
+| `variants` | N 个**不同**终稿，每个带一个风格约束 | 各不相同，`style` 为风格名 | `execute_parallel` |
+| `series` | 套图，串行锁脸 | 各不相同，`style` 为 beat 名 | `execute_series` |
+
+`candidates` 模式下 `build_job_prompt()` 的 `style` 参数必须传空或 `"主风格"`——该函数已对这两个值跳过风格行，无需改它。**不得复用 `default_styles()`**。
+
+**候选数量自适应**
+
+`MAX_PARALLEL = 2`。**默认批量必须等于并发上限**——大于 2 会产生第二轮排队，用户感知到的是延迟翻倍而非选择变多。Codex 单张耗时须实测（见 §12），若确为 1–3 分钟，4 张需两轮即 2–6 分钟，比出 1 张还慢且烧 4 倍配额。
+
+| 任务类型 | mode | 默认数量 | 判定依据 |
+|---|---|---|---|
+| 首次生成（默认） | `candidates` | 2 | 无 `split_count()` 多风格信号、非套图 |
+| 改图（edit） | `candidates` | 1 | `revise_turn()` 返回 `mode:"edit"` |
+| 多风格 | `variants` | 用户指定数 | `split_count()` |
+| 套图 / 三视图 | `series` | 按 beats 串行 | `is_series_request()` |
+
+**首次生成一律默认 2 张**，不再按「探索型 / 定向型」分流。原方案用 `extract_headlines()` 是否命中来分流，但该函数（`studio/job.py:137`）要求标题写在「主标题」的**下一行**，而产品自己输入框的占位符（`index.html:53`）是单行的——照占位符写的用户会被判成探索型，判定器与产品文案自相矛盾。且「有参考图锁脸 → 方差小」与 `director.py` 的看图指令相反，后者专门在查 face drift。在有可靠的意图判定器之前，统一默认值比一个会判错的启发式更诚实。
 
 dock 常驻「再来 2 张」，追加是用户的主动决策，配额消耗为显式同意。
 
@@ -390,6 +405,33 @@ dock 常驻「再来 2 张」，追加是用户的主动决策，配额消耗为
 
 已存在、继续使用：`/api/doctor`、`/api/version`、`/api/changelog`、`/api/models`、`/api/library`、`/api/batch`、`/api/snippets`、`/api/brief`、`/api/confirm-generate`、`/api/look`、`/api/revise`、`/api/preview`、`/api/generate`、`/api/upload`。
 
+**所有新端点的强制校验规则（P0，会审收口）**
+
+原方案全文只在 `mask`（唯一的新**读**路径）提过一次校验函数，而上表里每一个写 / 移动 / 删除端点都没有校验描述。Studio 有 `--lan` 模式会绑 `0.0.0.0`（`studio/README.md` 已有警告），所以这不是「只是本机工具」可以搪塞的。
+
+下列规则对新增端点**逐条强制**，实施时不得省略：
+
+| 规则 | 适用 | 内容 |
+|---|---|---|
+| R1 服务端定文件名 | `/api/composite`、`/api/overlays`、`/api/upload?kind=mask` | 落盘文件名**一律由服务端生成**（`uuid4().hex[:10]` + 白名单后缀），绝不采用客户端提供的名字。现有 `_save_upload()` 已是这个做法，新端点照抄 |
+| R2 目标路径必须在库内 | 全部 | 任何最终写 / 读 / 移动的路径都要过 `is_under(path, OUTPUTS)`。会审已验证 `is_under()` 用 `resolve()` 是正确做法（软链会 resolve 到库外并被拒），继续沿用 |
+| R3 slug 白名单 | `/api/projects` | `<slug>` 只允许 `[a-z0-9][a-z0-9-]{0,63}`，服务端从项目名生成而非客户端指定。杜绝 `../` 与绝对路径 |
+| R4 大小上限 | `/api/composite`、`/api/overlays` | 沿用 `_save_upload()` 的 20MB 上限；`/api/composite` 因合成图可能更大，上限设 40MB 并显式拒绝超限 |
+| R5 内容校验 | `/api/composite`、`/api/overlays`、mask 上传 | 校验 PNG / JPEG 魔数再落盘。既往会审（`2026-08-19-prompt-optimize-adversarial-board.md`）已记录 `--mask` 缺魔数校验为未修 P2，这里不要重复同一个洞 |
+| R6 mask 文件名安全 | mask 上传 | mask 会被 `encode_multipart()` 插进 `filename="{...}"` 且当前未转义。R1 生成的名字只含 hex 与后缀，天然安全——**但不得允许任何其它来源的 mask 路径** |
+| R7 废纸篓的原子性 | `/api/trash` | 图、sidecar、缩略图、派生图作为一组移动。先全部校验 R2 通过再开始移动；任一步失败则回滚已移动的部分并返回错误，不留半删状态 |
+
+**CSRF 防护（P0，会审收口）**
+
+会审实测确认：带 `Content-Type: text/plain` 与 `Origin: https://evil.example` 的 POST 能到达业务逻辑（返回 `400 prompt is required`），说明服务端**没有任何来源检查**。这是既有缺陷——今天已可被任意网页驱动去烧配额——但本次重设计在其上新增了删除与移动，后果从「浪费配额」升级为「数据破坏」。**不需要 `--lan`**：用户访问任意网页，那个页面就能对 `127.0.0.1:8765` 发起跨站 POST。
+
+要求：所有 `POST` 在进入业务逻辑前校验来源，二选一，实施时择其一并在代码注释里写明选了哪个：
+
+- **方案 A（简单）**：校验 `Sec-Fetch-Site: same-origin`；缺失该头时回落校验 `Origin` 必须等于本服务的 host。现代浏览器均发送 `Sec-Fetch-Site`，非浏览器客户端（curl / 脚本）不发 `Origin`，需显式允许「两个头都没有」的情况以免打断 CLI 调用。
+- **方案 B（更强）**：`GET /` 下发一个 per-session token，写进 HTML；所有 POST 必须带 `X-Studio-Token` 匹配。代价是 CLI 直接调用需要先取 token。
+
+第 1 期不受影响（不动后端）。**第 2 期引入 `/api/composite` 与 `/api/overlays` 之前必须落地。**
+
 **已有路由的行为变更**：
 
 | 路径 | 变更 |
@@ -423,9 +465,23 @@ dock 常驻「再来 2 张」，追加是用户的主动决策，配额消耗为
 
 先只为 `calendar-poster` 与 `invite` 定义（这两个的 `ban` 文案已明确要求留码区），其余模板留空表示无默认槽位。
 
-### 7.4 候选数量判定
+### 7.4 候选模式与数量判定
 
-`job.py` 的 `brief()` 增加返回字段 `suggested_candidates: int`，按 6.1 的表格判定。前端据此设置默认批量，用户可在 dock 覆盖。
+`job.py` 的 `brief()` 返回两个新字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `mode` | `"candidates" \| "variants" \| "series"` | 见 §6.1 的三模式表。现有 `brief()` 已返回 `mode`，但取值是 `single / parallel / series`，需改为这三个语义明确的值 |
+| `suggested_candidates` | int | 仅 `mode == "candidates"` 时有意义，按 §6.1 判定 |
+
+**`candidates` 模式的 job 构造规则**（这是 P0 的落点）：
+
+- 对同一份 `build_job_prompt()` 输出**复制 N 份**，每份 `style` 留空。
+- **不得调用 `default_styles()`**，也不得让 `split_count()` 的返回值流入候选数量。
+- N 份 job 的 `prompt` / `draft` 字段必须逐字节相同；差异只应来自模型侧随机性。
+- 前端据 `suggested_candidates` 设置默认批量，用户可在 dock 覆盖。
+
+**回归测试要求**：`tests/test_studio_job.py` 增加一条断言——`mode == "candidates"` 时，返回的所有 job 的 `draft` 互相相等，且没有任何一条包含 `"风格："`。这条断言直接防住会审发现的接线错误。
 
 ---
 
@@ -452,6 +508,19 @@ outputs/
 ```
 
 点号开头的四项全部可再生或临时。备份与迁移只需拷 `outputs/`。`.gitignore` 已整个忽略 `outputs/`，无需改动。
+
+**写入必须原子且加锁（P0，会审收口）**
+
+`merge_sidecar()` 目前是 read-modify-write 后直接 `write_text()`：既非原子，也无锁。会审实测 6 线程 × 60 次写同一 sidecar，**丢失 6 个键中的 4 个且不抛任何异常**；写到一半崩溃留下截断 JSON 后，`read_sidecar()` 返回 `{}`、`load_receipt()` 返回 `None`——**静默抹掉整张图的全部溯源**。而本节恰恰称 sidecar 是唯一真相源。本次重设计新增 `template` / `session_id` / `parent` / `composed_from` / `overlays` / `starred` / `project_id` 七个字段和三个新的写入端点（`/api/composite`、`/api/receipt`、`/api/projects`），写频率显著上升，这个缺陷会被放大。
+
+所有 JSON 状态写入统一遵守两条规则：
+
+1. **原子替换**：写到同目录下的临时文件，`flush()` + `os.fsync()`，再 `os.replace()` 到目标路径。`os.replace()` 在同一文件系统内是原子的，读者要么看到旧版本要么看到新版本，不会看到截断。
+2. **按路径加锁**：`ThreadingHTTPServer` 是多线程的，`/api/composite`、`/api/receipt`、并发批次的 `write_media_receipt()` 都可能同时写同一个 sidecar。用一个模块级的 `Dict[str, threading.Lock]`（按解析后的绝对路径取锁）包住整个 read-modify-write。
+
+适用范围：`merge_sidecar()`、`.index.json`、`.batches/<id>.json`、`projects/<slug>/project.json`。
+
+**额外防御**：`read_sidecar()` 遇到 `JSONDecodeError` 时，除返回 `{}` 外还要把损坏文件改名为 `<name>.corrupt-<timestamp>` 并在 `/api/library` 的响应里带一条 warning。静默返回 `{}` 会让数据丢失不可见——这正是当前行为最危险的地方。
 
 **索引缓存**：`.index.json` 由所有 sidecar 构建、按 mtime 失效、**不存任何独有数据**。目的是让 `/api/library` 不必每次做 `OUTPUTS.rglob("*")` 加逐张读 JSON 与 PNG 文件头。选 JSON 而非 SQLite，是因为数百到数千条在内存中过滤足够快，而 schema 与迁移是实打实的复杂度。
 
@@ -590,3 +659,19 @@ studio/static/
 | 19 | 在项目下新建任务时，参考图与贴图自动附加；项目带来的品牌约束在确认 sheet 中高亮且可单独删除 | 4 |
 | 20 | 删除 `.index.json` / `.thumbs/` / `.batches/` 后 Studio 仍能正常工作并自动重建 | 4 |
 | 21 | 现有测试 `tests/test_studio_job.py` 全部通过；`run_confirm_generate` 的同步测试路径保留 | 每期 |
+
+---
+
+## 12. 须人工核
+
+以下条目会审无法从源码或本机可复现证据证明，实施前需要实测或人工确认。它们各自影响一个已写死的设计决策，不确认就动工会把假设固化进代码。
+
+| # | 待核事项 | 影响的决策 | 怎么核 |
+|---|---|---|---|
+| 1 | Codex 单张出图的真实耗时分布 | §6.1 的「默认批量 = 并发上限」论证依赖它 | 连续跑 5 次同参数生成，记录 `created_at` 与文件名时间戳之差。仓库内当前无计时数据 |
+| 2 | 非 macOS 上的缩略图方案 | §6.5 与验收 #16（首屏 < 3MB） | `sips` 是 macOS 独有。要么找到 stdlib 可行的替代，要么明确接受 Linux 上该验收项不达标并写进文档 |
+| 3 | `sips` 能否产出 §6.3 要求的 WebP | §6.3 模板缩略图格式与 250–350KB 体积估算 | 会审实测 `sips` 对 WebP 只读。若确认产不出，改用 JPEG 并重新核算体积 |
+| 4 | `--lan` 的实际使用频率 | §7 CSRF 防护的紧迫度 | 若从不使用 `--lan`，P0-4 仍需在第 2 期前落地（因为 CSRF 不需要 `--lan`），但 R2 路径校验的优先级可下调 |
+| 5 | 既往会审的 Gemini key 泄漏 P1 是否已修 | §7.5 的 `.batches/` 落盘会把含密钥的错误信息多存一份到磁盘 | 查 `2026-08-19-prompt-optimize-adversarial-board.md` 的 P1-4，确认 `http_request` 的 `JSONDecodeError` 分支是否仍把完整 URL（含 `key=`）写进异常 |
+
+未核实前，**第 2 期可以动工**（它不依赖上述任何一条）；第 3 期依赖第 1 条，第 4 期依赖第 2、3 条。

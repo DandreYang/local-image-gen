@@ -25,3 +25,5 @@ studio/__pycache__/
 .playwright-mcp/
 
 .superpowers/
+.loopx/
+.codex/goals/
