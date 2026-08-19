@@ -24,3 +24,4 @@ studio/__pycache__/
 .omc/
 .playwright-mcp/
 
+.superpowers/
