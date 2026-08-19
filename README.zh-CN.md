@@ -44,12 +44,21 @@ Python 3.9+，只用标准库。既可以当 CLI，也可以当 Claude / Codex /
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DandreYang/local-image-gen/main/install.sh | bash
-local-image-gen --list-providers
+local-image-gen doctor
 ```
 
 如果 `~/.local/bin` 不在 PATH 里，安装脚本会打印需要加的那一行 `export`。
 
 已经 clone 过的话，在仓库里跑 `./install.sh` 会用当前目录，不会再下一份。安装脚本只建符号链接，不会覆盖已有的实体 skill 目录。
+
+已经装过：
+
+```bash
+local-image-gen doctor    # 后端、Dyro，以及 main 是否更新
+local-image-gen update    # git pull --ff-only，再刷新包装脚本和 skill 链接
+```
+
+`update` 遇到脏工作区、读不了 git status、或不是 git 仓库会拒绝。它不会再跑 `curl | bash`。生图命令不会去 GitHub 查新版本。`LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` 会跳过 doctor 的新鲜度 GET（Dyro 的 5 秒 spawn 应设置此项）。
 
 ## 可选的 Dyro
 
@@ -57,7 +66,7 @@ local-image-gen --list-providers
 
 如果在 Dyro 工作区里运行（上级目录有 `dyro.toml`），又没传 `-o` / `--out-dir`，图片会写到 `<workspace>/outputs/images`，避免落到 `repositories/` 或任务 worktree 里。`-o` 始终优先。
 
-`local-image-gen --doctor` 会报告后端，以及是否检测到 Dyro CLI / 工作区，不会真正生图。
+`local-image-gen doctor` 会报告后端、是否检测到 Dyro CLI / 工作区，以及这份安装是否落后于 `main`。不会真正生图。`--doctor` 是别名。
 
 ## 用法
 

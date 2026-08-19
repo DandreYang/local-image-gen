@@ -44,12 +44,21 @@ One command. It clones or updates `~/.local/share/local-image-gen`, puts `local-
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DandreYang/local-image-gen/main/install.sh | bash
-local-image-gen --list-providers
+local-image-gen doctor
 ```
 
 If `~/.local/bin` is not on your PATH, the installer prints the one `export` to add.
 
 From a git checkout, `./install.sh` uses that checkout instead of cloning again. The installer only creates symlinks; it will not replace an existing real skill directory.
+
+Already installed:
+
+```bash
+local-image-gen doctor    # backends, Dyro, and whether main is newer
+local-image-gen update    # git pull --ff-only, then refresh the wrapper and skill links
+```
+
+`update` refuses a dirty checkout, a tree whose git status cannot be read, and a non-git copy. It does not run `curl | bash`. Generate commands never check GitHub for a new version. `LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` skips the doctor freshness GET (Dyro's 5s spawn should set this).
 
 ## Optional Dyro
 
@@ -57,7 +66,7 @@ This project does **not** require [Dyro](https://github.com/DandreYang/DyroEngin
 
 If you run it inside a Dyro workspace (an ancestor `dyro.toml`) and omit `-o` / `--out-dir`, images go to `<workspace>/outputs/images` so they stay out of `repositories/` and task worktrees. `-o` always wins.
 
-`local-image-gen --doctor` reports backends and whether a Dyro CLI or workspace is present. It does not generate an image.
+`local-image-gen doctor` reports backends, whether a Dyro CLI or workspace is present, and whether this install is behind `main`. It does not generate an image. `--doctor` is an alias.
 
 ## Usage
 

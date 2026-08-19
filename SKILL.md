@@ -18,7 +18,7 @@ If the current working directory is not the skill root, call the script by absol
 ```bash
 python3 scripts/local_image_gen.py --list-providers
 python3 scripts/local_image_gen.py --list-models
-python3 scripts/local_image_gen.py --doctor
+python3 scripts/local_image_gen.py doctor
 python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspect-ratio 16:9 --quality high --resolution 2k -o outputs/cover.png
 ```
 
@@ -40,6 +40,7 @@ python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspe
    - `--raw` stays verbatim. `--prompt-file` stays verbatim unless `auto` sees a wrong-family format. `--optimize` defaults to `off`; never pass `--optimize on` after you already expanded the prompt for this family.
    - `--provider codex` still skips `--optimize` (Responses controller can rewrite). The unofficial CLI path is not the Codex `$imagegen` skill.
 5. One image per run unless the user asks for variants (`--n`). Distinct assets are separate calls.
+6. If `doctor` reports `install.update_available`, tell the user to run `local-image-gen update`. Do not `curl | bash`, and do not attach an update to a generate command.
 
 ## Parameters the user can specify
 
@@ -59,7 +60,8 @@ python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspe
 | Output | `-o` / `--output` | Existing files become `name-v2.png` unless `--overwrite` |
 | Keys file | `--api-key-file` | Optional dotenv with `XAI_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, plus optional `*_BASE_URL` |
 | API base | `--base-url` / `--api-base` | API-key path only. Defaults to the official host. Also `XAI_BASE_URL`, `OPENAI_BASE_URL`, `GEMINI_BASE_URL` |
-| Diagnose | `--doctor` | Backends plus optional Dyro detection. Does not spend quota |
+| Diagnose | `doctor` (`--doctor`) | Backends, optional Dyro detection, and whether `main` is newer. Does not spend quota |
+| Self-update | `update` | `git pull --ff-only` plus `install.sh`. `update --dry-run` is read-only. Dirty trees, unreadable git status, and non-git installs fail. |
 
 Details and mapping tables live in `references/providers.md`. Prompt grammar lives in `references/prompts.md`. The script is the source of truth — run `--list-models` rather than inventing IDs.
 
@@ -104,7 +106,15 @@ python3 scripts/local_image_gen.py "只把透明区域换成干净白墙" --prov
 Diagnose without spending quota:
 
 ```bash
+python3 scripts/local_image_gen.py doctor
 python3 scripts/local_image_gen.py "test" --dry-run --aspect-ratio 1:1
+```
+
+Update this install:
+
+```bash
+python3 scripts/local_image_gen.py update --dry-run
+python3 scripts/local_image_gen.py update
 ```
 
 ## Auth the script will reuse

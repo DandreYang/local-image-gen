@@ -76,6 +76,8 @@ The `codex` provider is experimental: it reuses a local `codex auth login` sessi
 
 See [`prompts.md`](prompts.md). `--optimize` talks to official text endpoints only (Grok chat, OpenAI chat, Gemini `generateContent`). It never launches `agy`, `cursor-agent`, or Codex.
 
+`local-image-gen doctor` reports backends and whether this checkout is behind `main`. `local-image-gen update` fast-forwards the checkout and re-runs `install.sh`. Neither command is attached to a generate job.
+
 | Image family | Preferred text backend | Default text model |
 | --- | --- | --- |
 | Imagine (`grok`, `xai`) | Grok login or `XAI_API_KEY` | `grok-4.6` |

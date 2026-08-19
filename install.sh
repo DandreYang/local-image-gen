@@ -22,6 +22,10 @@ From a checkout:
 
 Clones or updates ${DEFAULT_HOME}, puts ${NAME} on PATH, and
 symlinks the skill into detected agent directories.
+
+After install:
+  ${NAME} doctor
+  ${NAME} update
 EOF
 }
 
@@ -178,9 +182,11 @@ fi
 echo
 echo "Next:"
 if command -v "$NAME" >/dev/null 2>&1 || [[ ":${PATH}:" == *":${BIN_DIR}:"* ]]; then
+  echo "  ${NAME} doctor"
+  echo "  ${NAME} update"
   echo "  ${NAME} --list-providers"
-  echo "  ${NAME} --doctor"
 else
+  echo "  \"${WRAPPER}\" doctor"
+  echo "  \"${WRAPPER}\" update"
   echo "  \"${WRAPPER}\" --list-providers"
-  echo "  \"${WRAPPER}\" --doctor"
 fi

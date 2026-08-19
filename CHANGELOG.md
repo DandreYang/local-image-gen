@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.3
+
+- Tool commands: `local-image-gen doctor` and `local-image-gen update` (`update --dry-run` is read-only). `--doctor` remains an alias. `doctor` reports `install` (local version, latest on `main`, share vs checkout) by reading `__version__` from official GitHub raw. It does not check on every generate. `update` is `git pull --ff-only` plus `install.sh`; dirty trees, unknown dirty state, and non-git installs fail instead of mutating. After a pull, `to` / `install.version` are read from the on-disk script, not the running process.
+
 ## 0.1.2
 
 - Prompt contract: `references/prompts.md`, `--prompt-profile`, `--raw`, and optional `--optimize off|on|auto`.

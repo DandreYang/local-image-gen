@@ -574,13 +574,18 @@ class CliContractTests(unittest.TestCase):
             "--prompt-profile",
             "--raw",
             "--mask",
+            "doctor",
+            "update",
         ):
             self.assertIn(token, result.stdout)
+        self.assertNotIn("--update", result.stdout)
 
     def test_install_script_includes_dsh(self) -> None:
         text = (SKILL_ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertIn("DSH_HOME", text)
         self.assertIn(".dsh}/skills", text)
+        self.assertIn("${NAME} doctor", text)
+        self.assertIn("${NAME} update", text)
 
     def test_version(self) -> None:
         result = subprocess.run(
@@ -590,7 +595,7 @@ class CliContractTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("0.1.2", result.stdout)
+        self.assertIn("0.1.3", result.stdout)
 
     def test_list_models_json(self) -> None:
         result = subprocess.run(
@@ -1165,20 +1170,272 @@ class DyroOptionalTests(unittest.TestCase):
             self.assertEqual(workspace, root.resolve())
 
     def test_doctor_json(self) -> None:
+        env = os.environ.copy()
+        env["LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK"] = "1"
         result = subprocess.run(
             [sys.executable, str(MODULE_PATH), "--doctor"],
             capture_output=True,
             text=True,
             timeout=30,
+            env=env,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertTrue(payload["success"])
         self.assertEqual(payload["command"], "doctor")
         self.assertTrue(payload["dyro"]["optional"])
+        self.assertEqual(payload["version"], "0.1.3")
+        self.assertEqual(payload["cli"], "local-image-gen")
+        self.assertEqual(payload["install"]["version"], "0.1.3")
+        self.assertEqual(payload["install"]["check_error"], "skipped")
+        self.assertIsNone(payload["install"]["latest"])
+        self.assertIsNone(payload["install"]["update_available"])
         names = {item["provider"] for item in payload["providers"]}
         self.assertIn("grok", names)
         self.assertNotIn("yai", names)
+
+    def test_doctor_subcommand_json(self) -> None:
+        env = os.environ.copy()
+        env["LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK"] = "1"
+        result = subprocess.run(
+            [sys.executable, str(MODULE_PATH), "doctor"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["command"], "doctor")
+        self.assertIn("install", payload)
+        self.assertEqual(payload["install"]["check_error"], "skipped")
+        self.assertIsNone(payload["install"]["latest"])
+        self.assertIsNone(payload["install"]["update_available"])
+
+
+class SelfUpdateTests(unittest.TestCase):
+    def test_parse_doctor_and_update_commands(self) -> None:
+        doctor = image_gen.parse_args(["doctor"])
+        self.assertEqual(doctor.command, "doctor")
+        self.assertTrue(doctor.doctor)
+        flag = image_gen.parse_args(["--doctor"])
+        self.assertEqual(flag.command, "doctor")
+        update = image_gen.parse_args(["update", "--dry-run"])
+        self.assertEqual(update.command, "update")
+        self.assertTrue(update.dry_run)
+        update_live = image_gen.parse_args(["update"])
+        self.assertEqual(update_live.command, "update")
+        self.assertFalse(update_live.dry_run)
+        job = image_gen.parse_args(["update the poster", "--dry-run"])
+        self.assertEqual(job.command, "generate")
+        self.assertEqual(job.prompt, "update the poster")
+        quoted_doctor = image_gen.parse_args(["doctor a red cross poster", "--dry-run"])
+        self.assertEqual(quoted_doctor.command, "generate")
+        self.assertEqual(quoted_doctor.prompt, "doctor a red cross poster")
+
+    def test_update_rejects_generate_flags(self) -> None:
+        with self.assertRaises(SystemExit):
+            image_gen.parse_args(["update", "--provider", "grok"])
+        with self.assertRaises(SystemExit):
+            image_gen.parse_args(["update", "the", "poster"])
+        with self.assertRaises(SystemExit):
+            image_gen.parse_args(["--update"])
+
+    def test_published_version_compare(self) -> None:
+        self.assertEqual(
+            image_gen.parse_published_version('__version__ = "0.1.3"\n'),
+            "0.1.3",
+        )
+        self.assertTrue(image_gen.version_is_newer("0.1.3", "0.1.2"))
+        self.assertFalse(image_gen.version_is_newer("0.1.2", "0.1.3"))
+        self.assertFalse(image_gen.version_is_newer("0.1.3", "0.1.3"))
+
+    def test_fetch_latest_uses_official_raw(self) -> None:
+        captured: dict = {}
+
+        def fake_http(url: str, **kwargs):
+            captured["url"] = url
+            captured["method"] = kwargs.get("method")
+            captured["timeout"] = kwargs.get("timeout")
+            captured["expect_json"] = kwargs.get("expect_json")
+            return 200, b'__version__ = "9.9.9"\n', {}
+
+        with patch.object(image_gen, "http_request", side_effect=fake_http):
+            self.assertEqual(image_gen.fetch_latest_version(), "9.9.9")
+        self.assertEqual(captured["method"], "GET")
+        self.assertEqual(captured["timeout"], image_gen.UPDATE_CHECK_TIMEOUT)
+        self.assertIs(captured["expect_json"], False)
+        self.assertEqual(
+            captured["url"],
+            "https://raw.githubusercontent.com/DandreYang/local-image-gen/main/scripts/local_image_gen.py",
+        )
+
+    def test_doctor_payload_records_latest(self) -> None:
+        with patch.object(image_gen, "fetch_latest_version", return_value="9.9.9"), patch.object(
+            image_gen, "update_check_enabled", return_value=True
+        ):
+            payload = image_gen.doctor_payload([])
+        self.assertTrue(payload["install"]["update_available"])
+        self.assertEqual(payload["install"]["latest"], "9.9.9")
+        self.assertIsNone(payload["install"]["check_error"])
+        self.assertIn(payload["install"]["source"], {"share", "checkout"})
+
+    def test_update_refuses_nongit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "install.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+            with patch.object(image_gen, "package_root", return_value=root):
+                with self.assertRaises(image_gen.ImageGenError) as ctx:
+                    image_gen.run_update(dry_run=True)
+        self.assertIn("Not a git checkout", str(ctx.exception))
+
+    def test_update_refuses_dirty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            (root / "install.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+
+            def fake_git(_path, *args, timeout=60):
+                if args[:2] == ("status", "--porcelain"):
+                    return subprocess.CompletedProcess(["git"], 0, " M install.sh\n", "")
+                return subprocess.CompletedProcess(["git"], 1, "", "unexpected")
+
+            with patch.object(image_gen, "package_root", return_value=root), patch.object(
+                image_gen, "git_run", side_effect=fake_git
+            ):
+                with self.assertRaises(image_gen.ImageGenError) as ctx:
+                    image_gen.run_update(dry_run=True)
+            self.assertIn("dirty", str(ctx.exception).lower())
+
+    def test_update_dry_run_does_not_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            (root / "install.sh").write_text("#!/bin/bash\necho hi\n", encoding="utf-8")
+            installer_cmds = []
+
+            pull_args = []
+
+            def fake_git(_path, *args, timeout=60):
+                if args[:2] == ("status", "--porcelain"):
+                    return subprocess.CompletedProcess(["git"], 0, "", "")
+                if args[0] == "pull":
+                    pull_args.append(args)
+                    return subprocess.CompletedProcess(["git"], 0, "Already up to date.\n", "")
+                return subprocess.CompletedProcess(["git"], 1, "", "unexpected")
+
+            def fake_run(cmd, **kwargs):
+                installer_cmds.append(list(cmd))
+                return subprocess.CompletedProcess(cmd, 0, "would   write wrapper\n", "")
+
+            with patch.object(image_gen, "package_root", return_value=root), patch.object(
+                image_gen, "git_run", side_effect=fake_git
+            ), patch.object(image_gen.subprocess, "run", side_effect=fake_run), patch.object(
+                image_gen, "update_check_enabled", return_value=False
+            ):
+                payload = image_gen.run_update(dry_run=True)
+            self.assertTrue(payload["success"])
+            self.assertTrue(payload["dry_run"])
+            self.assertEqual(payload["command"], "update")
+            self.assertEqual(pull_args, [("pull", "--ff-only", "--dry-run")])
+            self.assertEqual(installer_cmds[0][:2], ["bash", str(root / "install.sh")])
+            self.assertIn("--dry-run", installer_cmds[0])
+            self.assertEqual(payload["steps"][0]["step"], "git pull --ff-only")
+
+    def test_update_refuses_unknown_dirty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            (root / "install.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+            calls = []
+
+            def fake_git(_path, *args, timeout=60):
+                calls.append(args)
+                if args[:2] == ("status", "--porcelain"):
+                    return subprocess.CompletedProcess(["git"], 1, "", "index locked")
+                return subprocess.CompletedProcess(["git"], 0, "", "")
+
+            with patch.object(image_gen, "package_root", return_value=root), patch.object(
+                image_gen, "git_run", side_effect=fake_git
+            ):
+                with self.assertRaises(image_gen.ImageGenError) as ctx:
+                    image_gen.run_update(dry_run=True)
+            self.assertIn("Could not determine", str(ctx.exception))
+            self.assertFalse(any(args and args[0] == "pull" for args in calls))
+
+    def test_update_reports_disk_version_after_pull(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            scripts = root / "scripts"
+            scripts.mkdir()
+            (scripts / "local_image_gen.py").write_text(
+                '__version__ = "0.1.3"\n', encoding="utf-8"
+            )
+            (root / "install.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+            pull_args = []
+
+            def fake_git(_path, *args, timeout=60):
+                if args[:2] == ("status", "--porcelain"):
+                    return subprocess.CompletedProcess(["git"], 0, "", "")
+                if args[0] == "pull":
+                    pull_args.append(args)
+                    (scripts / "local_image_gen.py").write_text(
+                        '__version__ = "0.9.9"\n', encoding="utf-8"
+                    )
+                    return subprocess.CompletedProcess(["git"], 0, "Updating\n", "")
+                return subprocess.CompletedProcess(["git"], 1, "", "unexpected")
+
+            def fake_run(cmd, **kwargs):
+                self.assertEqual(list(cmd)[:2], ["bash", str(root / "install.sh")])
+                self.assertNotIn("--dry-run", cmd)
+                return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+            with patch.object(image_gen, "package_root", return_value=root), patch.object(
+                image_gen, "git_run", side_effect=fake_git
+            ), patch.object(image_gen.subprocess, "run", side_effect=fake_run), patch.object(
+                image_gen, "update_check_enabled", return_value=False
+            ):
+                payload = image_gen.run_update(dry_run=False)
+            self.assertEqual(pull_args, [("pull", "--ff-only")])
+            self.assertEqual(payload["from"], "0.1.3")
+            self.assertEqual(payload["to"], "0.9.9")
+            self.assertEqual(payload["install"]["version"], "0.9.9")
+            self.assertFalse(payload["dry_run"])
+
+    def test_attach_latest_version_failure_is_null(self) -> None:
+        info = {
+            "version": "0.1.3",
+            "latest": "stale",
+            "update_available": True,
+            "check_error": None,
+        }
+        with patch.object(
+            image_gen, "fetch_latest_version", side_effect=image_gen.ImageGenError("boom")
+        ):
+            out = image_gen.attach_latest_version(info)
+        self.assertIsNone(out["latest"])
+        self.assertIsNone(out["update_available"])
+        self.assertEqual(out["check_error"], "boom")
+
+    def test_generate_and_list_do_not_fetch_latest(self) -> None:
+        def boom(*_args, **_kwargs):
+            raise AssertionError("fetch_latest_version must not run")
+
+        with patch.object(image_gen, "fetch_latest_version", side_effect=boom):
+            image_gen.parse_args(["封面", "--dry-run"])
+            self.assertEqual(image_gen.main(["--list-providers"]), 0)
+            self.assertEqual(image_gen.main(["--list-models"]), 0)
+
+    def test_install_source_share_vs_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            share = Path(tmp) / "share"
+            other = Path(tmp) / "other"
+            share.mkdir()
+            other.mkdir()
+            with patch.object(image_gen, "default_share_home", return_value=share.resolve()):
+                self.assertEqual(image_gen.install_source(share), "share")
+                self.assertEqual(image_gen.install_source(other), "checkout")
 
 
 if __name__ == "__main__":

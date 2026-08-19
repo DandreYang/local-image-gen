@@ -15,7 +15,9 @@ Thanks for helping. Keep the project small and honest.
 
 ```bash
 python3 tests/test_local_image_gen.py
+python3 tests/test_prompt_compile.py
 python3 scripts/local_image_gen.py --list-providers
+python3 scripts/local_image_gen.py doctor
 python3 scripts/local_image_gen.py "probe" --provider openai --dry-run
 ```
 

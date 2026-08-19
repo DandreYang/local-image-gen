@@ -48,7 +48,7 @@ from prompt_compile import (  # noqa: E402
     sanitize_optimized_prompt,
 )
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 CODEX_AUTH_PATH = Path("~/.codex/auth.json").expanduser()
 GROK_AUTH_PATH = Path("~/.grok/auth.json").expanduser()
@@ -206,6 +206,12 @@ ENV_KEY_NAMES = {
 }
 
 SIZE_PATTERN = re.compile(r"^(auto|\d+x\d+)$", re.IGNORECASE)
+PUBLISHED_VERSION_RE = re.compile(r'^__version__\s*=\s*["\']([^"\']+)["\']', re.M)
+REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+DEFAULT_REPO_SLUG = "DandreYang/local-image-gen"
+UPDATE_CHECK_TIMEOUT = 2
+META_COMMANDS = ("doctor", "update")
 ASPECT_PATTERN = re.compile(
     r"^\s*(?:(?P<w>\d+(?:\.\d+)?)\s*[:/x]\s*(?P<h>\d+(?:\.\d+)?)|(?P<name>[A-Za-z][A-Za-z0-9_-]*))\s*$"
 )
@@ -547,6 +553,242 @@ def http_request(
         raise ImageGenError(f"Network error: {exc.reason}") from exc
     except json.JSONDecodeError as exc:
         raise ImageGenError(f"Non-JSON response from {redact_secrets(url)}: {exc}") from exc
+
+
+def package_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def default_share_home() -> Path:
+    override = os.environ.get("LOCAL_IMAGE_GEN_HOME", "").strip()
+    if override:
+        return Path(os.path.expanduser(override)).resolve()
+    return (Path.home() / ".local" / "share" / "local-image-gen").resolve()
+
+
+def install_source(root: Path) -> str:
+    try:
+        if root.resolve() == default_share_home():
+            return "share"
+    except OSError:
+        pass
+    return "checkout"
+
+
+def repo_slug() -> str:
+    slug = os.environ.get("LOCAL_IMAGE_GEN_REPO", DEFAULT_REPO_SLUG).strip() or DEFAULT_REPO_SLUG
+    if not REPO_SLUG_RE.fullmatch(slug):
+        raise ImageGenError("LOCAL_IMAGE_GEN_REPO must be owner/name.")
+    return slug
+
+
+def latest_version_url(slug: Optional[str] = None) -> str:
+    return f"https://raw.githubusercontent.com/{slug or repo_slug()}/main/scripts/local_image_gen.py"
+
+
+def parse_published_version(text: str) -> Optional[str]:
+    match = PUBLISHED_VERSION_RE.search(text or "")
+    return match.group(1) if match else None
+
+
+def installed_version(root: Path) -> str:
+    script = root / "scripts" / "local_image_gen.py"
+    try:
+        text = script.read_text(encoding="utf-8")
+    except OSError:
+        return __version__
+    return parse_published_version(text) or __version__
+
+
+def version_tuple(text: str) -> Tuple[int, ...]:
+    parts: List[int] = []
+    for item in (text or "").split("."):
+        if item.isdigit():
+            parts.append(int(item))
+        else:
+            break
+    return tuple(parts) or (0,)
+
+
+def version_is_newer(remote: str, local: str) -> bool:
+    return version_tuple(remote) > version_tuple(local)
+
+
+def update_check_enabled() -> bool:
+    flag = os.environ.get("LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK", "").strip().lower()
+    return flag not in {"1", "true", "yes", "on"}
+
+
+def fetch_latest_version() -> str:
+    url = latest_version_url()
+    status, raw, _headers = http_request(
+        url,
+        method="GET",
+        timeout=UPDATE_CHECK_TIMEOUT,
+        expect_json=False,
+    )
+    if status != 200:
+        raise ImageGenError(f"Version check HTTP {status}.")
+    text = raw.decode("utf-8", errors="replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
+    version = parse_published_version(text)
+    if not version:
+        raise ImageGenError("Remote script did not contain __version__.")
+    return version
+
+
+def git_run(root: Path, *args: str, timeout: int = 60) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except FileNotFoundError as exc:
+        raise ImageGenError("git is required for local-image-gen update.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ImageGenError("git timed out.") from exc
+
+
+def git_output(root: Path, *args: str, timeout: int = 60) -> str:
+    proc = git_run(root, *args, timeout=timeout)
+    if proc.returncode != 0:
+        err = redact_secrets((proc.stderr or proc.stdout or "git failed").strip())
+        raise ImageGenError(err or "git failed")
+    return proc.stdout
+
+
+def inspect_install(root: Optional[Path] = None) -> Dict[str, Any]:
+    resolved = (root or package_root()).resolve()
+    git = (resolved / ".git").exists()
+    dirty: Optional[bool] = None
+    if git:
+        try:
+            dirty = bool(git_output(resolved, "status", "--porcelain", timeout=5).strip())
+        except ImageGenError:
+            dirty = None
+    return {
+        "version": installed_version(resolved),
+        "latest": None,
+        "update_available": None,
+        "root": str(resolved),
+        "source": install_source(resolved),
+        "git": git,
+        "dirty": dirty,
+        "check_error": None,
+    }
+
+
+def attach_latest_version(info: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        latest = fetch_latest_version()
+    except ImageGenError as exc:
+        info["latest"] = None
+        info["update_available"] = None
+        info["check_error"] = str(exc)
+        return info
+    info["latest"] = latest
+    info["update_available"] = version_is_newer(latest, str(info.get("version") or ""))
+    info["check_error"] = None
+    return info
+
+
+def doctor_payload(loaded_files: Sequence[Path]) -> Dict[str, Any]:
+    workspace = find_dyro_workspace()
+    output_dir, _detected = default_image_dir()
+    install = inspect_install()
+    if update_check_enabled():
+        attach_latest_version(install)
+    else:
+        install["check_error"] = "skipped"
+    return {
+        "success": True,
+        "command": "doctor",
+        "version": __version__,
+        "cli": "local-image-gen",
+        "harness": detect_harness(),
+        "install": install,
+        "dyro": {
+            "optional": True,
+            "cli": dyro_cli_version(),
+            "workspace": str(workspace) if workspace else None,
+            "workspace_name": dyro_workspace_name(workspace) if workspace else None,
+            "output_dir": str(output_dir),
+        },
+        "providers": list_provider_status(loaded_files),
+    }
+
+
+def _run_installer(root: Path, *, dry_run: bool) -> str:
+    installer = root / "install.sh"
+    if not installer.is_file():
+        raise ImageGenError(f"missing {installer}")
+    cmd = ["bash", str(installer)]
+    if dry_run:
+        cmd.append("--dry-run")
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except FileNotFoundError as exc:
+        raise ImageGenError("bash is required for local-image-gen update.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ImageGenError("install.sh timed out.") from exc
+    output = redact_secrets((proc.stdout or proc.stderr or "").strip())
+    if proc.returncode != 0:
+        raise ImageGenError(output or "install.sh failed")
+    return output
+
+
+def run_update(*, dry_run: bool = False) -> Dict[str, Any]:
+    root = package_root()
+    before = inspect_install(root)
+    if update_check_enabled():
+        attach_latest_version(before)
+    if not before["git"]:
+        raise ImageGenError(
+            f"Not a git checkout: {root}. Re-run the official installer from "
+            f"https://github.com/{DEFAULT_REPO_SLUG}"
+        )
+    if before["dirty"] is True:
+        raise ImageGenError(
+            f"Working tree is dirty: {root}. Commit or stash, or update "
+            f"{default_share_home()} instead."
+        )
+    if before["dirty"] is not False:
+        raise ImageGenError(
+            f"Could not determine whether {root} is clean. Refusing to update."
+        )
+    pull_args = ["pull", "--ff-only"]
+    if dry_run:
+        pull_args.append("--dry-run")
+    pull = git_run(root, *pull_args, timeout=120)
+    pull_out = redact_secrets((pull.stdout or pull.stderr or "").strip())
+    if pull.returncode != 0:
+        raise ImageGenError(pull_out or "git pull --ff-only failed")
+    installer_out = _run_installer(root, dry_run=dry_run)
+    after = inspect_install(root)
+    after["latest"] = before.get("latest")
+    latest = after.get("latest")
+    if latest:
+        after["update_available"] = version_is_newer(str(latest), str(after.get("version") or ""))
+    after["check_error"] = before.get("check_error")
+    return {
+        "success": True,
+        "command": "update",
+        "dry_run": dry_run,
+        "from": before["version"],
+        "to": after["version"],
+        "install": after,
+        "steps": [
+            {"step": "git pull --ff-only", "dry_run": dry_run, "output": pull_out},
+            {"step": "install.sh", "dry_run": dry_run, "output": installer_out},
+        ],
+    }
 
 
 def guess_mime(path: Path) -> str:
@@ -2369,7 +2611,66 @@ def attach_prompt_meta(
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate or edit images via local subscriptions or official API keys.")
+    tokens = list(sys.argv[1:] if argv is None else argv)
+    command: Optional[str] = None
+    if tokens and tokens[0] in META_COMMANDS:
+        command = tokens[0]
+        tokens = tokens[1:]
+    if command == "update":
+        return parse_update_args(tokens)
+    if command == "doctor":
+        return parse_doctor_args(tokens)
+    return parse_job_args(tokens)
+
+
+def parse_update_args(argv: Sequence[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="local-image-gen update",
+        description="Fast-forward this git checkout and refresh the CLI wrapper and skill links.",
+    )
+    parser.add_argument("--version", action="version", version=f"local-image-gen {__version__}")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show the git pull and installer steps without changing files.",
+    )
+    args = parser.parse_args(list(argv))
+    args.command = "update"
+    args.doctor = False
+    args.list_providers = False
+    args.list_models = False
+    args.prompt = None
+    return args
+
+
+def parse_doctor_args(argv: Sequence[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="local-image-gen doctor",
+        description="Report backends, optional Dyro detection, and whether this install is behind main.",
+    )
+    parser.add_argument("--version", action="version", version=f"local-image-gen {__version__}")
+    parser.add_argument("--doctor", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args(list(argv))
+    args.command = "doctor"
+    args.doctor = True
+    args.list_providers = False
+    args.list_models = False
+    args.prompt = None
+    args.dry_run = False
+    return args
+
+
+def parse_job_args(argv: Sequence[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate or edit images via local subscriptions or official API keys.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Tool commands:\n"
+            "  local-image-gen doctor            Diagnose backends and install freshness\n"
+            "  local-image-gen update            Fast-forward this install\n"
+            "  local-image-gen update --dry-run  Show the update steps only\n"
+        ),
+    )
     parser.add_argument("--version", action="version", version=f"local-image-gen {__version__}")
     parser.add_argument("prompt", nargs="?", help="Image prompt.")
     parser.add_argument("-p", "--prompt-file", type=Path, help="Read the prompt from a UTF-8 file.")
@@ -2411,10 +2712,14 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--doctor",
         action="store_true",
-        help="Report backends and optional Dyro detection. Does not generate an image.",
+        help="Alias for the doctor command. Prefer: local-image-gen doctor.",
     )
-    args = parser.parse_args(argv)
-    if args.list_providers or args.list_models or args.doctor:
+    args = parser.parse_args(list(argv))
+    if args.doctor:
+        args.command = "doctor"
+        return args
+    if args.list_providers or args.list_models:
+        args.command = "list"
         return args
     if args.prompt and args.prompt_file:
         parser.error("Use either a prompt argument or --prompt-file, not both.")
@@ -2423,7 +2728,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         args.prompt = args.prompt_file.expanduser().read_text(encoding="utf-8")
         args.prompt_from_file = True
     if not args.prompt or not str(args.prompt).strip():
-        parser.error("A prompt is required unless --list-providers, --list-models, or --doctor is set.")
+        parser.error("A prompt is required unless doctor, update, --list-providers, or --list-models is used.")
     args.prompt = str(args.prompt).strip()
     if args.mask:
         args.mask = args.mask.expanduser()
@@ -2435,6 +2740,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         parser.error("Use either --size or --aspect-ratio, not both.")
     if args.size and not SIZE_PATTERN.match(args.size):
         parser.error("--size must be auto or WIDTHxHEIGHT.")
+    args.command = "generate"
     return args
 
 
@@ -2672,26 +2978,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.list_models:
         print_json({"success": True, "models": list_models_payload()})
         return 0
+    if getattr(args, "command", None) == "update":
+        try:
+            print_json(run_update(dry_run=bool(getattr(args, "dry_run", False))))
+        except ImageGenError as exc:
+            fail(str(exc))
+            return 1
+        return 0
     if args.doctor:
-        workspace = find_dyro_workspace()
-        output_dir, _detected = default_image_dir()
-        print_json(
-            {
-                "success": True,
-                "command": "doctor",
-                "version": __version__,
-                "cli": "local-image-gen",
-                "harness": detect_harness(),
-                "dyro": {
-                    "optional": True,
-                    "cli": dyro_cli_version(),
-                    "workspace": str(workspace) if workspace else None,
-                    "workspace_name": dyro_workspace_name(workspace) if workspace else None,
-                    "output_dir": str(output_dir),
-                },
-                "providers": list_provider_status(loaded_files),
-            }
-        )
+        print_json(doctor_payload(loaded_files))
         return 0
     try:
         result = run_job(args)
