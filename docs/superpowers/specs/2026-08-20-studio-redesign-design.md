@@ -156,6 +156,23 @@ Studio 当前是一个可用的原型：纯 stdlib HTTP 服务 + 单文件 vanil
 
 素材库是与两阶段平行的独立全屏视图，从顶栏进入。
 
+### 数据层级
+
+```
+项目（可选，长期，承载可复用上下文）
+  └ 会话（一个创作目标的完整迭代链）
+      └ 图（兄弟图：多风格 / 套图各占一张）
+          └ 候选组 → 版本链 → 派生（裁切 / 贴图）
+```
+
+术语定义，全文一致：
+
+- **会话**：由一次 brief 发起，**包含其后所有改稿轮次**。改稿时新图继承上一版的 `session_id`。这是素材库的分组单位。
+- **批次**：一次 `/api/confirm-generate` 调用，由 `batch_id` 标识，生命周期只到该批跑完。改稿会产生新批次但**不产生新会话**。批次是执行概念，不进素材库的分组。
+- **图**：一次 brief 可产出多张兄弟图（`split_count()` 的多风格、`execute_series()` 的套图）。兄弟图共享 `session_id` 但各有独立版本链。
+
+项目是唯一可选的一层，且只在素材库与输入区露面，不进入主流程的必经路径。
+
 ---
 
 ## 6. 模块规格
@@ -294,6 +311,37 @@ dock 常驻「再来 2 张」，追加是用户的主动决策，配额消耗为
 
 ---
 
+### 6.6 项目
+
+**项目的价值不在分类，在上下文复用。** 找图的问题已由会话分组 + 筛选 chip 解决。项目要解决的是另一件事：做「七夕系列」的封面、内页、宣传图三张时，每一次都要重新上传锁脸参考图、重新找小程序码、重新打品牌约束、重新选通路 —— 这套动作本该只做一次。
+
+**项目携带四样上下文**，在它下面开新任务时自动附加：
+
+| 上下文 | 内容 | 作用方式 |
+|---|---|---|
+| 参考图 | 相对路径列表 | 作为 `-i` 传给 CLI |
+| 常用贴图 | overlay 资产 + 默认槽位 | 预选进贴图工作台 |
+| 品牌约束 | 自由文本 | **拼进终稿**，见下方规则 |
+| 默认参数 | provider / model / aspect / quality / resolution | 预填，可覆盖 |
+
+**品牌约束的注入规则（重要）**：约束会拼进发给模型的终稿，但**必须在确认 sheet 里高亮标出项目带来的那几行，可见、可单独删除**。这条不可妥协——「确认卡把真正发给模型的终稿摊开」是本产品的核心承诺，项目不能静默改写提示词。
+
+**三条设计约束**：
+
+1. **零摩擦进入。** 默认没有项目，写一句直接出图，全程不问。出图之后才提供「归入项目 / 新建项目」。多数任务是一次性的，强制先建项目会把最高频动作变成两步，违背 §2 原则 1。
+2. **能推断，但不自动执行。** 当多个未归类会话共用同一张参考图、同一个贴图资产、或标题含同一关键词时，素材库提示「这 N 个会话看起来是同一个项目，合并？」。只建议，不自动分类——猜错的代价（图被藏到用户找不到的地方）远大于猜对的收益。
+3. **元数据层，不移动文件。** 项目定义存于 `outputs/projects/<slug>/project.json`，图片留在 `outputs/images/` 原地，receipt 加 `project_id` 字段。移动文件会打断 `cropped_from` / `composed_from` 中已记录的路径，也会让 `/media/<rel>` 路由失效，还需要写迁移——收益为零、风险实在。
+
+**UI 落点**：
+
+- 素材库左侧新增项目侧栏（含「未归类」）。项目详情页顶部是上下文条。
+- 输入区显示一枚项目徽章，下方一行说明本次自动带上了什么，并提供「这次不带」。
+- 项目侧栏**只在素材库出现**，不进主流程。
+
+**与 Dyro workspace 的区分**：`dyro.toml` 的 `[workspace]` 是**代码仓库**概念（git anchors、task 分支、verify 命令），它对图片的唯一作用是决定 `outputs/` 落在哪个目录（`find_dyro_workspace()`）。Studio 的项目是**创作目标**。一个 Dyro workspace 下可以有多个 Studio 项目。文案上避免把两者都叫「工作区」——Studio 内一律称「项目」。
+
+---
+
 ## 7. 后端契约变更
 
 生图引擎 `scripts/local_image_gen.py` 不变。`studio/` 的改动如下。
@@ -307,7 +355,9 @@ dock 常驻「再来 2 张」，追加是用户的主动决策，配额消耗为
 | GET | `/api/overlays` | 列出 `outputs/overlays/` 的常用贴图 |
 | POST | `/api/overlays` | 上传贴图资产到 `outputs/overlays/` |
 | POST | `/api/trash` | 将指定图片及其 sidecar、缩略图、派生图移入 `outputs/.trash/` |
-| POST | `/api/receipt` | 局部更新 sidecar 的用户可变字段。当前只允许 `starred`，白名单机制便于后续扩展 |
+| POST | `/api/receipt` | 局部更新 sidecar 的用户可变字段。当前只允许 `starred` 与 `project_id`，白名单机制便于后续扩展 |
+| GET | `/api/projects` | 列出 `outputs/projects/*/project.json` |
+| POST | `/api/projects` | 新建 / 更新项目定义（名称、参考图、贴图、品牌约束、默认参数） |
 
 已存在、继续使用：`/api/doctor`、`/api/version`、`/api/changelog`、`/api/models`、`/api/library`、`/api/batch`、`/api/snippets`、`/api/brief`、`/api/confirm-generate`、`/api/look`、`/api/revise`、`/api/preview`、`/api/generate`、`/api/upload`。
 
@@ -318,11 +368,12 @@ dock 常驻「再来 2 张」，追加是用户的主动决策，配额消耗为
 | 字段 | 类型 | 用途 |
 |---|---|---|
 | `template` | string | 模板 id。驱动模板缩略图个人化与素材库按模板筛选 |
-| `session_id` | string | 同一次 brief 起的所有图共享。驱动素材库会话分组 |
+| `session_id` | string | 会话 id，见 §5 术语。首次 brief 生成，改稿时**从 `parent` 继承**。驱动素材库分组 |
 | `parent` | string \| null | 改稿链的上一版相对路径。驱动版本谱系 |
 | `composed_from` | string \| null | 贴图合成的原图。与现有 `cropped_from` 同一模式 |
 | `overlays` | array \| null | 贴图记录：`[{src, anchor, x_pct, y_pct, w_pct, quiet_zone_pct}]`，用于重编辑 |
 | `starred` | bool | 收藏标记 |
+| `project_id` | string \| null | 所属项目 slug。`null` 表示未归类 |
 
 `load_receipt()` 的 merge 逻辑与 `media_item()` 的输出需同步扩展。旧 receipt 缺失这些字段时按 `null` 处理，不做迁移。
 
@@ -421,9 +472,10 @@ studio/static/
 
 - 模板徽章 + 选择器 sheet + 三级降级缩略图 + `scripts/build_template_thumbs.py`
 - 素材库全屏视图 + 会话分组 + 筛选 chips + 废纸篓；删除 56px 胶片条
-- 后端：`GET /thumb/<rel>`、`POST /api/trash`、`POST /api/receipt`；receipt 加 `template`、`starred`
+- 项目：侧栏 + 上下文条 + 输入区徽章 + 归类建议
+- 后端：`GET /thumb/<rel>`、`POST /api/trash`、`POST /api/receipt`、`GET|POST /api/projects`；receipt 加 `template`、`starred`、`project_id`
 
-交付后可见的变化：模板可视化、素材库首屏 58MB → 约 1.5MB、图片谱系可见。
+交付后可见的变化：模板可视化、素材库首屏 58MB → 约 1.5MB、图片谱系可见、项目上下文不必重复搭建。
 
 ### 第 4 期 · 贴图合成
 
@@ -452,7 +504,9 @@ studio/static/
 | 8 | 迭代到第 3 轮后，能从工序流侧栏点回 v1 并在舞台上看到它 | 2 |
 | 9 | 模板徽章正确反映 `pick_template()` 的推断结果，且点击可改 | 3 |
 | 10 | 素材库首屏加载传输量 < 3MB（当前 58MB） | 3 |
-| 11 | 素材库按会话分组，`cropped_from` 的派生关系在界面上可见 | 3 |
-| 12 | 二维码贴图后，实际像素 ≥ 220px 且静区 ≥ 10% 时校验通过；低于阈值时在导出前给出警告 | 4 |
-| 13 | 合成图另存为新文件，原图保留，sidecar 记录 `composed_from` 与 overlay 坐标 | 4 |
-| 14 | 现有测试 `tests/test_studio_job.py` 全部通过；`run_confirm_generate` 的同步测试路径保留 | 每期 |
+| 11 | 素材库按会话分组，改稿产生的新图落进同一组；`cropped_from` 的派生关系在界面上可见 | 3 |
+| 12 | 不建项目也能走完整条主路径，全程不被要求选择项目 | 3 |
+| 13 | 在项目下新建任务时，参考图与贴图自动附加；项目带来的品牌约束在确认 sheet 中高亮且可单独删除 | 3 |
+| 14 | 二维码贴图后，实际像素 ≥ 220px 且静区 ≥ 10% 时校验通过；低于阈值时在导出前给出警告 | 4 |
+| 15 | 合成图另存为新文件，原图保留，sidecar 记录 `composed_from` 与 overlay 坐标 | 4 |
+| 16 | 现有测试 `tests/test_studio_job.py` 全部通过；`run_confirm_generate` 的同步测试路径保留 | 每期 |
