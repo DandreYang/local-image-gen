@@ -1,19 +1,19 @@
 import { state, subscribe, notify } from "../state.js";
 import { getJson, postJson, postForm, fetchLibrary } from "../api.js";
 import { showStatus, showError } from "../lib/status.js";
+import { quoteCopy } from "../lib/busy.js";
 import { OVERLAY_SLOTS } from "../lib/constants.js";
 import {
-  loadImage,
-  blobToBase64,
-  composeOverlay,
-  detectQuietRect,
-  slotRect,
-  pixelsToPct,
-  chooseRepaintPath,
-  measurePlacementScan,
+  loadImage, blobToBase64, composeOverlay, detectQuietRect, slotRect, pixelsToPct,
+  chooseRepaintPath, measurePlacementScan, pasteRegion, inwardFeatherPx, buildMaskCanvas,
+  repaintPathCopy, pctToPixels, mediaUrlFromGenerate, boxPctFromPointer,
 } from "../lib/canvas.js";
 
 const $ = (id) => document.getElementById(id);
+const blobPng = (node) => new Promise((resolve) => node.toBlob(resolve, "image/png"));
+const followProvider = () => ($("follow-provider") || {}).value || "auto";
+let boxing = false;
+let boxStart = null;
 
 function titleFor(intent) {
   if (intent === "qr") return "贴二维码";
@@ -81,12 +81,7 @@ async function previewOverlay() {
   }
   const overlayImg = await loadImage(session.asset.url);
   session.scan = measurePlacementScan(base, overlayImg, session.placement);
-  const composed = composeOverlay({
-    base,
-    overlay: overlayImg,
-    placement: session.placement,
-    forceWhite: session.scan.forceWhite,
-  });
+  const composed = composeOverlay({ base, overlay: overlayImg, placement: session.placement, forceWhite: session.scan.forceWhite });
   canvas.width = composed.width;
   canvas.height = composed.height;
   canvas.getContext("2d").drawImage(composed, 0, 0);
@@ -108,27 +103,19 @@ export async function saveOverlayCompose() {
   session.scan = measurePlacementScan(base, overlayImg, session.placement);
   const scanNode = $("overlay-scan");
   if (scanNode && !session.scan.ok) scanNode.textContent = session.scan.warnings.join("；");
-  const composed = composeOverlay({
-    base,
-    overlay: overlayImg,
-    placement: session.placement,
-    forceWhite: session.scan.forceWhite,
-  });
-  const blob = await new Promise((resolve) => composed.toBlob(resolve, "image/png"));
-  const png_base64 = await blobToBase64(blob);
+  const composed = composeOverlay({ base, overlay: overlayImg, placement: session.placement, forceWhite: session.scan.forceWhite });
+  const png_base64 = await blobToBase64(await blobPng(composed));
   const payload = await postJson("/api/composite", {
     png_base64,
     composed_from: session.item.id,
-    overlays: [
-      {
-        src: session.asset.id,
-        anchor: session.placement.anchor,
-        x_pct: session.placement.x_pct,
-        y_pct: session.placement.y_pct,
-        w_pct: session.placement.w_pct,
-        quiet_zone_pct: session.placement.quiet_zone_pct,
-      },
-    ],
+    overlays: [{
+      src: session.asset.id,
+      anchor: session.placement.anchor,
+      x_pct: session.placement.x_pct,
+      y_pct: session.placement.y_pct,
+      w_pct: session.placement.w_pct,
+      quiet_zone_pct: session.placement.quiet_zone_pct,
+    }],
   });
   if (!payload.success) {
     showError(payload, "合成没有写进库。");
@@ -201,23 +188,45 @@ function renderDock() {
   const dock = $("overlay-dock");
   const session = state.overlay;
   if (!dock) return;
-  if (!session || session.intent === "repaint") {
-    if (session && session.intent === "repaint") return;
+  if (!session) {
     dock.innerHTML = "";
+    return;
+  }
+  if (session.intent === "repaint") {
+    const provider = session.path === "B" ? "openai" : followProvider();
+    const pathLine = `<p id="overlay-path">${repaintPathCopy(session.path)}</p>`;
+    dock.innerHTML = session.awaitingConfirm
+      ? `${pathLine}<p id="overlay-quote">${quoteCopy(1, provider)}</p><button type="button" id="overlay-repaint-ok">确认重绘</button><button type="button" id="overlay-repaint-cancel">取消</button>`
+      : `${pathLine}<textarea id="overlay-repaint-text" rows="2" placeholder="只改框里：例如 把这行字改成夏季营">${session.prompt || ""}</textarea><button type="button" id="overlay-repaint-run">重绘这一块</button>`;
     return;
   }
   const assets = (session.assets || [])
     .map((asset) => `<button type="button" class="chip" data-overlay-asset="${asset.id}">${asset.name}</button>`)
     .join("");
-  dock.innerHTML = `
-    <label class="upload">选一张贴图<input id="overlay-file" type="file" accept="image/png,image/jpeg"></label>
-    <div class="overlay-assets">${assets || "库存还是空的"}</div>
-    <button type="button" class="pro-only" id="overlay-detect">检测干净区</button>
-    <button type="button" class="pro-only" id="overlay-slot">用模板槽位</button>
-    <label class="pro-only">宽 %<input id="overlay-w" type="number" min="4" max="80" value="${session.placement.w_pct}"></label>
-    <label class="pro-only">静区 %<input id="overlay-quiet" type="number" min="8" max="30" value="${session.placement.quiet_zone_pct}"></label>
-    <button type="button" id="overlay-save">贴到这张图</button>
-  `;
+  dock.innerHTML = `<label class="upload">选一张贴图<input id="overlay-file" type="file" accept="image/png,image/jpeg"></label><div class="overlay-assets">${assets || "库存还是空的"}</div><button type="button" class="pro-only" id="overlay-detect">检测干净区</button><button type="button" class="pro-only" id="overlay-slot">用模板槽位</button><label class="pro-only">宽 %<input id="overlay-w" type="number" min="4" max="80" value="${session.placement.w_pct}"></label><label class="pro-only">静区 %<input id="overlay-quiet" type="number" min="8" max="30" value="${session.placement.quiet_zone_pct}"></label><button type="button" id="overlay-save">贴到这张图</button>`;
+}
+
+function bindRepaintBox() {
+  const canvas = $("overlay-canvas");
+  if (!canvas || canvas.dataset.boxBound) return;
+  canvas.dataset.boxBound = "1";
+  canvas.addEventListener("pointerdown", (event) => {
+    if (!state.overlay || state.overlay.intent !== "repaint") return;
+    boxing = true;
+    boxStart = boxPctFromPointer(canvas, event);
+  });
+  canvas.addEventListener("pointerup", (event) => {
+    if (!boxing || !state.overlay) return;
+    boxing = false;
+    const end = boxPctFromPointer(canvas, event);
+    state.overlay.box = {
+      x_pct: Math.min(boxStart.x, end.x),
+      y_pct: Math.min(boxStart.y, end.y),
+      w_pct: Math.abs(end.x - boxStart.x),
+      h_pct: Math.abs(end.y - boxStart.y),
+    };
+    notify();
+  });
 }
 
 function renderOverlay() {
@@ -230,6 +239,125 @@ function renderOverlay() {
   title.textContent = titleFor(session.intent);
   renderDock();
   previewOverlay().catch((error) => showStatus({ ok: false, message: String(error.message || error) }));
+  bindRepaintBox();
+}
+
+function repaintReady(session) {
+  if (!session?.box || session.box.w_pct < 1 || session.box.h_pct < 1) {
+    showStatus({ ok: false, message: "先在图上拖出一个框。" });
+    return "";
+  }
+  const instruction = (session.prompt || "").trim();
+  if (!instruction) {
+    showStatus({ ok: false, message: "写一句只要改框里的什么。" });
+    return "";
+  }
+  return instruction;
+}
+
+function askRepaintQuote() {
+  const session = state.overlay;
+  if (!repaintReady(session)) return;
+  session.awaitingConfirm = true;
+  notify();
+}
+
+function cancelRepaintQuote() {
+  if (!state.overlay) return;
+  state.overlay.awaitingConfirm = false;
+  notify();
+}
+
+export async function runRepaint() {
+  const session = state.overlay;
+  if (!session || !session.awaitingConfirm) return;
+  session.awaitingConfirm = false;
+  const instruction = repaintReady(session);
+  if (!instruction) return;
+  const pathNode = $("overlay-path");
+  if (pathNode) pathNode.textContent = repaintPathCopy(session.path);
+  const base = await loadImage(session.item.url);
+  const pixelBox = {
+    x: pctToPixels(session.box.x_pct, base.naturalWidth),
+    y: pctToPixels(session.box.y_pct, base.naturalHeight),
+    w: pctToPixels(session.box.w_pct, base.naturalWidth),
+    h: pctToPixels(session.box.h_pct, base.naturalHeight),
+  };
+  const record = {
+    src: "repaint",
+    x_pct: session.box.x_pct,
+    y_pct: session.box.y_pct,
+    w_pct: session.box.w_pct,
+    h_pct: session.box.h_pct,
+    path: session.path,
+  };
+  let usedPath = session.path;
+  let generated = null;
+  if (usedPath === "B") {
+    const maskCanvas = buildMaskCanvas(base.naturalWidth, base.naturalHeight, pixelBox);
+    const form = new FormData();
+    form.append("file", await blobPng(maskCanvas), "mask.png");
+    const uploaded = await postForm("/api/upload?kind=mask", form);
+    if (!uploaded.success) {
+      showError(uploaded, "遮罩没有写进去，改走路径 A。");
+      usedPath = "A";
+    } else {
+      generated = await postJson("/api/generate", {
+        prompt: instruction,
+        provider: "openai",
+        images: [session.item.id],
+        mask: uploaded.items[0],
+        composed_from: session.item.id,
+        overlays: [record],
+        optimize: "off",
+        raw: true,
+      });
+      if (!generated.success) {
+        showError(generated, "路径 B 没能重绘，改走路径 A。");
+        usedPath = "A";
+        generated = null;
+      }
+    }
+  }
+  if (usedPath === "A") {
+    if (pathNode) pathNode.textContent = repaintPathCopy("A");
+    generated = await postJson("/api/generate", {
+      prompt: instruction,
+      provider: followProvider(),
+      images: [session.item.id],
+      optimize: "off",
+      raw: true,
+      scratch: true,
+    });
+    if (!generated || !generated.success) {
+      showError(generated || {}, "这一块没能重绘。");
+      return;
+    }
+    const pasted = pasteRegion({
+      base,
+      regen: await loadImage(mediaUrlFromGenerate(generated)),
+      box: pixelBox,
+      feather: inwardFeatherPx(pixelBox.w, pixelBox.h),
+    });
+    const payload = await postJson("/api/composite", {
+      png_base64: await blobToBase64(await blobPng(pasted)),
+      composed_from: session.item.id,
+      overlays: [{ ...record, path: "A" }],
+    });
+    if (!payload.success) {
+      showError(payload, "回贴没有写进库。");
+      return;
+    }
+    await fetchLibrary();
+    state.selected = payload.item;
+    closeOverlay();
+    showStatus({ ok: true, message: "已按路径 A 回贴，框外仍是原图像素。" });
+    return;
+  }
+  await fetchLibrary();
+  if (generated.item) state.selected = generated.item;
+  closeOverlay();
+  showStatus({ ok: true, message: "已按路径 B 重绘这一块。" });
 }
 
 export function initOverlay() {
@@ -246,11 +374,13 @@ export function initOverlay() {
     if (event.target.closest("#overlay-detect")) detectSlot();
     if (event.target.closest("#overlay-slot")) applyTemplateSlot();
     if (event.target.closest("#overlay-save")) saveOverlayCompose();
+    if (event.target.closest("#overlay-repaint-run")) askRepaintQuote();
+    if (event.target.closest("#overlay-repaint-ok")) runRepaint();
+    if (event.target.closest("#overlay-repaint-cancel")) cancelRepaintQuote();
   });
   root.addEventListener("change", (event) => {
-    if (event.target.id === "overlay-file" && event.target.files && event.target.files[0]) {
-      uploadOverlayFile(event.target.files[0]);
-    }
+    if (event.target.id === "overlay-repaint-text" && state.overlay) state.overlay.prompt = event.target.value;
+    if (event.target.id === "overlay-file" && event.target.files && event.target.files[0]) uploadOverlayFile(event.target.files[0]);
     if (event.target.id === "overlay-w" && state.overlay) {
       state.overlay.placement.w_pct = Number(event.target.value);
       notify();

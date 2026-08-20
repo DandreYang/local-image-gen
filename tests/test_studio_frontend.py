@@ -321,7 +321,7 @@ class TestViewModules(unittest.TestCase):
         "lib/status.js": ["showStatus", "showError"],
         "lib/busy.js": ["durationFromName", "expectCopy", "startBusy", "stopBusy", "waitingCopy", "quoteCopy"],
         "lib/format.js": ["escapeHtml", "dash", "formatDuration", "formatTime", "aspectFromText", "formBody", "uniqueImages"],
-        "views/overlay.js": ["openOverlay", "closeOverlay", "initOverlay", "saveOverlayCompose", "applyOverlayAsset"],
+        "views/overlay.js": ["openOverlay", "closeOverlay", "initOverlay", "saveOverlayCompose", "applyOverlayAsset", "runRepaint"],
     }
 
     LEAF_MODULES = [
@@ -616,6 +616,43 @@ class TestOverlayWorkbench(unittest.TestCase):
         self.assertIn('id="overlay-qr"', html)
         self.assertIn('id="overlay-logo"', html)
         self.assertIn('id="overlay-workbench"', html)
+
+
+class TestRepaintPaths(unittest.TestCase):
+    def test_repaint_entry_is_pro_only(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="overlay-repaint"', html)
+        self.assertRegex(html, r'id="overlay-repaint"[^>]*class="[^"]*pro-only')
+
+    def test_overlay_names_the_path(self):
+        text = (STATIC / "js" / "views" / "overlay.js").read_text(encoding="utf-8")
+        self.assertRegex(text, r"export\s+async\s+function\s+runRepaint\b")
+        self.assertIn("repaintPathCopy", text)
+        self.assertIn("pasteRegion", text)
+        self.assertIn("buildMaskCanvas", text)
+        self.assertIn("mediaUrlFromGenerate", text)
+        self.assertIn("boxPctFromPointer", text)
+        self.assertIn("/api/upload?kind=mask", text)
+        self.assertIn('provider: "openai"', text.replace("'", '"'))
+        self.assertIn("kind=mask", text)
+        self.assertIn("quoteCopy", text)
+        self.assertRegex(text, r"scratch\s*:\s*true")
+        self.assertIn("overlay-repaint-ok", text)
+        self.assertIn("overlay-repaint-cancel", text)
+        self.assertNotIn("views/brief.js", text)
+        self.assertNotIn("askConfirm", text)
+
+    def test_cancel_does_not_call_generate(self):
+        text = (STATIC / "js" / "views" / "overlay.js").read_text(encoding="utf-8")
+        self.assertRegex(text, r"function\s+cancelRepaintQuote")
+        start = text.index("function cancelRepaintQuote")
+        chunk = text[start : start + 280]
+        self.assertNotIn("postJson", chunk)
+        self.assertNotIn("/api/generate", chunk)
+
+    def test_path_a_does_not_require_a_key(self):
+        text = (STATIC / "js" / "lib" / "canvas.js").read_text(encoding="utf-8")
+        self.assertIn('api_key ? "B" : "A"', text)
 
 
 class TestCanvasContracts(unittest.TestCase):
