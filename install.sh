@@ -26,6 +26,7 @@ symlinks the skill into detected agent directories.
 After install:
   ${NAME} doctor
   ${NAME} update
+  ${NAME} studio
 EOF
 }
 
@@ -184,9 +185,11 @@ echo "Next:"
 if command -v "$NAME" >/dev/null 2>&1 || [[ ":${PATH}:" == *":${BIN_DIR}:"* ]]; then
   echo "  ${NAME} doctor"
   echo "  ${NAME} update"
+  echo "  ${NAME} studio"
   echo "  ${NAME} --list-providers"
 else
   echo "  \"${WRAPPER}\" doctor"
   echo "  \"${WRAPPER}\" update"
+  echo "  \"${WRAPPER}\" studio"
   echo "  \"${WRAPPER}\" --list-providers"
 fi

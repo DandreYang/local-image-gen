@@ -1831,6 +1831,24 @@ class StudioLaunchTests(unittest.TestCase):
                 code = image_gen.run_studio(image_gen.parse_args(["studio"]))
         self.assertEqual(code, 1)
 
+    def test_docs_mention_studio_command(self) -> None:
+        root = SKILL_ROOT
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        self.assertIn("local-image-gen studio", readme)
+        self.assertIn("--daemon", readme)
+        zh = (root / "README.zh-CN.md").read_text(encoding="utf-8")
+        self.assertIn("local-image-gen studio", zh)
+        skill = (root / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("`studio`", skill)
+        providers = (root / "references" / "providers.md").read_text(encoding="utf-8")
+        self.assertIn("studio", providers)
+        installer = (root / "install.sh").read_text(encoding="utf-8")
+        self.assertGreaterEqual(installer.count("studio"), 3)
+        changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn("studio", changelog.lower())
+        workflow = (root / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertIn("test_studio_server.py", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

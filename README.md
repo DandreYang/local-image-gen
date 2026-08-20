@@ -58,7 +58,11 @@ Already installed:
 ```bash
 local-image-gen doctor    # backends, Dyro, and whether main is newer
 local-image-gen update    # git pull --ff-only, then refresh the wrapper and skill links
+local-image-gen studio            # open the local Studio UI (opens a browser)
+local-image-gen studio --lan --daemon   # detach on a Linux host; then --stop
 ```
+
+Studio is a local web UI for the same CLI. `local-image-gen studio` binds `127.0.0.1:8765` by default and opens a browser after the server is listening. `--no-open` skips the browser. `--lan` binds `0.0.0.0` and prints a warning: LAN bind shares this machine's image backends with the network. On a host with a public IP, restrict the port with a firewall or security group; this tool does not add login or TLS. `--daemon` detaches from the terminal (implies `--no-open`); `local-image-gen studio --stop` is idempotent. Closing a foreground terminal stops Studio. There is no systemd unit.
 
 `update` refuses a dirty checkout, a tree whose git status cannot be read, a non-git copy, a non-official `origin`, and any branch other than `main`/`master`. It only runs `git pull --ff-only origin main`. It does not run `curl | bash`. Generate commands never check GitHub for a new version. `LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` skips the doctor freshness GET (Dyro's 5s spawn should set this).
 

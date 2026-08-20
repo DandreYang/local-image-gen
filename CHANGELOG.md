@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Studio: `local-image-gen studio` starts the local UI, opens a browser after bind, and supports `--no-open`, `--lan`, `--daemon`, and `--stop`. Runtime state lives under the share home so git checkouts stay clean.
+
 ## 0.1.5
 
 - Grok: stop sending the pixel `size` parameter to the official xAI Imagine API, which rejects it with HTTP 400 (`Argument not supported: size`). `aspect_ratio` alone is sent to the official endpoint; custom OpenAI-compatible bases (e.g. via `XAI_BASE_URL`) still get an explicit pixel `size`.

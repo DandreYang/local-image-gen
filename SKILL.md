@@ -41,6 +41,7 @@ python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspe
    - `--provider codex` still compiles when `--optimize on|auto` (gpt-image family). The unofficial Responses controller may rewrite again; Studio sends the compiled draft with `--raw` when it already compiled.
 5. One image per run unless the user asks for variants (`--n`). Distinct assets are separate calls.
 6. If `doctor` reports `install.update_available`, tell the user to run `local-image-gen update`. Do not `curl | bash`, and do not attach an update to a generate command.
+7. Only start Studio when the user asks to open the UI. Run `local-image-gen studio` (or `python3 scripts/local_image_gen.py studio`). Do not attach it to a generate command.
 
 ## Parameters the user can specify
 
@@ -62,6 +63,7 @@ python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspe
 | API base | `--base-url` / `--api-base` | API-key path only. Defaults to the official host. Also `XAI_BASE_URL`, `OPENAI_BASE_URL`, `GEMINI_BASE_URL` |
 | Diagnose | `doctor` (`--doctor`) | Backends, optional Dyro detection, and whether `main` is newer. Does not spend quota |
 | Self-update | `update` | `git pull --ff-only origin main` plus `install.sh`. Official `github.com` origin only; `main`/`master` only. Dirty / unknown / non-git fail. |
+| Studio UI | `studio` | Start the local web UI. `--lan` / `--port` / `--host` / `--no-open` / `--daemon` / `--stop`. Closing the foreground terminal stops it. |
 
 Details and mapping tables live in `references/providers.md`. Prompt grammar lives in `references/prompts.md`. The script is the source of truth — run `--list-models` rather than inventing IDs.
 
@@ -108,6 +110,9 @@ Diagnose without spending quota:
 ```bash
 python3 scripts/local_image_gen.py doctor
 python3 scripts/local_image_gen.py "test" --dry-run --aspect-ratio 1:1
+python3 scripts/local_image_gen.py studio
+python3 scripts/local_image_gen.py studio --lan --daemon
+python3 scripts/local_image_gen.py studio --stop
 ```
 
 Update this install:

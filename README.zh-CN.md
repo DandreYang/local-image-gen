@@ -58,7 +58,11 @@ local-image-gen doctor
 ```bash
 local-image-gen doctor    # 后端、Dyro，以及 main 是否更新
 local-image-gen update    # git pull --ff-only，再刷新包装脚本和 skill 链接
+local-image-gen studio            # 打开本机 Studio（监听成功后打开浏览器）
+local-image-gen studio --lan --daemon   # 在 Linux 主机上脱离终端；停用 --stop
 ```
+
+Studio 是同一套 CLI 的本机网页界面。`local-image-gen studio` 默认绑 `127.0.0.1:8765`，服务开始监听后再打开浏览器。`--no-open` 跳过浏览器。`--lan` 绑 `0.0.0.0`，并打印警告：局域网绑定会把这台机器的生图后端分享给网段。机器有公网 IP 时，请用防火墙或安全组限制来源端口；本工具不加登录或 TLS。`--daemon` 脱离当前终端（隐含 `--no-open`）；`local-image-gen studio --stop` 是幂等的。关掉前台终端会停掉 Studio。没有 systemd unit。
 
 `update` 遇到脏工作区、读不了 git status、不是 git 仓库、origin 不是官方 GitHub、或不在 `main`/`master` 会拒绝。它只跑 `git pull --ff-only origin main`。不会再跑 `curl | bash`。生图命令不会去 GitHub 查新版本。`LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` 会跳过 doctor 的新鲜度 GET（Dyro 的 5 秒 spawn 应设置此项）。
 

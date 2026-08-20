@@ -76,7 +76,7 @@ The `codex` provider is experimental: it reuses a local `codex auth login` sessi
 
 See [`prompts.md`](prompts.md). `--optimize` talks to official text endpoints only (Grok chat, OpenAI chat, Gemini `generateContent`). It never launches `agy`, `cursor-agent`, or Codex.
 
-`local-image-gen doctor` reports backends and whether this checkout is behind `main` (compares on-disk `__version__` to official GitHub raw). `local-image-gen update` runs `git pull --ff-only origin main` and then `install.sh`, only when `origin` is `github.com/DandreYang/local-image-gen` and HEAD is `main`/`master`. Dirty, unknown-dirty, and non-git trees refuse. Neither command is attached to a generate job. `--doctor` is an alias.
+`local-image-gen doctor` reports backends and whether this checkout is behind `main` (compares on-disk `__version__` to official GitHub raw). `local-image-gen update` runs `git pull --ff-only origin main` and then `install.sh`, only when `origin` is `github.com/DandreYang/local-image-gen` and HEAD is `main`/`master`. Dirty, unknown-dirty, and non-git trees refuse. Neither command is attached to a generate job. `--doctor` is an alias. `local-image-gen studio` starts the local web UI (`--lan` / `--daemon` / `--stop`); it is also not attached to a generate job.
 
 | Image family | Preferred text backend | Default text model |
 | --- | --- | --- |
