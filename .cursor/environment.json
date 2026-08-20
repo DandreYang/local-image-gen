@@ -1,0 +1,4 @@
+{
+  "name": "local-image-gen",
+  "install": "./install.sh"
+}
