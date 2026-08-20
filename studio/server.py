@@ -822,6 +822,23 @@ def parse_generate(body: Dict[str, Any]) -> List[str]:
     return args
 
 
+def csrf_allows(headers: Any, host: str) -> bool:
+    """Scheme A (spec §7): prefer Sec-Fetch-Site=same-origin.
+
+    If that header is missing, Origin's host must equal this request's Host.
+    If both headers are missing, allow — curl and scripts do not send them.
+    Chosen over Scheme B (session token) so existing CLI POSTs keep working.
+    """
+    site = str(headers.get("Sec-Fetch-Site") or "").strip().lower()
+    origin = str(headers.get("Origin") or "").strip()
+    if site:
+        return site == "same-origin"
+    if origin:
+        netloc = (urlparse(origin).netloc or "").lower()
+        return netloc == str(host or "").lower()
+    return True
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "local-studio/0.1"
 
@@ -919,6 +936,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        host = (self.headers.get("Host") or f"{HOST}:{DEFAULT_PORT}").strip()
+        if not csrf_allows(self.headers, host):
+            self._send(*json_bytes({"success": False, "error": "cross-origin request blocked"}, 403))
+            return
         path = parsed.path
         if path == "/api/brief":
             try:
