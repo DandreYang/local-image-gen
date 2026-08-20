@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import uuid
+import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -43,9 +44,34 @@ STATIC_MIME = {
 }
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+LAN_WARNING = "warning: LAN bind shares this machine's image backends with the network."
 MAX_PARALLEL = 2
 _BATCHES: Dict[str, Dict[str, Any]] = {}
 _BATCH_LOCK = threading.Lock()
+
+
+def public_studio_url(host: str, port: int) -> str:
+    if host in {"0.0.0.0", "::"}:
+        return f"http://127.0.0.1:{port}"
+    return f"http://{host}:{port}"
+
+
+def print_studio_banner(host: str, port: int) -> None:
+    if host in {"0.0.0.0", "::"}:
+        print(f"local studio  http://127.0.0.1:{port}", flush=True)
+        print(f"LAN          http://<this-machine-ip>:{port}", flush=True)
+        print(LAN_WARNING, flush=True)
+    else:
+        print(f"local studio  http://{host}:{port}", flush=True)
+
+
+def maybe_open_browser(url: str, *, open_browser: bool) -> None:
+    if not open_browser:
+        return
+    try:
+        webbrowser.open(url)
+    except Exception as exc:
+        print(f"warning: could not open browser: {exc}", flush=True)
 
 
 def json_bytes(payload: Any, status: int = 200) -> tuple[int, bytes, str]:
@@ -991,16 +1017,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--host", default=HOST, help="Bind address. Default 127.0.0.1. Use 0.0.0.0 for LAN.")
     parser.add_argument("--lan", action="store_true", help="Bind 0.0.0.0 so other devices on the LAN can connect.")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--no-open", action="store_true", help="Do not open a browser.")
     args = parser.parse_args(argv)
     host = "0.0.0.0" if args.lan else args.host
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer((host, args.port), Handler)
-    if host in {"0.0.0.0", "::"}:
-        print(f"local studio  http://127.0.0.1:{args.port}", flush=True)
-        print(f"LAN          http://<this-machine-ip>:{args.port}", flush=True)
-        print("warning: LAN bind shares this machine's image backends with the network.", flush=True)
-    else:
-        print(f"local studio  http://{host}:{args.port}", flush=True)
+    print_studio_banner(host, args.port)
+    maybe_open_browser(public_studio_url(host, args.port), open_browser=not args.no_open)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
