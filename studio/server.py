@@ -12,7 +12,10 @@ import re
 import struct
 import subprocess
 import sys
+import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -30,8 +33,19 @@ OUTPUTS = WORKSPACE / "outputs"
 IMAGE_DIR = OUTPUTS / "images"
 INBOX = IMAGE_DIR / "inbox"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+STATIC_MIME = {
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+}
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+MAX_PARALLEL = 2
+_BATCHES: Dict[str, Dict[str, Any]] = {}
+_BATCH_LOCK = threading.Lock()
 
 
 def json_bytes(payload: Any, status: int = 200) -> tuple[int, bytes, str]:
@@ -449,6 +463,19 @@ def attach_compiled_drafts(payload: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
+def saved_image_path(result: Dict[str, Any]) -> Optional[str]:
+    for key in ("image", "saved_image"):
+        raw = result.get(key)
+        if not raw:
+            continue
+        path = Path(str(raw))
+        if not path.is_absolute():
+            path = (OUTPUTS / path).resolve()
+        if path.is_file():
+            return str(path)
+    return None
+
+
 def generate_compiled(job: Dict[str, Any], used: str) -> Dict[str, Any]:
     args = [
         used,
@@ -475,20 +502,171 @@ def generate_compiled(job: Dict[str, Any], used: str) -> Dict[str, Any]:
     return run_cli(args, timeout=320)
 
 
+def _run_one_job(job: Dict[str, Any]) -> Dict[str, Any]:
+    used = str(job.get("draft") or job.get("prompt") or "").strip()
+    generated = generate_compiled(job, used)
+    return finalize_generated(generated, job, used)
+
+
+def _set_job(batch_id: str, index: int, **fields: Any) -> None:
+    with _BATCH_LOCK:
+        rec = _BATCHES.get(batch_id)
+        if not rec or index >= len(rec["jobs"]):
+            return
+        rec["jobs"][index].update(fields)
+
+
+def _finish_batch(batch_id: str, status: str) -> None:
+    with _BATCH_LOCK:
+        rec = _BATCHES.get(batch_id)
+        if rec:
+            rec["status"] = status
+            rec["finished"] = time.time()
+
+
+def execute_series(batch_id: str, jobs: List[Dict[str, Any]]) -> None:
+    prev: Optional[str] = None
+    for index, job in enumerate(jobs):
+        _set_job(batch_id, index, status="running")
+        if prev and job.get("chain_prev"):
+            images = [prev] + [item for item in (job.get("images") or []) if item != prev]
+            job = dict(job)
+            job["images"] = images
+        result = _run_one_job(job)
+        _set_job(batch_id, index, status="done" if result.get("success") else "failed", result=result)
+        if not result.get("success"):
+            for later in range(index + 1, len(jobs)):
+                _set_job(batch_id, later, status="skipped")
+            _finish_batch(batch_id, "failed")
+            return
+        prev = saved_image_path(result) or prev
+    _finish_batch(batch_id, "done")
+
+
+def execute_parallel(batch_id: str, jobs: List[Dict[str, Any]]) -> None:
+    workers = min(MAX_PARALLEL, max(1, len(jobs)))
+
+    def run_index(index: int, job: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
+        _set_job(batch_id, index, status="running")
+        return index, _run_one_job(job)
+
+    failed = False
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(run_index, index, job) for index, job in enumerate(jobs)]
+        for future in as_completed(futures):
+            index, result = future.result()
+            ok = bool(result.get("success"))
+            failed = failed or not ok
+            _set_job(batch_id, index, status="done" if ok else "failed", result=result)
+    _finish_batch(batch_id, "failed" if failed else "done")
+
+
+def _worker(batch_id: str, mode: str, jobs: List[Dict[str, Any]]) -> None:
+    try:
+        if mode == "series":
+            execute_series(batch_id, jobs)
+        else:
+            execute_parallel(batch_id, jobs)
+    except Exception as exc:  # noqa: BLE001
+        _finish_batch(batch_id, "failed")
+        with _BATCH_LOCK:
+            rec = _BATCHES.get(batch_id)
+            if rec:
+                rec["error"] = str(exc)
+
+
+def batch_public(rec: Dict[str, Any]) -> Dict[str, Any]:
+    jobs = []
+    results = []
+    for item in rec.get("jobs") or []:
+        result = item.get("result") if isinstance(item.get("result"), dict) else None
+        row = {
+            "id": item.get("id"),
+            "style": item.get("style"),
+            "beat": item.get("beat"),
+            "status": item.get("status") or "queued",
+        }
+        if result:
+            row["error"] = result.get("error")
+            row["image"] = result.get("image") or result.get("saved_image")
+            results.append(result)
+        jobs.append(row)
+    status = str(rec.get("status") or "running")
+    return {
+        "success": status != "failed",
+        "batch_id": rec.get("id"),
+        "mode": rec.get("mode"),
+        "status": status,
+        "error": rec.get("error"),
+        "jobs": jobs,
+        "results": results,
+    }
+
+
+def start_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
+    raw_jobs = body.get("jobs")
+    if not isinstance(raw_jobs, list) or not raw_jobs:
+        raise ValueError("jobs required")
+    jobs = [dict(item) for item in raw_jobs if isinstance(item, dict)]
+    if not jobs:
+        raise ValueError("jobs required")
+    mode = str(body.get("mode") or jobs[0].get("mode") or "single")
+    if mode not in {"series", "parallel", "single"}:
+        mode = "single"
+    batch_id = uuid.uuid4().hex[:12]
+    record = {
+        "id": batch_id,
+        "mode": mode,
+        "status": "running",
+        "started": time.time(),
+        "jobs": [{**job, "status": "queued", "result": None} for job in jobs],
+    }
+    with _BATCH_LOCK:
+        _BATCHES[batch_id] = record
+        stale = [key for key, item in _BATCHES.items() if time.time() - float(item.get("started") or 0) > 86400]
+        for key in stale:
+            _BATCHES.pop(key, None)
+    thread = threading.Thread(target=_worker, args=(batch_id, mode, jobs), daemon=True)
+    thread.start()
+    return batch_public(record)
+
+
+def get_batch(batch_id: str) -> Optional[Dict[str, Any]]:
+    with _BATCH_LOCK:
+        rec = _BATCHES.get(batch_id)
+        if not rec:
+            return None
+        return batch_public(rec)
+
+
 def run_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Synchronous helper for tests. Live UI uses start_confirm_generate."""
     jobs = body.get("jobs")
     if not isinstance(jobs, list) or not jobs:
         raise ValueError("jobs required")
     results: List[Dict[str, Any]] = []
+    prev: Optional[str] = None
+    mode = str(body.get("mode") or (jobs[0] or {}).get("mode") or "single")
+    if mode == "parallel" and len(jobs) > 1:
+        workers = min(MAX_PARALLEL, len(jobs))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = [pool.submit(_run_one_job, dict(job)) for job in jobs if isinstance(job, dict)]
+            results = [fut.result() for fut in futs]
+        ok = all(item.get("success") for item in results) if results else False
+        return {"success": ok, "mode": mode, "results": results}
     for job in jobs:
         if not isinstance(job, dict):
             continue
-        used = str(job.get("draft") or job.get("prompt") or "").strip()
-        generated = generate_compiled(job, used)
-        generated = finalize_generated(generated, job, used)
+        working = dict(job)
+        if prev and working.get("chain_prev"):
+            working["images"] = [prev] + [item for item in (working.get("images") or []) if item != prev]
+        generated = _run_one_job(working)
         results.append(generated)
+        if not generated.get("success"):
+            break
+        prev = saved_image_path(generated) or prev
     ok = all(item.get("success") for item in results) if results else False
-    return {"success": ok, "results": results}
+    return {"success": ok, "mode": mode, "results": results}
 
 
 def resolve_library_image(raw: str) -> Path:
@@ -609,7 +787,7 @@ class Handler(BaseHTTPRequestHandler):
             if not is_under(target, STATIC) or not target.is_file():
                 self._send(*json_bytes({"error": "not found"}, 404))
                 return
-            mime = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+            mime = STATIC_MIME.get(target.suffix.lower()) or mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self._send(200, target.read_bytes(), mime)
             return
         if path.startswith("/media/"):
@@ -651,6 +829,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/library":
             self._send(*json_bytes({"success": True, "items": list_library()}))
             return
+        if path == "/api/batch":
+            query = parse_qs(parsed.query)
+            batch_id = (query.get("id") or [""])[0].strip()
+            payload = get_batch(batch_id) if batch_id else None
+            if not payload:
+                self._send(*json_bytes({"success": False, "error": "batch not found"}, 404))
+                return
+            self._send(*json_bytes(payload))
+            return
         if path == "/api/snippets":
             self._send(*json_bytes({"success": True, "snippets": load_snippets()}))
             return
@@ -682,7 +869,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/confirm-generate":
             try:
                 body = self._read_json()
-                payload = run_confirm_generate(body)
+                payload = start_confirm_generate(body)
             except (ValueError, json.JSONDecodeError) as exc:
                 self._send(*json_bytes({"success": False, "error": str(exc)}, 400))
                 return
