@@ -48,6 +48,9 @@ class TestThumbsTrashProjects(unittest.TestCase):
         self.assertIn('"-s", "format", "jpeg"', source)
         self.assertIn('"-Z", "480"', source)
         self.assertIn('path.startswith("/thumb/")', source)
+        self.assertIn("win32", source)
+        self.assertIn("System.Drawing", source)
+        self.assertIn("Linux keeps the original", source)
 
     def test_index_rebuilds_when_missing(self):
         with tempfile.TemporaryDirectory() as tmp:

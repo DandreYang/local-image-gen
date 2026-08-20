@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CANVAS = ROOT / "studio" / "static" / "js" / "lib" / "canvas.js"
+PROBE = ROOT / "tests" / "path_a_probe.html"
 
 
 class TestCanvasSourceContracts(unittest.TestCase):
@@ -47,6 +48,14 @@ class TestCanvasSourceContracts(unittest.TestCase):
         self.assertNotIn("def " + "inward_alpha", here)
         tautology = "assertEqual(" + "base, 10)"
         self.assertNotIn(tautology, here)
+
+    def test_path_a_probe_uses_the_same_formulas(self):
+        probe = PROBE.read_text(encoding="utf-8")
+        self.assertIn("Math.round((Number(pct) / 100) * size)", probe)
+        self.assertIn("Math.min(localX, boxW - 1 - localX, localY, boxH - 1 - localY)", probe)
+        self.assertIn("Math.min(boxW, boxH) * 0.02", probe)
+        self.assertIn("pasteRegion", probe)
+        self.assertIn("框外像素", probe)
 
 
 if __name__ == "__main__":

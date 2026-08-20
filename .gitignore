@@ -22,6 +22,12 @@ outputs/
 .vscode/
 .dyro/
 repositories/
+versions/*
+!versions/.gitkeep
+worktrees/*
+!worktrees/.gitkeep
+hotfixes/*
+!hotfixes/.gitkeep
 studio/__pycache__/
 .omc/
 .playwright-mcp/

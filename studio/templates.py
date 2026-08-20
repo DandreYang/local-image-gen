@@ -9,6 +9,7 @@ TEMPLATES: Dict[str, Dict[str, object]] = {
         "label": "课程日历海报",
         "profile": "poster",
         "aspect": "3:4",
+        "overlay_slot": {"anchor": "bottom-right", "width_pct": 16, "margin_pct": 5},
         "ban": (
             "单张完整竖版海报，不要三联、四宫格、拼图或 contact sheet。"
             "日程文字必须与事实一致。右下或底部留一块干净矩形给真实二维码，不要发明可扫描的码。"
@@ -204,6 +205,7 @@ TEMPLATES: Dict[str, Dict[str, object]] = {
         "label": "邀请 / 报名",
         "profile": "poster",
         "aspect": "3:4",
+        "overlay_slot": {"anchor": "bottom-right", "width_pct": 16, "margin_pct": 5},
         "ban": "单张。时间地点用事实原文。码区留白，不要发明二维码。不要拼图。",
     },
     "reel": {

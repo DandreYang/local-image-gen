@@ -377,13 +377,13 @@ def brief(
                         "images": list(images or []),
                     }
                 )
-    suggested_candidates = len(jobs) if mode != "candidates" else len(jobs)
     return {
         "success": True,
         "template": chosen,
         "template_label": template["label"],
+        "overlay_slot": template.get("overlay_slot"),
         "mode": mode,
-        "suggested_candidates": suggested_candidates,
+        "suggested_candidates": len(jobs),
         "searched": bool(research.get("searched")),
         "search_error": research.get("error"),
         "facts": facts,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import datetime as dt
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -1179,7 +1180,36 @@ class PromptCompileCliTests(unittest.TestCase):
             with self.assertRaises(image_gen.ImageGenError) as ctx:
                 image_gen.http_request(url, body=b"{}")
         self.assertNotIn("SECRETKEY", str(ctx.exception))
-        self.assertIn("key=***", str(ctx.exception))
+        self.assertNotIn("key=", str(ctx.exception))
+        self.assertIn("generativelanguage.googleapis.com", str(ctx.exception))
+        self.assertIn("Non-JSON response", str(ctx.exception))
+
+    def test_http_error_redacts_key_in_body(self) -> None:
+        url = "https://generativelanguage.googleapis.com/v1beta/models/x:generateContent"
+        body = b'{"error":{"message":"invalid key=SECRETKEY AIzaSyCfakeGoogleKeyValue0123456789"}}'
+        err = image_gen.urllib.error.HTTPError(url, 400, "Bad Request", hdrs={}, fp=io.BytesIO(body))
+
+        def fake_urlopen(_request, timeout=0):
+            raise err
+
+        with patch.object(image_gen.urllib.request, "urlopen", side_effect=fake_urlopen):
+            with self.assertRaises(image_gen.ImageGenError) as ctx:
+                image_gen.http_request(url, body=b"{}")
+        text = str(ctx.exception)
+        self.assertNotIn("SECRETKEY", text)
+        self.assertNotIn("AIzaSyCfakeGoogleKeyValue0123456789", text)
+        self.assertIn("HTTP 400", text)
+
+    def test_fail_and_error_type_redact_keys(self) -> None:
+        leaked = "Non-JSON response from https://x.example/v1?key=SECRETKEY"
+        with patch.object(image_gen, "print_json") as printed:
+            with self.assertRaises(SystemExit):
+                image_gen.fail(leaked, details="Bearer SECRETTOKEN")
+        payload = printed.call_args[0][0]
+        self.assertNotIn("SECRETKEY", payload["error"])
+        self.assertNotIn("SECRETTOKEN", payload["details"])
+        self.assertIn("key=***", payload["error"])
+        self.assertNotIn("SECRETKEY", str(image_gen.ImageGenError(leaked)))
 
     def test_extract_gemini_text_skips_thoughts(self) -> None:
         text = image_gen.extract_gemini_text(

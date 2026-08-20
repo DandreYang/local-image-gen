@@ -39,6 +39,18 @@ class TestOverlaySlot(unittest.TestCase):
         extras = re.findall(r'["\']([a-z0-9-]+)["\']\s*:\s*\{[^}]*width_pct', text)
         self.assertEqual(sorted(set(extras)), ["calendar-poster", "invite"])
 
+    def test_python_slots_match_frontend(self):
+        from templates import TEMPLATES  # noqa: E402
+
+        slotted = {
+            key: dict(value["overlay_slot"])
+            for key, value in TEMPLATES.items()
+            if value.get("overlay_slot")
+        }
+        self.assertEqual(sorted(slotted), ["calendar-poster", "invite"])
+        self.assertEqual(slotted["calendar-poster"], SLOT)
+        self.assertEqual(slotted["invite"], SLOT)
+
 
 class TestComposedReceipt(unittest.TestCase):
     def test_write_and_read_composed_fields(self):

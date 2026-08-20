@@ -124,6 +124,13 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(card["jobs"][0]["prompt"], card["jobs"][1]["prompt"])
         self.assertEqual(card["jobs"][0]["style"], "")
         self.assertNotIn("风格：", card["jobs"][0]["prompt"])
+        poster = brief("夏季课程日历", provider="grok")
+        self.assertEqual(poster["template"], "calendar-poster")
+        self.assertEqual(
+            poster["overlay_slot"],
+            {"anchor": "bottom-right", "width_pct": 16, "margin_pct": 5},
+        )
+        self.assertIsNone(card.get("overlay_slot"))
 
     def test_series_chains_previous_image(self) -> None:
         seen: list = []

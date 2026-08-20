@@ -220,7 +220,10 @@ ASPECT_PATTERN = re.compile(
 
 
 class ImageGenError(Exception):
-    """Expected failure that should be shown to the user."""
+    """Expected failure that should be shown to the user. Message is always redacted."""
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__(redact_secrets(str(message)))
 
 
 def utc_now() -> dt.datetime:
@@ -237,9 +240,9 @@ def print_json(payload: Dict[str, Any], *, stream: Any = sys.stdout) -> None:
 
 
 def fail(message: str, *, details: Optional[str] = None, extra: Optional[Dict[str, Any]] = None) -> None:
-    payload: Dict[str, Any] = {"success": False, "error": message}
+    payload: Dict[str, Any] = {"success": False, "error": redact_secrets(message)}
     if details:
-        payload["details"] = details
+        payload["details"] = redact_secrets(details)
     if extra:
         payload.update(extra)
     print_json(payload, stream=sys.stderr)
@@ -518,15 +521,25 @@ def iso_expired(value: str, *, now: Optional[dt.datetime] = None) -> bool:
     return current.timestamp() >= (stamp.timestamp() - TOKEN_EXPIRY_SKEW_SECONDS)
 
 
-SECRET_QUERY_RE = re.compile(r"([?&](?:key|api_key|access_token)=)[^&\s]+", re.IGNORECASE)
+SECRET_QUERY_RE = re.compile(
+    r"((?:[?&]|(?<![A-Za-z0-9_]))(?:key|api_key|access_token|token)=)[^&\s\"']+",
+    re.IGNORECASE,
+)
 BEARER_RE = re.compile(r"(Bearer\s+)\S+", re.IGNORECASE)
 USERINFO_RE = re.compile(r"(https?://)[^/\s]+@", re.IGNORECASE)
+GOOG_HEADER_RE = re.compile(r"(x-goog-api-key\s*[:=]\s*)\S+", re.IGNORECASE)
+GEMINI_KEY_RE = re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b")
+OPENAI_KEY_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{10,}\b")
 
 
 def redact_secrets(text: str) -> str:
-    out = SECRET_QUERY_RE.sub(r"\1***", text)
+    """Strip keys from URLs, headers, and common vendor key shapes before they hit logs or disk."""
+    out = SECRET_QUERY_RE.sub(r"\1***", str(text or ""))
     out = BEARER_RE.sub(r"\1***", out)
-    return USERINFO_RE.sub(r"\1***@", out)
+    out = USERINFO_RE.sub(r"\1***@", out)
+    out = GOOG_HEADER_RE.sub(r"\1***", out)
+    out = GEMINI_KEY_RE.sub("***", out)
+    return OPENAI_KEY_RE.sub("***", out)
 
 
 def http_request(
@@ -554,11 +567,13 @@ def http_request(
         raise ImageGenError("Request timed out.") from exc
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
-        raise ImageGenError(f"HTTP {exc.code}: {raw.strip() or exc.reason}") from exc
+        raise ImageGenError(f"HTTP {exc.code}: {(raw.strip() or exc.reason)[:800]}") from exc
     except urllib.error.URLError as exc:
         raise ImageGenError(f"Network error: {exc.reason}") from exc
     except json.JSONDecodeError as exc:
-        raise ImageGenError(f"Non-JSON response from {redact_secrets(url)}: {exc}") from exc
+        parsed = urllib.parse.urlparse(url)
+        where = f"{parsed.scheme}://{parsed.netloc}{parsed.path}" if parsed.netloc else "request"
+        raise ImageGenError(f"Non-JSON response from {where}: {exc}") from exc
 
 
 def package_root() -> Path:

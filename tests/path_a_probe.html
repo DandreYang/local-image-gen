@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Path A probe — 框外像素必须与原图相同</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { max-width: 52rem; margin: 2rem auto; padding: 0 1.25rem 3rem; line-height: 1.5; }
+    code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+    fieldset { border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); margin: 1rem 0; padding: 0.8rem 1rem; }
+    label { display: block; margin: 0.4rem 0; }
+    input[type="number"] { width: 5rem; }
+    button { margin-right: 0.5rem; margin-top: 0.5rem; }
+    #report { white-space: pre-wrap; padding: 0.8rem 1rem; background: color-mix(in srgb, CanvasText 6%, Canvas); }
+    .ok { color: #17803d; }
+    .bad { color: #b42318; }
+    canvas { max-width: 100%; height: auto; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); }
+  </style>
+</head>
+<body>
+  <h1>Path A 框外像素探针</h1>
+  <p>
+    验收 #7：路径 A 回贴后，框<strong>外</strong> RGB 必须与原图逐字节相同。
+    本页用的公式与 <code>studio/static/js/lib/canvas.js</code> 相同
+    （<code>pctToPixels</code> = <code>Math.round</code>，羽化 2% 且只向框内）。
+    CI 不能开浏览器，所以这是本机手工探针，不是 CI 依赖。
+  </p>
+  <p>
+    在 Chromium / Chrome / Edge 打开此文件：<br />
+    <kbd>open -a "Google Chrome" tests/path_a_probe.html</kbd>
+  </p>
+
+  <fieldset>
+    <legend>1. 自检（不需要真实出图）</legend>
+    <p>用合成原图 + 脏 regen 跑 <code>pasteRegion</code>，断言框外像素不变。</p>
+    <button type="button" id="selftest">运行自检</button>
+  </fieldset>
+
+  <fieldset>
+    <legend>2. 对比你刚贴完的两张图</legend>
+    <label>原图 <input type="file" id="original" accept="image/*" /></label>
+    <label>Path A 结果 <input type="file" id="result" accept="image/*" /></label>
+    <p>框（百分比，与 Studio 画框一致）</p>
+    <label>x <input type="number" id="x" value="20" min="0" max="100" step="0.1" />
+      y <input type="number" id="y" value="20" min="0" max="100" step="0.1" /></label>
+    <label>w <input type="number" id="w" value="40" min="0" max="100" step="0.1" />
+      h <input type="number" id="h" value="40" min="0" max="100" step="0.1" /></label>
+    <button type="button" id="compare">比较框外像素</button>
+    <p><canvas id="preview" width="320" height="240"></canvas></p>
+  </fieldset>
+
+  <pre id="report">还没跑。</pre>
+
+  <script>
+    // Keep these bodies identical to studio/static/js/lib/canvas.js.
+    function pctToPixels(pct, size) {
+      return Math.round((Number(pct) / 100) * size);
+    }
+    function inwardFeatherPx(boxW, boxH) {
+      return Math.max(1, Math.round(Math.min(boxW, boxH) * 0.02));
+    }
+    function inwardAlpha(localX, localY, boxW, boxH, feather) {
+      const dist = Math.min(localX, boxW - 1 - localX, localY, boxH - 1 - localY);
+      if (dist >= feather) return 1;
+      return dist / feather;
+    }
+    function asIntBox(box) {
+      return {
+        x: Math.round(box.x),
+        y: Math.round(box.y),
+        w: Math.round(box.w),
+        h: Math.round(box.h),
+      };
+    }
+    function pasteRegion(input) {
+      const base = input.base;
+      const regen = input.regen;
+      const box = asIntBox(input.box);
+      const feather = Math.max(1, Math.round(input.feather || inwardFeatherPx(box.w, box.h)));
+      const canvas = document.createElement("canvas");
+      canvas.width = base.naturalWidth || base.width;
+      canvas.height = base.naturalHeight || base.height;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(base, 0, 0, canvas.width, canvas.height);
+      const slice = document.createElement("canvas");
+      slice.width = box.w;
+      slice.height = box.h;
+      const sliceCtx = slice.getContext("2d");
+      sliceCtx.drawImage(regen, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+      const pixels = sliceCtx.getImageData(0, 0, box.w, box.h);
+      for (let y = 0; y < box.h; y++) {
+        for (let x = 0; x < box.w; x++) {
+          const i = (y * box.w + x) * 4;
+          pixels.data[i + 3] = Math.round(255 * inwardAlpha(x, y, box.w, box.h, feather));
+        }
+      }
+      sliceCtx.putImageData(pixels, 0, 0);
+      ctx.drawImage(slice, box.x, box.y);
+      return canvas;
+    }
+
+    function loadFile(input) {
+      const file = input.files && input.files[0];
+      if (!file) return Promise.reject(new Error("请先选图"));
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("读图失败"));
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
+    function countOutsideMismatches(original, result, box) {
+      const w = original.naturalWidth || original.width;
+      const h = original.naturalHeight || original.height;
+      if (w !== (result.naturalWidth || result.width) || h !== (result.naturalHeight || result.height)) {
+        return { error: `尺寸不同：原图 ${w}×${h}，结果 ${(result.naturalWidth || result.width)}×${(result.naturalHeight || result.height)}` };
+      }
+      const a = document.createElement("canvas");
+      const b = document.createElement("canvas");
+      a.width = b.width = w;
+      a.height = b.height = h;
+      const ca = a.getContext("2d", { willReadFrequently: true });
+      const cb = b.getContext("2d", { willReadFrequently: true });
+      ca.drawImage(original, 0, 0);
+      cb.drawImage(result, 0, 0);
+      const pa = ca.getImageData(0, 0, w, h).data;
+      const pb = cb.getImageData(0, 0, w, h).data;
+      const rect = asIntBox(box);
+      let mismatches = 0;
+      let outside = 0;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const inside = x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h;
+          if (inside) continue;
+          outside += 1;
+          const i = (y * w + x) * 4;
+          if (pa[i] !== pb[i] || pa[i + 1] !== pb[i + 1] || pa[i + 2] !== pb[i + 2]) {
+            mismatches += 1;
+          }
+        }
+      }
+      return { mismatches, outside, box: rect, size: `${w}×${h}` };
+    }
+
+    const report = document.getElementById("report");
+
+    document.getElementById("selftest").onclick = () => {
+      const original = document.createElement("canvas");
+      original.width = 64;
+      original.height = 48;
+      const octx = original.getContext("2d");
+      octx.fillStyle = "#c45c26";
+      octx.fillRect(0, 0, 64, 48);
+      const regen = document.createElement("canvas");
+      regen.width = 64;
+      regen.height = 48;
+      const rctx = regen.getContext("2d");
+      rctx.fillStyle = "#1d4ed8";
+      rctx.fillRect(0, 0, 64, 48);
+      const box = {
+        x: pctToPixels(20, 64),
+        y: pctToPixels(20, 48),
+        w: pctToPixels(40, 64),
+        h: pctToPixels(40, 48),
+      };
+      const pasted = pasteRegion({ base: original, regen, box });
+      const result = countOutsideMismatches(original, pasted, box);
+      if (result.error) {
+        report.className = "bad";
+        report.textContent = result.error;
+        return;
+      }
+      const ok = result.mismatches === 0;
+      report.className = ok ? "ok" : "bad";
+      report.textContent = (ok ? "自检通过。" : "自检失败。") +
+        `\n框外像素 ${result.outside}，其中 RGB 不同 ${result.mismatches}。` +
+        `\n框 ${result.box.x},${result.box.y} ${result.box.w}×${result.box.h} · ${result.size}`;
+    };
+
+    document.getElementById("compare").onclick = async () => {
+      try {
+        const original = await loadFile(document.getElementById("original"));
+        const resultImg = await loadFile(document.getElementById("result"));
+        const width = original.naturalWidth;
+        const height = original.naturalHeight;
+        const box = {
+          x: pctToPixels(document.getElementById("x").value, width),
+          y: pctToPixels(document.getElementById("y").value, height),
+          w: pctToPixels(document.getElementById("w").value, width),
+          h: pctToPixels(document.getElementById("h").value, height),
+        };
+        const result = countOutsideMismatches(original, resultImg, box);
+        if (result.error) {
+          report.className = "bad";
+          report.textContent = result.error;
+          return;
+        }
+        const ok = result.mismatches === 0;
+        report.className = ok ? "ok" : "bad";
+        report.textContent = (ok ? "框外像素与原图相同。" : "框外像素有差异。") +
+          `\n框外 ${result.outside} 点，RGB 不同 ${result.mismatches}。` +
+          `\n框 ${result.box.x},${result.box.y} ${result.box.w}×${result.box.h} · ${result.size}`;
+        const preview = document.getElementById("preview");
+        const ctx = preview.getContext("2d");
+        ctx.clearRect(0, 0, preview.width, preview.height);
+        const scale = Math.min(preview.width / width, preview.height / height);
+        ctx.drawImage(resultImg, 0, 0, width * scale, height * scale);
+        ctx.strokeStyle = ok ? "#17803d" : "#b42318";
+        ctx.strokeRect(box.x * scale, box.y * scale, box.w * scale, box.h * scale);
+      } catch (error) {
+        report.className = "bad";
+        report.textContent = String(error.message || error);
+      }
+    };
+  </script>
+</body>
+</html>

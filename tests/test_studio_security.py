@@ -88,6 +88,26 @@ class TestCsrfHttp(unittest.TestCase):
         self.assertEqual(payload.get("success"), False)
         self.assertIn("写一句", payload.get("error", ""))
 
+    def _delete(self, headers):
+        req = Request(
+            f"http://127.0.0.1:{self.port}/api/snippets?id=missing",
+            headers=headers,
+            method="DELETE",
+        )
+        return urlopen(req, timeout=5)
+
+    def test_cross_site_delete_is_403(self):
+        with self.assertRaises(HTTPError) as caught:
+            self._delete({"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"})
+        self.assertEqual(caught.exception.code, 403)
+
+    def test_cli_delete_without_headers_reaches_business_logic(self):
+        with self.assertRaises(HTTPError) as caught:
+            self._delete({})
+        self.assertEqual(caught.exception.code, 404)
+        payload = json.loads(caught.exception.read().decode("utf-8"))
+        self.assertIn("没有这句", payload.get("error", ""))
+
 
 def _png(width: int = 2, height: int = 2) -> bytes:
     import struct
@@ -148,6 +168,35 @@ class TestImageBytes(unittest.TestCase):
     def test_limits_are_the_spec_values(self):
         self.assertEqual(server.OVERLAY_MAX_BYTES, 20 * 1024 * 1024)
         self.assertEqual(server.COMPOSITE_MAX_BYTES, 40 * 1024 * 1024)
+
+
+class TestSecretRedaction(unittest.TestCase):
+    def test_run_cli_redacts_error(self):
+        class Fake:
+            returncode = 1
+            stdout = ""
+            stderr = '{"success": false, "error": "Non-JSON from https://x.example/v1?key=SECRETKEY"}'
+
+        with patch("server.subprocess.run", return_value=Fake()):
+            payload = server.run_cli(["--version"])
+        self.assertNotIn("SECRETKEY", payload["error"])
+        self.assertIn("key=***", payload["error"])
+
+    def test_persist_batch_redacts_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(server, "BATCH_DIR", root):
+                server.persist_batch(
+                    {
+                        "id": "abc123def456",
+                        "error": "https://x.example/v1?key=SECRETKEY",
+                        "jobs": [{"id": "1", "result": {"error": "Bearer SECRETTOKEN"}}],
+                    }
+                )
+                saved = json.loads((root / "abc123def456.json").read_text(encoding="utf-8"))
+        blob = json.dumps(saved)
+        self.assertNotIn("SECRETKEY", blob)
+        self.assertNotIn("SECRETTOKEN", blob)
 
 
 if __name__ == "__main__":

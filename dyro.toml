@@ -20,9 +20,11 @@ require_signed_review = false
 require_signed_signoff = false
 execution_mode = "local"
 
-# In-place prototype: the git checkout is also the workspace root (Dyro
-# doctor will WARN). repositories/local-image-gen is a symlink to this
-# checkout so Profile validation has a real anchor. Not a ship layout.
+# In-place workspace: this git checkout is also the Dyro root (doctor WARNs).
+# repositories/local-image-gen -> .. so Profile validation has a real anchor.
+# versions/ / worktrees/ / hotfixes/ are the standard line / task / hotfix dirs.
+# Image CLI does not require the dyro binary; it only looks for dyro.toml
+# when choosing a default outputs/images folder.
 [repositories.local-image-gen]
 path = "repositories/local-image-gen"
 mount = "local-image-gen"

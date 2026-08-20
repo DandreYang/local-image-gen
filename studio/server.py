@@ -110,6 +110,25 @@ def parse_cli_json(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def redact_public_text(text: Any) -> str:
+    return cli.redact_secrets(str(text or ""))
+
+
+def redact_cli_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip keys from CLI JSON before it reaches receipts, batches, or the UI."""
+    out = dict(payload)
+    if out.get("error"):
+        out["error"] = redact_public_text(out["error"])
+    if out.get("details"):
+        out["details"] = redact_public_text(out["details"])
+    notes = out.get("notes")
+    if isinstance(notes, list):
+        out["notes"] = [redact_public_text(item) for item in notes]
+    elif isinstance(notes, str):
+        out["notes"] = redact_public_text(notes)
+    return out
+
+
 def attach_saved_artifact(payload: Dict[str, Any]) -> Dict[str, Any]:
     """If the CLI saved a file then failed aspect check, surface that path."""
     error = payload.get("error")
@@ -152,10 +171,10 @@ def run_cli(args: List[str], timeout: int = 300, *, skip_update_check: bool = Tr
     payload = parse_cli_json(proc.stdout) or parse_cli_json(proc.stderr)
     if payload is None:
         detail = (proc.stderr or proc.stdout or "CLI returned no JSON").strip()[:800]
-        return {"success": False, "error": detail, "exit_code": proc.returncode}
+        return {"success": False, "error": redact_public_text(detail), "exit_code": proc.returncode}
     payload.setdefault("success", proc.returncode == 0)
     payload["exit_code"] = proc.returncode
-    return attach_saved_artifact(payload)
+    return attach_saved_artifact(redact_cli_payload(payload))
 
 
 def crop_to_aspect(src: Path, aspect: str) -> Optional[Path]:
@@ -583,20 +602,57 @@ def list_library_cached() -> List[Dict[str, Any]]:
     return items
 
 
+def _ps_single_quote(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _windows_jpeg_thumb(source: Path, dest: Path) -> bool:
+    """Resize with Windows PowerShell + System.Drawing. No extra Python deps."""
+    src = _ps_single_quote(str(source))
+    out = _ps_single_quote(str(dest))
+    script = (
+        "Add-Type -AssemblyName System.Drawing; "
+        f"$src = [System.Drawing.Image]::FromFile({src}); "
+        "try { "
+        "$edge = [Math]::Max($src.Width, $src.Height); "
+        "$scale = if ($edge -gt 480) { 480.0 / $edge } else { 1.0 }; "
+        "$w = [Math]::Max(1, [int][Math]::Round($src.Width * $scale)); "
+        "$h = [Math]::Max(1, [int][Math]::Round($src.Height * $scale)); "
+        "$bmp = New-Object System.Drawing.Bitmap $w, $h; "
+        "$g = [System.Drawing.Graphics]::FromImage($bmp); "
+        "$g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic; "
+        "$g.DrawImage($src, 0, 0, $w, $h); "
+        f"$bmp.Save({out}, [System.Drawing.Imaging.ImageFormat]::Jpeg); "
+        "$g.Dispose(); $bmp.Dispose() "
+        "} finally { $src.Dispose() }"
+    )
+    proc = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode == 0 and dest.is_file()
+
+
 def thumb_file(rel: str) -> Path:
+    """JPEG ≤480px on Mac (sips) and Windows (System.Drawing). Linux keeps the original."""
     source = resolve_library_image(rel)
     cache = THUMB_DIR / (Path(rel).as_posix() + ".jpg")
     if cache.is_file() and cache.stat().st_mtime >= source.stat().st_mtime:
         return cache
     cache.parent.mkdir(parents=True, exist_ok=True)
+    made = False
     if sys.platform == "darwin":
         proc = subprocess.run(
             ["sips", "-s", "format", "jpeg", "-Z", "480", str(source), "--out", str(cache)],
             capture_output=True,
             text=True,
         )
-        if proc.returncode == 0 and cache.is_file() and is_under(cache, OUTPUTS):
-            return cache
+        made = proc.returncode == 0 and cache.is_file()
+    elif sys.platform == "win32":
+        made = _windows_jpeg_thumb(source, cache)
+    if made and cache.is_file() and is_under(cache, OUTPUTS):
+        return cache
     return source
 
 
@@ -876,7 +932,7 @@ def persist_batch(rec: Dict[str, Any]) -> None:
         "status": rec.get("status"),
         "started": rec.get("started"),
         "finished": rec.get("finished"),
-        "error": rec.get("error"),
+        "error": redact_public_text(rec.get("error")) if rec.get("error") else rec.get("error"),
         "session_id": rec.get("session_id"),
         "parent": rec.get("parent"),
         "template": rec.get("template"),
@@ -886,7 +942,11 @@ def persist_batch(rec: Dict[str, Any]) -> None:
                 "style": item.get("style"),
                 "beat": item.get("beat"),
                 "status": item.get("status"),
-                "result": item.get("result") if isinstance(item.get("result"), dict) else None,
+                "result": (
+                    redact_cli_payload(item.get("result"))
+                    if isinstance(item.get("result"), dict)
+                    else None
+                ),
             }
             for item in rec.get("jobs") or []
         ],
@@ -981,7 +1041,7 @@ def _worker(batch_id: str, mode: str, jobs: List[Dict[str, Any]]) -> None:
         with _BATCH_LOCK:
             rec = _BATCHES.get(batch_id)
             if rec:
-                rec["error"] = str(exc)
+                rec["error"] = redact_public_text(exc)
 
 
 def batch_public(rec: Dict[str, Any]) -> Dict[str, Any]:
@@ -1219,6 +1279,7 @@ def csrf_allows(headers: Any, host: str) -> bool:
     If that header is missing, Origin's host must equal this request's Host.
     If both headers are missing, allow — curl and scripts do not send them.
     Chosen over Scheme B (session token) so existing CLI POSTs keep working.
+    Applied to POST and DELETE.
     """
     site = str(headers.get("Sec-Fetch-Site") or "").strip().lower()
     origin = str(headers.get("Origin") or "").strip()
@@ -1498,6 +1559,10 @@ class Handler(BaseHTTPRequestHandler):
         self._send(*json_bytes({"error": "not found"}, 404))
 
     def do_DELETE(self) -> None:  # noqa: N802
+        host = (self.headers.get("Host") or f"{HOST}:{DEFAULT_PORT}").strip()
+        if not csrf_allows(self.headers, host):
+            self._send(*json_bytes({"success": False, "error": "cross-origin request blocked"}, 403))
+            return
         parsed = urlparse(self.path)
         if parsed.path != "/api/snippets":
             self._send(*json_bytes({"error": "not found"}, 404))
