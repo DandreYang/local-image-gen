@@ -34,6 +34,8 @@ PROMPT_PROFILES = (
     "environment",
     "ccd",
     "split",
+    "reel",
+    "paper",
     "void",
     "habitat",
     "photo",
@@ -677,6 +679,40 @@ PROFILE_SPECS: Dict[str, Dict[str, Any]] = {
             "Avoid: nine-panel grid, ecommerce headline, stretching the subject"
         ),
     },
+    "reel": {
+        "label": "vertical video still",
+        "constraints": (
+            "one 9:16 still, not a video and not a storyboard",
+            "one action, one instant",
+            "title only if the user supplied it, keep edge safe area",
+        ),
+        "template": (
+            "Use case: photorealistic-natural\n"
+            "Asset type: vertical short-video still, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Composition/framing: tall phone frame, one beat, subject readable at small size\n"
+            "Lighting/mood: available or cinematic light, not a three-point studio kit unless asked\n"
+            "Constraints: one still; no multi-panel; no fake progress bar\n"
+            "Avoid: video frames collage, 6-second clip, crowded subtitle stack"
+        ),
+    },
+    "paper": {
+        "label": "handmade layered paper collage",
+        "constraints": (
+            "rebuild the whole scene as cut and torn paper, not a photo with a paper filter",
+            "keep subject count, pose, and relationships",
+            "shallow bas-relief, not a doll and not a miniature diorama",
+        ),
+        "template": (
+            "Use case: illustration-story\n"
+            "Asset type: layered handmade paper collage, {aspect}\n"
+            "Primary request: {prompt}\n"
+            "Style/medium: cut and torn paper, visible fibers, imperfect edges, cream paper ground\n"
+            "Materials/textures: separate paper pieces for body, clothes, trees, ground; soft contact shadows\n"
+            "Constraints: lock identity and pose if referenced; no real skin or cloth; sparse decoration\n"
+            "Avoid: photo leftover, felt, clay, figurine, diorama, vector-perfect edges"
+        ),
+    },
     "void": {
         "label": "negative-space silhouette with an inner world",
         "constraints": (
@@ -859,6 +895,14 @@ PROFILE_PROSE: Dict[str, str] = {
     "split": (
         "{prompt}. {aspect} one editorial page split in half: photograph above, one medium "
         "below. Lock identity. Do not collage multiple photos."
+    ),
+    "reel": (
+        "{prompt}. {aspect} one vertical short-video still, a single instant, not a clip. "
+        "Keep edge safe area. No storyboard collage."
+    ),
+    "paper": (
+        "{prompt}. {aspect} handmade layered paper collage. Rebuild the scene from cut paper, "
+        "keep pose and count, shallow relief. No photo leftover, no doll, no diorama."
     ),
     "void": (
         "{prompt}. {aspect} negative-space print. One silhouette or void holds the inner world. "

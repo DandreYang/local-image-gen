@@ -554,6 +554,30 @@ CASES: List[Dict[str, Any]] = [
         },
     },
     {
+        "id": "paper-collage",
+        "family": "gpt_image",
+        "template": "paper",
+        "title": "层叠剪纸",
+        "aspect": "3:4",
+        "when": "参考图要整幅重做成手工纸片世界，而不是给照片盖一层纸纹",
+        "craft": (
+            "锁住主体数量、姿态、关系、服装主色和构图含义。"
+            "全部用不同颜色和厚度的纸片剪、撕、叠，浅浮雕，不要玩偶，不要微缩沙盘。"
+            "场景压成大块纸形；奶油纸底；装饰克制。"
+            "不要真实皮肤和布料。有参考图就锁身份，不要残留摄影。"
+        ),
+        "why": "合格剪纸帖把纪律写死：纸片拼出来的世界，不是真实世界换成纸质滤镜。",
+        "source": "https://x.com/Hamburgerai/status/2089875453041684835",
+        "engagement": {
+            "author": "Hamburgerai",
+            "followers": 2852,
+            "views": 6602,
+            "likes": 184,
+            "replies": 32,
+            "sampled": "2026-08-20",
+        },
+    },
+    {
         "id": "imperial-void",
         "family": "gpt_image",
         "template": "void",
