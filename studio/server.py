@@ -204,34 +204,80 @@ def prompt_parts(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"original": original, "used": used}
 
 
+_SIDECAR_LOCKS: Dict[str, threading.Lock] = {}
+_SIDECAR_LOCKS_GUARD = threading.Lock()
+_SIDECAR_WARNINGS: List[str] = []
+
+
+def sidecar_lock_for(path: Path) -> threading.Lock:
+    key = str(path.resolve())
+    with _SIDECAR_LOCKS_GUARD:
+        lock = _SIDECAR_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _SIDECAR_LOCKS[key] = lock
+        return lock
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(str(tmp), str(path))
+    except Exception:
+        if tmp.exists():
+            tmp.unlink()
+        raise
+
+
+def drain_sidecar_warnings() -> List[str]:
+    items = list(_SIDECAR_WARNINGS)
+    _SIDECAR_WARNINGS.clear()
+    return items
+
+
 def read_sidecar(path: Path) -> Dict[str, Any]:
     sidecar = path if path.suffix.lower() == ".json" else path.with_suffix(".json")
     if not sidecar.is_file():
         return {}
     try:
         loaded = json.loads(sidecar.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except json.JSONDecodeError:
+        stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        corrupt = sidecar.with_name(f"{sidecar.name}.corrupt-{stamp}")
+        try:
+            os.replace(str(sidecar), str(corrupt))
+            _SIDECAR_WARNINGS.append(f"sidecar corrupt, renamed to {corrupt.name}")
+        except OSError:
+            _SIDECAR_WARNINGS.append(f"sidecar corrupt, could not rename {sidecar.name}")
+        return {}
+    except OSError:
         return {}
     return loaded if isinstance(loaded, dict) else {}
 
 
 def merge_sidecar(path: Path, fields: Dict[str, Any]) -> Path:
     sidecar = path.with_suffix(".json")
-    existing = read_sidecar(sidecar)
-    prompt: Dict[str, Any] = {}
-    if isinstance(existing.get("prompt"), dict):
-        prompt.update({key: value for key, value in existing["prompt"].items() if _nonzero(value)})
-    incoming_prompt = fields.get("prompt") if isinstance(fields.get("prompt"), dict) else {}
-    prompt.update({key: value for key, value in incoming_prompt.items() if _nonzero(value)})
-    merged = dict(existing)
-    for key, value in fields.items():
-        if key == "prompt" or not _nonzero(value):
-            continue
-        merged[key] = value
-    if prompt:
-        merged["prompt"] = prompt
-    sidecar.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return sidecar
+    with sidecar_lock_for(sidecar):
+        existing = read_sidecar(sidecar)
+        prompt: Dict[str, Any] = {}
+        if isinstance(existing.get("prompt"), dict):
+            prompt.update({key: value for key, value in existing["prompt"].items() if _nonzero(value)})
+        incoming_prompt = fields.get("prompt") if isinstance(fields.get("prompt"), dict) else {}
+        prompt.update({key: value for key, value in incoming_prompt.items() if _nonzero(value)})
+        merged = dict(existing)
+        for key, value in fields.items():
+            if key == "prompt" or not _nonzero(value):
+                continue
+            merged[key] = value
+        if prompt:
+            merged["prompt"] = prompt
+        atomic_write_text(sidecar, json.dumps(merged, ensure_ascii=False, indent=2) + "\n")
+        return sidecar
 
 
 def write_media_receipt(path: Path, payload: Dict[str, Any]) -> None:
@@ -853,7 +899,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*json_bytes(run_cli(["--list-models"], timeout=15)))
             return
         if path == "/api/library":
-            self._send(*json_bytes({"success": True, "items": list_library()}))
+            items = list_library()
+            warnings = drain_sidecar_warnings()
+            self._send(*json_bytes({"success": True, "items": items, "warnings": warnings}))
             return
         if path == "/api/batch":
             query = parse_qs(parsed.query)
