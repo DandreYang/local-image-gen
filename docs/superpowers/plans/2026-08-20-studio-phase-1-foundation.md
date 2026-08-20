@@ -6,7 +6,34 @@
 
 **Architecture:** `app.js`（1431 行）拆成 `js/` 下的 13 个模块，`app.css`（775 行）拆成 `css/` 下的 4 个文件。因为项目是零依赖、无构建步骤，前端没有 JS 测试运行器——所以本期用 **Python 静态分析测试**（`tests/test_studio_frontend.py`）来守契约。
 
-**模块分层是硬规则**（会审 P0-1 收口）：`main.js` **只做事件接线，不导出任何视图需要的东西**。共享能力一律放进 `lib/` 下的**叶子模块**——叶子模块不 import 任何视图，`main.js` 与 `views/*` 都单向依赖它们。违反这条会造成 `main.js ⇄ views/*` 的双向依赖，被本计划自己的 `test_no_cycles` 拒绝，而且 ES module 循环在浏览器里往往照常工作，会出现「页面正常、测试红」的迷惑局面。
+**模块分层是硬规则**（会审 P0-1 与复审收口）。三条，缺一不可：
+
+1. **`main.js` 只做事件接线，不导出任何视图需要的东西。**
+2. **共享能力放进 `lib/` 叶子模块**——叶子不 import 任何 `views/` 或 `main.js`。
+3. **视图之间不得互相 import。** 视图要影响别的视图，只能改 `state` 再 `notify()`，由对方通过 `subscribe()` 自行重渲染。
+
+第 3 条是复审逼出来的，也是本次拆分最容易踩的坑。原代码在单文件里可以自由互调，一旦按屏幕区域拆开就变成模块图上的环：`selectItem`（stage）末尾调 `renderLibrary`（library）刷新选中态，而 `renderLibrary` 的点击处理器又调 `selectItem` —— `stage ⇄ library`。同理 `reviseSelected`（director）调 `renderBrief`（brief），`runBriefJobs`（brief）又调 `openDirector` / `lookSelected`（director）—— `director ⇄ brief`。两个环都会被本计划自己的 `test_no_cycles` 拦下。
+
+**改写范式**（Task 5 按此执行）：
+
+```js
+// ✗ 直接调用别的视图 —— 成环
+export function selectItem(item) {
+  state.selected = item;
+  renderLibrary();          // 来自 views/library.js
+}
+
+// ✓ 改状态 + 广播 —— 无依赖
+import { state, notify } from "../state.js";
+export function selectItem(item) {
+  state.selected = item;
+  notify();                 // library.js 自己订阅并重渲染
+}
+```
+
+`library.js` 在自己的初始化里注册：`subscribe(() => renderLibrary())`。`state.js` 的 `subscribe` / `notify` 在 Task 4 就已建好，本期正是它的用途。
+
+ES module 循环在浏览器里往往照常工作，所以违反这三条的表现是「页面正常、测试红」——执行者很容易误判成测试有问题。
 
 **静态分析的能力边界要说清楚**（会审 P0-2 收口）：这套测试**不执行 JS**，所以运行时错误、CSS 层叠结果、真实渲染效果一概抓不到。会审实测过——把本计划的断言拼全后，一份在浏览器里根本打不开的实现照样返回 `Ran 30 tests OK`。因此测试只承担三件事：**拦住静默失败**（模块图、符号名、DOM id 三类在浏览器里无声崩溃的错误）、**守住可计算的属性**（对比度）、**防止已修的缺陷回潮**（旧橙、多入口、解释文案）。视觉与交互的正确性由每个 Task 末尾的**手工回归清单**负责，那不是可选步骤。
 
@@ -55,7 +82,8 @@
 | `studio/static/js/main.js` | 启动、事件接线、模式（simple/pro） |
 | `studio/static/js/state.js` | 单一 state 对象 + 订阅 |
 | `studio/static/js/api.js` | fetch 封装、错误规范化 |
-| `studio/static/js/lib/format.js` | 时长 / 时间 / 比例 / 转义 |
+| `studio/static/js/lib/format.js` | 时长 / 时间 / 比例 / 转义（**叶子模块**） |
+| `studio/static/js/lib/constants.js` | 模板表 / 通路名 / 家族映射 / 区域标签 / 导出预设（**叶子模块**） |
 | `studio/static/js/lib/status.js` | 状态条渲染与错误规范化（**叶子模块**） |
 | `studio/static/js/lib/busy.js` | 忙碌遮罩与耗时预估（**叶子模块**） |
 | `studio/static/js/lib/canvas.js` | contain 计算、裁切导出 |
@@ -906,7 +934,14 @@ class TestViewModules(unittest.TestCase):
         "lib/busy.js": ["startBusy", "stopBusy", "quoteCopy"],
     }
 
-    LEAF_MODULES = ["lib/status.js", "lib/busy.js", "lib/format.js", "state.js", "api.js"]
+    LEAF_MODULES = [
+        "lib/status.js",
+        "lib/busy.js",
+        "lib/format.js",
+        "lib/constants.js",
+        "state.js",
+        "api.js",
+    ]
 
     def test_leaf_modules_import_no_views(self):
         """会审 P0-1：叶子模块一旦反向依赖视图，main.js 与 views 就形成循环。"""
@@ -929,6 +964,24 @@ class TestViewModules(unittest.TestCase):
                 with self.subTest(module=path.name, spec=spec):
                     self.assertNotIn(
                         "main.js", spec, f"{path.name} 从 main.js 导入——会成环"
+                    )
+
+    def test_views_do_not_import_each_other(self):
+        """复审收口：原代码里 stage⇄library、director⇄brief 互相调用。
+
+        按屏幕区域拆开后这些互调就是模块环。视图之间只能通过
+        state + notify/subscribe 通信，不得直接 import 对方。
+        """
+        views = STATIC / "js" / "views"
+        for path in sorted(views.glob("*.js")):
+            for spec in IMPORT_RE.findall(path.read_text(encoding="utf-8")):
+                target = (path.parent / spec).resolve()
+                with self.subTest(module=path.name, spec=spec):
+                    self.assertNotEqual(
+                        target.parent.name,
+                        "views",
+                        f"{path.name} 直接 import 了同级视图 {target.name}；"
+                        "改用 state + notify()，由对方 subscribe 重渲染",
                     )
 
     def test_each_module_exports_its_contract(self):
@@ -970,11 +1023,16 @@ Expected: `test_each_module_exports_its_contract` FAIL —— 缺少 `js/views/s
 | `selectItem` `renderFacts`(现内联在 selectItem) `startCompare` `stopCompare` `previousTake` `syncFollowRoute` | `views/stage.js` |
 | `refreshLibrary` `renderLibrary` `filteredItems` `openLightbox` `renderLightbox` `lightboxStep` `closeLightbox` | `views/library.js` |
 | `openDirector` `renderDirector` `lookSelected` `reviseSelected` `reviseFromIssue` `chipToInstruction` `areaLabel` `AREA_LABELS` `AREA_INSTRUCTIONS` | `views/director.js` |
-| `renderBrief` `cancelBrief` `runBrief` `runBriefJobs` `collectEditedJobs` `askConfirm` `quoteCopy` | `views/brief.js` |
-| `fillProviders` `fillModels` `fillFollowProviders` `fillFollowModels` `ensureOption` `providerLabel` `renderTemplates` `renderRefs` `renderSnippets` `refreshSnippets` `removeSnippet` `saveSnippetFromSelection` `insertIntoPrompt` `colorSentence` `formBody` `uniqueImages` `TEMPLATES` `PROVIDER_NAMES` `PROVIDER_FAMILY` | `views/desk.js` |
-| `exportSelected` `EXPORT_PRESETS` | `lib/canvas.js` |
+| `renderBrief` `cancelBrief` `runBrief` `runBriefJobs` `collectEditedJobs` `askConfirm` | `views/brief.js` |
+| `fillProviders` `fillModels` `fillFollowProviders` `fillFollowModels` `ensureOption` `providerLabel` `renderTemplates` `renderRefs` `renderSnippets` `refreshSnippets` `removeSnippet` `saveSnippetFromSelection` `insertIntoPrompt` `colorSentence` `formBody` `uniqueImages` | `views/desk.js` |
+| `TEMPLATES` `PROVIDER_NAMES` `PROVIDER_FAMILY` `AREA_LABELS` `AREA_INSTRUCTIONS` `EXPORT_PRESETS` | **`lib/constants.js`**（叶子模块） |
+| `exportSelected` | `lib/canvas.js` |
 | `setStatus` `humanError` `explainAspectFail` `savedName` | **`lib/status.js`**（叶子模块） |
 | `durationFromName` `expectCopy` `startBusy` `stopBusy` `waitingCopy` `quoteCopy` | **`lib/busy.js`**（叶子模块） |
+
+**常量必须单独成模块**（复审收口）：`expectCopy` 与 `startBusy` 都要用 `PROVIDER_NAMES`，若把它留在 `views/desk.js`，`lib/busy.js` 就得反向依赖视图，违反叶子规则。纯数据（模板表、通路名、家族映射、区域标签、导出预设）都不属于任何视图，集中放 `lib/constants.js`。
+
+**`quoteCopy` 只归 `lib/busy.js` 一处**（复审收口：原表把它同时列进 `views/brief.js` 与 `lib/busy.js`）。它基于 `expectCopy` 的历史耗时算报价，属于时间与配额，不属于确认卡的渲染逻辑。`views/brief.js` 从 `lib/busy.js` import 它。
 
 **这两个叶子模块是 P0-1 的修法，不可省略。** 原方案把它们留在 `main.js`，但会审用符合本计划结构的 fixture 复现了循环：`exportSelected`（`app.js:729,731`）、`reviseSelected`（`772,791,867,869`）、`runBrief`（`1102,1113,1121`）都调用 `setStatus` / `startBusy`，而 `main.js` 又必须从这些视图 import 做接线 —— `main.js ⇄ views/*` 双向依赖，Task 4 的 `test_no_cycles` 会红。
 
@@ -1125,7 +1183,7 @@ Expected: `TestCanvasContain` 三条 FAIL
   border: 1px solid var(--n-600);
   border-radius: var(--r-sm);
   padding: 3px 7px;
-  background: rgba(11, 11, 12, 0.72);
+  background: color-mix(in srgb, var(--n-900) 72%, transparent);
   backdrop-filter: blur(8px);
 }
 .aspect-badge[hidden] { display: none; }
@@ -1227,9 +1285,9 @@ Expected: `TestBackdrop` 三条 FAIL
   z-index: 1;
   background: linear-gradient(
     180deg,
-    rgba(11, 11, 12, 0.66),
-    rgba(11, 11, 12, 0.5) 45%,
-    rgba(11, 11, 12, 0.84)
+    color-mix(in srgb, var(--n-900) 66%, transparent),
+    color-mix(in srgb, var(--n-900) 50%, transparent) 45%,
+    color-mix(in srgb, var(--n-900) 84%, transparent)
   );
 }
 .viewer[data-backdrop="ambient"] > * { position: relative; z-index: 2; }

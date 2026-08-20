@@ -1879,3 +1879,573 @@ No-Go 意味着**不得开始实施**，也不是 commit / push / PR / 发布命
 本轮未查询 Dyro `next.commands`，不制造任何交付 mutation。
 
 Final signature: claude-opus-5 会审仲裁 2026-08-20
+# Closure Verification Section
+
+Reviewer: closure-verification (grok-4.6-xhigh)
+Time: 2026-08-20
+Verdict: No-Go
+
+对照物：会审仲裁 `docs/reviews/2026-08-20-studio-phase-1-plan-adversarial-board.md` §2 / §3；修订计划 `docs/superpowers/plans/2026-08-20-studio-phase-1-foundation.md`（`41ff3e7`，1678 行）。未改仓库产品代码 / spec / 计划 / git。测试从计划围栏原样抽出，在 `/tmp/closure-verify` fixture 与真实 `studio/static/index.html` 上跑。11 个 python 围栏均可 `compile()`。
+
+## 九条收口核验
+
+| 编号 | 判定 | 证据 |
+|---|---|---|
+| P0-1 | 部分收口 | Task 5 叶子模块与「main.js 只接线不导出」已写入（计划 L9、L59–60、L976–992、L911–932）。`test_main_exports_nothing_views_need` 能抓住 `views/brief.js → ../main.js`（fixture G FAIL）。但 Task 9 又要求 `main.js` 导出 `showStatus`（L1404、L1451、L1472），调用点在视图里；按字面实施会同时触发 `test_no_cycles` 与 `test_main_exports_nothing_views_need`。`quoteCopy` 双挂 `views/brief.js` 与 `lib/busy.js`（L973 与 L977）；`quoteCopy` 读 `PROVIDER_NAMES`（`app.js:737`），放进叶子会反向依赖 `views/desk.js`（fixture G2 FAIL）。Task 5 Files: Create（L878）漏列 `status.js` / `busy.js`。 |
+| P0-2 | 部分收口 | `TestSymbolResolution` / `TestDomIdsResolve` 已进 Task 4（L627–678）。符号校验能抓住 `import { selectItm }`（fixture E FAIL：`selectItm not in {selectItem}`），即原会审坏实现的头条。但 `EXPORT_RE` 不认 `export { setMode }`（同 fixture：`consumer.js` 从 re-export 导入被误杀）。`DOM_ID_RE` 只扫 `getElementById` / `querySelector('#')`；真实 `app.js:48` 是 `$ = (id) => document.getElementById(id)`， besides 这一行再无 `getElementById`。把 `app.js` 原样拷进 `js/app.js` 跑 `TestDomIdsResolve`：**OK**。`$("herro")` 拼错完全漏掉，只报 `viewr` / `missing`（fixture F）。Task 5 写「函数体逐字不变」，这条 DOM 守卫对 1431 行搬运是空的。 |
+| P0-3 | 部分收口 | 入口改为枚举求和（L1327–1337）。对现状 HTML 得到 `['id="brief-btn"', 'id="gen-btn"', 'type="submit"']`，今天正确为红；按 Task 8 改完后四条全绿（fixture H / H2）。「永远绿」已打破。禁用词从 BANNED 拿掉「预览不花额度」、改扫 `standing_copy()`、加反向断言（L1417–1447）——「永远达不到 Expected PASS」也打破了。但作用域实现是坏的：见下方新 P0 `standing_copy`。BANNED 仍含仓库不存在的「先整理任务、核对终稿」（现状 `index.html:64` 是「手艺芯片选骨架…」）。`id='gen-btn'` 单引号绕过计数（fixture H3 仍 OK）。 |
+| P0-4 | 已收口 | 原缺陷本身已按修法落地：`test_no_literal_color_outside_tokens` 扩到 `#` / `hsla?` / `rgba?`（L391–395）；6 处旧橙 rgba 以 4 个 α 值进替换表（L468–471；`app.css:35,85,150,152,183,478`）；`test_legacy_accent_is_gone_in_every_form` 扫 `css/*.css` 并禁 `#e0893c` 与 `rgba?(224,137,60)`（L264–280）。fixture D：views.css 里留 `rgba(224, 137, 60, 0.22)` → FAIL。color-mix 替换本身能通过字面色守卫（fixture C OK）。**新的自我否定不计入本条**，见下方 P0。 |
+| P1-1 | 已收口 | `grep -oE '#[0-9a-fA-F]{3,8}' studio/static/app.css \| sort -u \| wc -l` → **30**。计划 L424–484 的 hex 表 + 废弃属性表覆盖这 30 个，无缺失（清单见下）。8+ 个自定义属性均有归属：`--paper` / `--paper-line` / `--print-ink`、`--safelight`、`--cyanotype` / `--cyanotype-dim`、`--accent-hi` / `--accent-dim`、`--hair`（L476–484）。rgba 映射仍不完整，记为新 P0，不把本条打回去。 |
+| P1-2 | 已收口 | File Structure 不再创建 `snippets.js`。计划只在 L994 / L1657 写「**不需要**再拆 `views/snippets.js`」，并把行数风险改记为 `main.js` ~450 → 迁出 `lib/*` 后 ~200。错误补救已删。`main.js` 迁出后是否真 ≤400：须人工核（有 `test_no_module_exceeds_400_lines`，L951–956）。 |
+| P1-3 | 已收口 | `tokens.css` 草稿含 `--s-4`…`--s-22`（L325–332），`test_spacing_scale_defined` 钉死七档（L255–262；fixture D 在七档齐全时 OK）。Self-Review 覆盖表已改回「色板 / 字体 / 圆角 / 间距」（L1623）。Task 6/9 仍手写 `12px` / `3px` / `7px` / `18px` / `11px`（L1118–1127、L1521），与「就近归到级数」不完全一致，属 P2，不阻断本条。 |
+| P1-4 | 部分收口 | 两行栅格已弃。真实舞台子元素 4 个：`.viewer` / `.follow` / `.film-wrap` / `.facts`（`index.html:47–91`，python 解析确认）。新方案是 flex 列 + `.viewer { min-height:0 }` + 其余 `flex: 0 0 auto`（L1092–1102）。这修掉了「隐式 auto 行」那一个布局错误。`test_viewer_can_shrink` 对计划 CSS 为绿，缺 `min-height:0` 时为红（fixture J / J2）。但「为 dock 预留 `--dock-h`」并未实现：`--dock-h` 只进 `.follow` 的 `min-height: calc(var(--dock-h) * 0.42)`；`test_stage_reserves_dock_height` 只 `assertIn("--dock-h", css)`。0.42 无依据；三件套合计远超 132px。见新 P1。 |
+| P1-5 | 已收口 | Task 3 对相纸（`--paper` / `--paper-line` / `--print-ink` + `.paper` 改深色浮层）、`develop-sheet`（删 CSS/`index.html:69`/`app.js` 引用）、`safelight`（删属性、`@keyframes safelight`、`.busy.developing`）都有明确指示（L476–486）。Step 5 把三处刻意视觉变化写进验收预期（L525–529）。与 spec §4.5 四项对齐（status 仍在 Task 9）。首屏观感是否可接受：须人工核（仲裁 §6 原条）。 |
+
+### P1-1 hex 对照（30/30，无缺失）
+
+`app.css` 去重：`#0b0d0f #0c0a08 #0e0b09 #120f0c #14110d #16120f #171310 #1a1008 #1a1410 #1a1511 #1b1612 #1c1914 #1d1813 #2a1b08 #2c261f #342b22 #46606f #7ea0b5 #7eb8a4 #8a5a28 #8b8680 #9a8c7b #a39a8b #c9c0b0 #d46a5c #e0893c #e2a54a #e79a4e #f3eee3 #f4eee6`。
+
+深色 / 文字 / 语义三张表 + 废弃属性表（`#f3eee3` `#c9c0b0` `#1c1914`）全覆盖。**仍然缺失的 hex：无。**
+
+未进替换表、且不会随 §4.5 删除而消失的 rgba（`app.css` 实测 32 种 unique；豁免纯黑纯白后仍剩这些）：`rgba(12,10,8,0.35/0.40/0.72/0.85)`、`rgba(126,160,181,0.04/0.10)`、`rgba(27,22,18,0.70/0.85)`、`rgba(8,6,4,0.72)`、`rgba(6,5,4,0.93)`。随 safelight / develop-sheet 删除的：`rgba(226,165,74,*)`、`rgba(28,25,20,*)`、`rgba(120,112,100,0.55)`、`rgba(10,8,6,0.88)`。
+
+## 修订引入的新问题
+
+### P0: Task 9 把 `showStatus` 导回 `main.js`，P0-1 在期末被自己打开
+
+Evidence:
+- 计划 L9 / L992：「`main.js` 不得导出任何视图需要的东西」。
+- 计划 L1404：`Produces: main.js 导出 showStatus(...)`；L1451：`assertRegex(js, r"export\s+function\s+showStatus\b")` 对着 **`main.js`**；L1472–1488 把 `showStatus` / `showError` 写进 `main.js`；L1491「所有旧调用点按语义替换」——旧调用在 `exportSelected` / `reviseSelected` / `runBrief`（仲裁已点名 `app.js:729,772,1102`）。
+- fixture G：`views/brief.js` `import { showStatus } from "../main.js"` → `test_main_exports_nothing_views_need` FAIL。
+- 若改放到 `lib/status.js` 以满足 P0-1，则 Task 9 的 `test_status_uses_normalized_shape` 红。
+
+Trigger: 按计划做到 Task 9 Step 3。两条守卫互相拒绝，没有第三条修法。
+
+Impact: 与原 P0-1 同类——计划自我否定。执行者只能拆掉一条测试或重新引入循环。ES module 循环在浏览器里往往仍能跑，会再次出现「页面正常、测试红」。
+
+Disprove attempt: 假设视图不 import、只靠 `main.js` 包一层再往下传。计划 L1491 要求改「所有旧调用点」，Task 5 又要求函数体逐字搬运后只加 import。`showStatus` 若不从叶子导出，视图无法调用。不成立。
+
+### P0: `standing_copy()` 剥不掉嵌套 `.dialog-root`，成本披露留在「常驻」里
+
+Evidence:
+- 正则（L1428–1433）：`<div class="dialog-root".*?</div>\s*(?=<div|<script|</body)`。`.*?` 在第一个「后面跟着 `<div`」的 `</div>` 处停。真实 DOM（`index.html:203–216`、`228–239`）里那第一个 `</div>` 是 `.dialog-backdrop`，后面立刻是 `<div class="dialog"…>`。
+- 实跑真实 `index.html`：两次替换各只吃掉 `dialog-root` 开标签 + backdrop（约 218 字符）。`dialog-root` 计数 2→0，但 `confirm-title` / `confirm-copy` / `updates-title` 仍在 standing。
+- 剥离后「预览不花额度」仍出现 **两处**：`.hint`（`index.html:198`）与 `#confirm-copy`（`index.html:233`：「图会交给本仓 CLI。预览不花额度；点确认才会真正出图。」）。
+- `.brief-card` 正则能删掉空 `<article class="brief-card"…></article>`（61 字符），确认卡成本披露不在这篇文章里，在 `#confirm`。
+- 按 Task 9 删掉 `.warn` / `.hint` / `.paper-hint` 后：现 BANNED 四条会绿（fixture I2 OK），但「预览不花额度」**仍在 standing**（I3：只剩 `#confirm-copy`）。若按仲裁原文把该词留在禁用表、只靠作用域排除，这条会永远红——原 P0-3 会以新形式回来。
+
+Trigger: 任何人把「预览不花额度」放回 BANNED，或把确认卡里其它 BANNED 子串写进 `#confirm-copy`。
+
+Impact: 作用域守卫名不副实。当前绿是因为把冲突词从 denylist 拿掉，不是因为对话框被排除。
+
+Disprove attempt: 改贪婪 `.*` 会从第一张 dialog 吞到最后一个 `</div>`，灯箱夹在两个 dialog 之间（`index.html:218–226`），更糟。HTML 解析器才能正确剥。正则方案在这份 DOM 上不成立。
+
+### P0: 字面色守卫拒绝计划自己写的 spec §4.4 色值，映射表也喂不饱守卫
+
+Evidence:
+- `test_no_literal_color_outside_tokens` 只豁免 `rgba(0,0,0,*)` / `rgba(255,255,255,*)`（L394–400）。
+- 计划 Task 6 L1128：`background: rgba(11, 11, 12, 0.72)`；Task 7 L1230–1232：spec §4.4 规定的 `rgba(11,11,12,.66/.5/.84)`。
+- fixture A 把这两段贴进 `views.css` → FAIL，检出恰好这 4 个串。
+- fixture B：映射表未列的 `rgba(12,10,8,0.4)`、`rgba(27,22,18,0.7)` → FAIL。
+- `app.css` 有 32 种 unique `rgb/rgba`；表只给了 4 个旧橙 α + `--hair`。执行者「按表替换」之后守卫仍红。
+
+Trigger: Task 3 守卫落地后，做 Task 6 / 7，或按表迁完 `app.css`。
+
+Impact: 与原 P0-4 同类——计划的测试拒绝计划的设计。执行者会把 spec 规定的压暗渐变改成 token 或删掉，或削弱守卫。
+
+Disprove attempt: 把 `rgba(11,11,12,*)` 写成 `color-mix(in srgb, var(--n-900) 66%, transparent)` 能躲过正则（fixture C 证明 color-mix 不被匹配），但计划正文仍是 rgba 字面量，没有这条改写指令。不成立。
+
+### P1: `TestDomIdsResolve` 对 `$("id")` 搬运是空守卫
+
+Evidence: `app.js` 除 L48 的 `$` 定义外零处 `getElementById` / `querySelector('#…')`。真实文件拷进 `js/` 后该测试 OK。`$("run-brief")` 等运行时注入的 id 即使改成 `getElementById` 也会误报（不在静态 `index.html`）。
+
+Trigger: Task 5 按「函数体逐字不变」搬运。
+
+Impact: 原 P0-2「搬运时拼错 DOM id」在本仓库的主路径上仍抓不到。
+
+Disprove attempt: 假设 Task 6/7/9 新代码改用 `getElementById`——那只覆盖新写的几处，盖不住 1431 行旧调用。
+
+### P1: `quoteCopy` 双归属会逼叶子依赖视图
+
+Evidence: 计划 L906 契约要 `lib/busy.js` 导出 `quoteCopy`；L973 又把它和 `renderBrief` 放进 `views/brief.js`。`app.js:736–740` 读 `PROVIDER_NAMES`（定义在 L50，Task 5 表归 `desk.js`）。fixture G2：`busy.js` import `../views/desk.js` → `test_leaf_modules_import_no_views` FAIL。
+
+Trigger: 执行者按 EXPECTED 把 `quoteCopy` 放进 `busy.js` 并补 import。
+
+Impact: 新的叶子→视图边，P0-1 守卫会红。
+
+Disprove attempt: 把 `PROVIDER_NAMES` 再拷一份进 `busy.js` 能避开 import，但计划禁止发明第二份，且仍与 brief 双定义冲突。
+
+### P1: `--dock-h * 0.42` 不约束 dock，三件套超过 132px
+
+Evidence:
+- 计划 L1101–1102 注释写「dock 三件套的总高度即 `--dock-h`」，CSS 却只给 `.stage > .follow` 设 `min-height: calc(var(--dock-h) * 0.42)`。无包裹容器，无 `max-height: var(--dock-h)`，`.film-wrap` / `.facts` 为 `flex: 0 0 auto`。
+- 0.42 在计划与 spec 中无出处。`132 * 0.42 = 55.44px`，约等于 `.follow` 现状：`padding 0.75+0.35rem + textarea min-height 2.6rem ≈ 59px`（`app.css:427–444`）。像是 follow/132 的比例，不是量测结论。
+- 默认（`.follow[hidden]`、`#facts[hidden]`）只有 `.film-wrap`：`padding 0.5+0.75rem + .frame 76px ≈ 96px` < 132。
+- 选中一张图后三件套同时在：follow ≈ 59 + film-wrap ≈ 96 + facts（10 行 dt/dd，`app.js:446–469`，padding `0.85+1.1rem`）≈ 200 → **合计 ≈ 355px >> 132px**。
+- `flex: 0 0 auto` 的 dock 不收缩；短视口上是 viewer 被压到 0，不是 dock 被「预留」住。与 spec §4.4「舞台为 dock 预留固定高度」字面不符。旧 `.viewer { min-height: 280px }` 被换成 0（L1082）。
+
+Trigger: Task 6 按计划改完后，选中库内一张图。
+
+Impact: 两行栅格的静默错误没了，但「dock 永不压住 / 顶出」仍无布局约束。自动化只看见字符串 `--dock-h`。
+
+Disprove attempt: 若 facts/follow 长期 hidden，默认首屏只 96px，看起来像预留成功。选中即破。不成立。
+
+### P2: 入口计数只认双引号；`export { x }` 假阴性；BANNED 残留死句
+
+Evidence: fixture H3 `id='gen-btn'` 仍绿。fixture E 对合法 `export { setMode }` 误报。BANNED「先整理任务、核对终稿」在 `index.html` 中为 False，真常驻句「手艺芯片选骨架」不在 denylist。
+
+Trigger: 单引号按钮、re-export、只改测试不改文案。
+
+Impact: 窄逃逸与死断言，不单独阻断，但会让「断言已收口」看起来比实际干净。
+
+### `color-mix()` 可行性（必查 3）
+
+语法 `color-mix(in srgb, var(--accent) 5%, transparent)` 合法（CSS Color 5；百分比只写一侧，另一侧补到 100%）。浏览器声明 **准确**：Chrome 111 / Safari 16.2 / Firefox 113。`var()` 已知坑：含 `var()` 的声明在不支持 `color-mix` 的引擎里解析期仍算合法，计算期失败后属性回落到 `initial`（常是透明），`background-color: <旧值>` 回退写在前面也救不了。本仓零构建、无 `@supports` 回退。`transparent` 按预乘 alpha 混合时，效果约等于「accent × 5% 不透明度」，与 `rgba(224,137,60,0.05)` 同构；但新 `--accent` 已是 `#f2b169`，观感本就会变。装饰性 `::selection` / 舞台辉光改用 accent 的 mix，与 spec §4.1「accent 不用于装饰」是否冲突：须人工核（仲裁修法只要求补 rgba 替换，未重申必须改中性灰）。
+
+## 须人工核
+
+- `.paper` 改深色浮层后的首屏观感（仲裁 §6）。
+- Task 5 之后 `main.js` 是否真的落到 ≤400 行。
+- 装饰性 `color-mix(var(--accent))` 是否接受为 §4.1 的合法用法。
+- 低视口下 flex dock（~355px）把 viewer 压到接近 0，是否算验收 #2 失败。
+
+## Go/No-Go
+
+**No-Go。** 九条里原缺陷的「计划文字」大多已经补上（P0-4 / P1-1 / P1-2 / P1-3 / P1-5 可算收口；P0-1/2/3 与 P1-4 只做到半截）。但不能进实施：修订又写出了两类与去年会审同一形状的阻断——**计划自我否定**（Task 9 导回 `showStatus`；Task 6/7 的 `rgba(11,11,12,…)` 被 Task 3 守卫拒绝），以及**作用域守卫名不副实**（`standing_copy` 只剥掉 backdrop，确认卡成本披露仍在 standing）。这两类正是原仲裁判 No-Go 的理由。修法仍是局部的：把 `showStatus` 留在 `lib/status.js` 并改测试路径；用 HTML 解析或白名单节点代替 dialog 正则；给 spec 压暗渐变和残留 rgba 开豁免或改写指令；给 `$("id")` 补交叉校验；删掉 0.42，给 dock 一个真约束。修完再核这几条，不必重开全面会审。
+
+本记录不是 Proof，也不是 `task review` PASS。
+
+---
+
+# Fresh Eyes Review Section
+
+Reviewer: fresh-eyes (grok-4.6-xhigh)
+Time: 2026-08-20
+Verdict: No-Go
+
+零上下文工程师按 1→10 照做时，会在 Task 5 被本计划自己的 `test_no_cycles` 拦住，在 Task 6/7 被 Task 3 的「禁止字面色」测试反咬，在 Task 9 把刚修好的叶子模块规则再拆掉。下面每条都能在当前仓库复现，不依赖上一轮会审结论。
+
+## Findings
+
+### P0: Task 5 按表加 import 会形成视图环，被本计划的 `test_no_cycles` 拒绝
+
+Evidence:
+用花括号匹配抽出 `studio/static/app.js` 全部 67 个函数体，再按计划归属表投影到模块，真实跨视图调用是：
+
+```
+stage.selectItem        → library.renderLibrary, director.openDirector/renderDirector, desk.renderRefs
+stage.syncFollowRoute   → desk.ensureOption, desk.fillFollowModels
+library.renderLibrary   → stage.selectItem          (app.js:407)
+library.lightboxStep    → stage.selectItem          (app.js:372)
+director.reviseSelected → brief.renderBrief         (app.js:842)
+brief.cancelBrief       → director.renderDirector   (app.js:1024 附近)
+brief.runBriefJobs      → stage.selectItem, director.openDirector/lookSelected, library.refreshLibrary
+```
+
+由此得到视图图：
+
+```
+stage ⇄ library
+stage → director → brief → stage
+director ⇄ brief
+brief → library → stage
+```
+
+环（实跑 DFS）：`stage → director → brief → director`；`stage → director → brief → stage`；`stage → director → brief → library → stage`。
+
+计划只画了 `main.js → views → lib/*`，并写「函数体逐字不变，只加 export 和 import」（计划 L966）。`test_no_cycles`（L604–619）对静态 `import` 做 DFS，**不区分** main 环和视图环。
+
+Trigger:
+执行者按表拆文件并写 `import { renderLibrary } from "./library.js"` / `import { selectItem } from "./stage.js"`。
+
+Impact:
+Task 5 Step 4 写着 `Expected: 全部 PASS`，实际 `test_no_cycles` 必红。浏览器里循环 import 往往还能跑，正好落入计划自己警告的「页面正常、测试红」。零上下文工程师会以为自己拆错了，然后自行发明回调、事件总线或动态 `import()`——计划没有给方案。
+
+Disprove attempt:
+尝试「把互相调用的函数都堆进 main.js」——`selectItem` 被 `TestViewModules.EXPECTED` 钉在 `views/stage.js`，`renderLibrary` 钉在 `library.js`，堆不回去。尝试「只在函数体内调用、不写 import」——运行时 `ReferenceError`。尝试「计划已经处理了循环」——它只处理了 `setStatus`/`startBusy` 的 main 环（L979），视图环未出现在依赖图里。结论：这条立得住。
+
+---
+
+### P0: `quoteCopy` 双归属，且 `lib/busy.js` 必须吃 `PROVIDER_NAMES`，叶子规则自打脸
+
+Evidence:
+- 计划 L973：`quoteCopy` → `views/brief.js`
+- 计划 L977：`quoteCopy` → `lib/busy.js`（同一张表）
+- `TestViewModules.EXPECTED`（L907）只要求 `lib/busy.js` 导出 `quoteCopy`，`brief.js` 的期望列表没有它
+- `quoteCopy` 函数体（`app.js:736-741`）使用 `PROVIDER_NAMES` 和 `expectCopy`
+- `expectCopy`（`app.js:98`）、`startBusy`（`app.js:124`）也读 `PROVIDER_NAMES`
+- 计划把 `PROVIDER_NAMES` 分给 `views/desk.js`（L974）
+- `test_leaf_modules_import_no_views`（L911–920）禁止 `lib/busy.js` 出现 `views/`
+
+`PROVIDER_NAMES` 还被 `renderLightbox`（library）、`reviseSelected`（director）、`renderBrief`（brief）使用，那些是视图→视图，不破叶子规则；**busy 是叶子，破。**
+
+Trigger:
+执行者先按测试把 `quoteCopy` 放进 `busy.js`，再按表把 `PROVIDER_NAMES` 放进 `desk.js`，然后写 `import { PROVIDER_NAMES } from "../views/desk.js"`。
+
+Impact:
+`test_leaf_modules_import_no_views` 红。若复制一份 `PROVIDER_NAMES` 进 busy，两份表会漂。若只放 brief、不放 busy，`test_each_module_exports_its_contract` 红。三选一都要执行者发明，计划给的是互相矛盾的指令。
+
+Disprove attempt:
+尝试「`quoteCopy` 只被 brief 调用，可以不放 busy」——测试白纸黑字要 busy 导出它；`runBriefJobs`（brief）确实调用它，但那救不了 EXPECTED。尝试「把 `PROVIDER_NAMES` 再抄进 format.js」——计划没写，且 `startBusy`/`expectCopy` 仍在 busy。结论：立得住。
+
+---
+
+### P0: Task 6/7 粘贴的 CSS 会被 Task 3 的「禁止字面色」测试打死
+
+Evidence:
+Task 3 `test_no_literal_color_outside_tokens`（计划 L383–402）在 `base/components/views.css` 里扫 `#hex` / `rgb()` / `rgba()` / `hsl()`，只豁免 `rgba(0,0,0,…)` 和 `rgba(255,255,255,…)`。
+
+Task 6 要求原样写入（L1128）：
+
+```css
+background: rgba(11, 11, 12, 0.72);
+```
+
+Task 7 要求原样写入（L1228–1233）：
+
+```css
+rgba(11, 11, 12, 0.66)
+rgba(11, 11, 12, 0.5)
+rgba(11, 11, 12, 0.84)
+```
+
+`#0b0b0c` 正是 `--n-900`。用计划自己的正则实跑：
+
+```
+task6 literal colors that FAIL: ['rgba(11, 11, 12, 0.72)']
+task7 literal colors that FAIL: ['rgba(11, 11, 12, 0.66)', 'rgba(11, 11, 12, 0.5)', 'rgba(11, 11, 12, 0.84)']
+```
+
+Task 6 Step 5 / Task 7 Step 5 都写 `Expected: PASS`。
+
+Trigger:
+执行者先做完 Task 3（守卫已在测试文件里），再按 Task 6/7 粘贴示例 CSS，跑 `python3 tests/test_studio_frontend.py`。
+
+Impact:
+不是「后面 Task 还没做所以红」，而是**按后面 Task 的参考实现做完反而红**。执行者会回滚 Task 6、或把字面色改成 `color-mix(in srgb, var(--n-900) 72%, transparent)`（计划没写）、或削弱 Task 3 守卫。三种都是发明。
+
+Disprove attempt:
+尝试「`rgba(11,11,12)` 会被 neutral 豁免」——豁免只认 `0,0,0` / `255,255,255`，不认 zinc。尝试「角标/环境光层会删掉，不必进 views.css」——计划把它们写进 `views.css` 示例，并作为 Task 6/7 的交付物。结论：立得住。
+
+---
+
+### P0: Task 9 把 `showStatus` 放回 `main.js`，会重演「视图 import main」环
+
+Evidence:
+- Task 5 刚把 `setStatus` 放进叶子 `lib/status.js`，并写「`main.js` 不得导出任何视图需要的东西」（L992）
+- `exportSelected`（`app.js:729,731`）、`reviseSelected`（772,791,867,869）、`runBrief`（1102,1113,1119）、`runBriefJobs`（1149,1167）、`removeSnippet`、`saveSnippetFromSelection` 都调用 `setStatus`
+- Task 9 Interfaces：`main.js` 导出 `showStatus`（L1404）
+- Task 9 Step 3：「所有旧调用点按语义替换」（L1491）；示例代码在 `main.js`
+- `test_status_uses_normalized_shape` 读的是 `main.js` 里的 `export function showStatus`（L1450–1451）
+- `test_main_exports_nothing_views_need`（L922–932）禁止任何非 main 模块的 import spec 含 `main.js`
+
+Trigger:
+执行者按「所有旧调用点替换」在 `views/*.js` / `lib/canvas.js` 写 `import { showStatus } from "../main.js"`。
+
+Impact:
+`test_no_cycles` 与 `test_main_exports_nothing_views_need` 同时红。若不敢 import main、只在 main 里留一个没人调用的 `showStatus`，则 `lib/status.js` 的旧 `setStatus` 仍 `JSON.stringify(payload, null, 2)`（`app.js:226`），验收「错误规范化」达不到，且 Task 5 的 EXPECTED 仍要求导出 `setStatus`。计划还写「`main.js` 里删除旧 `setStatus`」（L1466）——Task 5 之后 `setStatus` 根本不在 main 里，执行者会找不到要删的符号。
+
+Disprove attempt:
+尝试「views 继续调 `setStatus`，main 的 `showStatus` 只给未来用」——与「所有旧调用点按语义替换」字面冲突，也过不了「用户看到一句人话」的手工验收。尝试「`showStatus` 放进 `lib/status.js`」——测试硬编码读 `main.js`。结论：照做必卡。
+
+---
+
+### P1: 映射表的 hex 是齐的，rgba 和层次不是；「除三处刻意外视觉不变」做不到
+
+Evidence:
+对 `studio/static/app.css` 实数：**30 种 hex、32 种 rgba、21 个 `:root` 自定义属性**，与计划数字一致。hex 表覆盖了全部 30 个。rgba 表只给了 5 条橙/发丝 + 黑白豁免。
+
+删掉 `develop-sheet` / `safelight` 之后**仍会留下、且测试不豁免**的 rgba：
+
+| 值 | 位置 | 语义 |
+|---|---|---|
+| `rgba(12, 10, 8, 0.4)` | `.meta span` L96 | 顶栏药丸半透明底 |
+| `rgba(12, 10, 8, 0.85)` | `.compare-badge` L221 | 对比角标 |
+| `rgba(12, 10, 8, 0.72)` | `.busy` L338 | 忙碌遮罩 |
+| `rgba(12, 10, 8, 0.35)` | `.upload` L539 | 上传虚线底 |
+| `rgba(126, 160, 181, 0.04/0.1)` | `.issue-chip` L139,149 | 青晒问题芯片 |
+| `rgba(27, 22, 18, 0.7)` | `.follow textarea` L437 | 改稿条底（= `--panel` 的 alpha） |
+| `rgba(8, 6, 4, 0.72)` | `.dialog-backdrop` L612 | 对话框幕 |
+| `rgba(6, 5, 4, 0.93)` | `.lightbox-backdrop` L707 | 灯箱幕 |
+| `rgba(27, 22, 18, 0.85)` | 灯箱说明 L742 | 须人工核：确认是否随灯箱保留 |
+
+渐变（含 `var(--accent-hi)` 的两处）逐条映射后：
+
+| 渐变 | 映射后两停 | 结果 |
+|---|---|---|
+| `button` L50 `linear-gradient(accent-hi, accent)` | `--accent` / `--accent` | **塌成纯色** |
+| `.paper .go` L319 同上 | `--accent` / `--accent` | **塌成纯色** |
+| `.top` L75 `#171310 → #120f0c` | `--n-900` / `--n-950` | 不停点相同，但 RGB 距 **3.0**（(11,11,12) vs (9,9,11)），目视等于平涂 |
+| `.round` L124 / `.desk` L515 `#1a1511 → #14110d` | `--n-850` / `--n-900` | RGB 距 **6.6**，暖棕差消失，接近平涂 |
+| `.dialog` L618 / `.lightbox` 卡 L666 `#1d1813 → #16120f` | `--n-800` / `--n-850` | 仍有级差（距 9.3），能活 |
+| 舞台径向 L182 `#1a1410 → transparent` | `--n-850` → transparent | 仍是渐变 |
+| 相纸高光 L228 白→透明 | 豁免，保留 | 但 `.paper` 本身要从米色改成 `--n-850`，高光叠在深底上是另一件事 |
+| `safelight` / `develop-sheet` 共 5 段 | 计划删除 | 不算塌缩，算刻意拆 |
+
+硬塌成纯色：**2**。再加顶栏/侧栏/桌面 **3** 段会变成几乎看不见的灰阶差。
+
+层次合并（不同语义、同一 token）：
+
+- `#0c0a08`（舞台实底）、`#0b0d0f`（`.frame`）、`#120f0c`（顶栏下沿）→ 都是 `--n-950`
+- `#0e0b09`（`--bg`）、`#171310`（顶栏上沿）、`#14110d`（侧栏下沿）→ 都是 `--n-900`
+- `#1a1511` / `#1a1410` / `#1b1612`（`--panel`）/ `#16120f` → 都是 `--n-850`
+- `#9a8c7b`（`--muted`）、`#8b8680`（相纸提示）、`#a39a8b`（placeholder）→ 都是 `--n-400`
+- `--n-950` 与 `--n-900` 的 RGB 距只有 **3.0**；`--n-700` 在 tokens 里定义了，映射表从未用到
+
+整页还从暖棕（#0e0b09 / #1b1612）改成冷锌（#0b0b0c / #0e0e11）。`--sans` 今天是 `"Avenir Next", "PingFang SC", …`，token 写成 `-apple-system, "PingFang SC", …`。`padding`/`gap` 的 rem 还要就近吸附 `--s-*`。
+
+计划承诺的三处刻意变化（相纸、显影、降饱和橙）是真的，但**远远不是全部**。
+
+Trigger:
+执行者按 hex 表替换、按「`--accent-hi` 归并到 `--accent`」（L483）改按钮、按「除三处外任何变化都算回归」（L531）做目视。
+
+Impact:
+按钮失去立体高光（这是主 CTA）。顶栏/侧栏洗成一块冷灰。对照「回归」清单时，执行者无法判断哪些差该改映射、哪些该当成 token 体系的代价。未入表的 rgba 会让 Task 3 测试在拆完 CSS 后仍红，直到有人发明 `color-mix` 百分比。
+
+Disprove attempt:
+尝试「`--accent-hi` 那段写了按需 `color-mix`」——hex 表把 `#e79a4e` 和 `#e0893c` 都指向 `var(--accent)`，零上下文工程师会先信表。尝试「顶栏两停点 token 不同所以渐变还在」——几何上在，对比上没有；`--n-900` vs `--n-950` 的相对亮度差约 0.0006。尝试「32 种 rgba 会随 develop-sheet 删光」——上表 8–9 处与显影无关。结论：映射表对 hex 完整，对「视觉不变」这个承诺不完整。
+
+---
+
+### P1: 函数表漏了 9 个真函数、造了 1 个假函数、`$` 没人收
+
+Evidence:
+`app.js` 顶层 `function` 共 68 个。计划 Task 5 表 + Task 4 已迁走的 `format.js`/`getJson`/`boot` 对得上的，**都存在**。不存在的只有 `renderFacts`（计划自己注明「现内联在 selectItem」，`app.js:446-457` 是一段 `facts.innerHTML = …`，没有同名函数）。
+
+未分配、且 grep 确认存在：
+
+| 符号 | 行 | 谁调用 |
+|---|---|---|
+| `newTake` | 654 | `#new-take` 点击（L1311） |
+| `modeLine` | 1041 | `renderBrief` |
+| `statusLabel` | 1048 | `renderBatchJobs` |
+| `renderBatchJobs` | 1052 | `waitBatch` |
+| `sleep` | 1069 | `waitBatch` |
+| `waitBatch` | 1073 | `runBriefJobs` |
+| `closeUpdates` / `openUpdates` / `refreshVersionBadge` | 1174–1202 | `boot` 与顶栏 |
+
+`const $ = (id) => document.getElementById(id)`（`app.js:48`）全文件 64 个 `$("…")`，表里没有。`heroTouchStart` / `lightboxTouchX` 是接线局部变量，放 `main.js` 合理。
+
+没有任何函数被表写成两个模块——**除了 `quoteCopy`（见上条 P0）**。
+
+Trigger:
+执行者「按表搬运，表上没有的先扔进 main.js」。
+
+Impact:
+`waitBatch` 家族若进 `main.js`，`runBriefJobs`（brief）要 import main → 再次踩 `test_main_exports_nothing_views_need`。`newTake` 调 `closeLightbox` + `cancelBrief` + `renderLibrary`，扔进 stage 会加边，扔进 main 则只能当接线函数。`$` 若只留在一个文件，其余模块的逐字函数体全部炸。Task 5 还要求导出 `renderFacts`，执行者必须从 `selectItem` 里拆一刀——这已经不是「函数体逐字不变」。
+
+另外：计划 L1310 写「`generateDirect` 相关代码路径删除」。全仓库 `generateDirect` **零命中**。真入口是 `$("form").addEventListener("submit", …)`（`app.js:1363`）。删 submit 是对的，按名字搜 `generateDirect` 会以为自己漏了文件。
+
+Disprove attempt:
+尝试「漏掉的都是 brief 内部 helper，执行者会自然放进 brief.js」——`modeLine`/`waitBatch` 是，`newTake` 和 updates 不是；计划自评（L1637）写「给了逐函数归属而非把剩下的搬过去」，与事实不符。尝试「`renderFacts` 算已声明的提取」——提取后 `selectItem` 不再逐字。结论：表对「列出来的名字」基本诚实，对「列全」不诚实。
+
+---
+
+### P1: `TestDomIdsResolve` 对当前代码几乎是空转；Task 4 结束时它不会红
+
+Evidence:
+测试只认 `getElementById("…")` 和 `querySelector("#…")`（计划 L662–663）。当前 `app.js` 这两种字面量为 **0**，全部走 `$("id")`。动态插入的 `id="run-brief"` / `id="cancel-brief"` / `id="draft-${job.id}"`（`app.js:1005,1016-1021`）也不在 `index.html` 里。
+
+Task 4 的 `main.js` 骨架没有 `getElementById`。Task 6/7/9 才引入的 `aspect-badge` / `backdrop-toggle` / `status-line` 等，**当前 JS 也不引用**。
+
+Trigger:
+担心「Task 4 加了 DOM 交叉校验，后面才长新 id，Task 4 结束会红」。
+
+Impact:
+**这个担心不成立**——Task 4 结束时该测试是绿的（空图）。真正的问题是反面：Task 5 迁完 64 个 `$()` 之后，测试仍然绿，哪怕 HTML 改掉 `id="form"`、漏掉 `run-brief`。它挡不住迁移期最可能的静默失败。若执行者把 `$` 改写成 `getElementById`，`run-brief` / `cancel-brief` 会立刻误报（它们只存在于 `innerHTML`）。
+
+Disprove attempt:
+尝试「Task 5 的函数体会改成 getElementById，于是 Task 4 的测试在 Task 5 之前就该看到新 id」——Task 4 并不迁视图。尝试「`$` 的定义行 `document.getElementById(id)` 会被正则扫到」——正则要的是字符串字面量，扫不到变量。结论：用户假设的「中途必红」在 Task 4 这条上不成立；中途必红发生在 Task 6/7 vs Task 3（见上 P0）。
+
+---
+
+### P1: 多个 Step 2「Expected: FAIL」不诚实或数错；有的断言实现前就是绿的
+
+Evidence:
+在当前树上模拟「只加测试、不改产品」：
+
+| Task | 计划预测 | 实际 |
+|---|---|---|
+| 1 | `STATIC_MIME` 那条 FAIL；另两条多数 macOS 绿 | 本机 `mimetypes.guess_type("main.js")` = `text/javascript`，`tokens.css` = `text/css`。`STATIC_MIME` 不在 `server.py`。预测**准**。 |
+| 2 | `FileNotFoundError` | 前两条会 **ERROR**（不是 FAIL）。`test_legacy_accent_is_gone` 对 `css/` 做 glob——目录不存在则 0 个文件，**空转 PASS**。 |
+| 3 | 四条全 FAIL | `test_all_css_files_exist` / `test_index_links` / `test_old_monolith` 会 FAIL。`test_no_literal_color` 读还不存在的 `base.css` → **ERROR**。不是四条 FAIL。 |
+| 4 | `test_entry_exists` FAIL | 准。但同批加入的 `test_every_import_target_exists` / `test_no_cycles` / `TestSymbolResolution` / `TestDomIdsResolve` 在 0 个 js 文件时**空转 PASS**。 |
+| 5 | `test_each_module_exports` FAIL | 准。`test_main_exports_nothing_views_need`、`test_no_module_exceeds_400_lines` 在 Task 4 骨架上**已经绿**。 |
+| 6 | 「三条 FAIL」 | 类里是 **4** 个测试。今天 `object-fit: contain` 不在 CSS 里（只有 `.frame img { object-fit: cover }`，`app.css:475`），`--dock-h` 不在 views，角标不在 HTML，四条都会红。方向对，数错。 |
+| 7 | 三条 FAIL | 准（`setBackdrop` / `data-backdrop` 都不存在）。`test_pro_mode_defaults_to_flat` 只 `assertIn('"pro"', js)`，极弱。 |
+| 8 | 三条 FAIL + submit 那条也红 | 准。当前 `brief-btn` + `gen-btn` + `type="submit"` 同时在。`generateDirect` 不存在不影响这条。 |
+| 9 | 「三条全 FAIL」 | 类里 **4** 条。`test_cost_disclosure_survives` 查「预览不花额度」——`index.html:233` **今天就有，实现前就是绿的**。`BANNED` 里的「先整理任务、核对终稿」**当前 HTML 不存在**（`.paper-hint` 实际是「手艺芯片选骨架…」，`index.html:64`），这条 subTest 实现前就是绿的。 |
+| 10 | `grep test_studio` 无输出 | 准。`.github/workflows/test.yml` 只有 `test_local_image_gen.py`。 |
+
+Trigger:
+执行者把「Expected: FAIL」当成健康检查：绿了就怀疑自己抄错测试。
+
+Impact:
+Task 2/9 里各有断言从一开始就是绿的，TDD 闭环是走过场。Task 6/9 的「三条」和代码里的四条对不上，执行者会以为漏贴了测试。Task 1 那两条 MIME 断言吃的是**本机注册表**，不是 `STATIC_MIME`；Task 10 把同一文件接到 `ubuntu-latest` 上之后，`guess_type("main.js")` 是否仍为 javascript **须人工核**（计划自己也只敢说「多数 macOS」）。
+
+Disprove attempt:
+尝试「空转 PASS 也算回归护栏，计划已对 Task 1 坦白」——Task 1 坦白了，Task 2 的 legacy 空转、Task 9 的反向断言已绿、Task 6 数错条数没有坦白。结论：TDD 叙事有几处是真的，不能当全部诚实。
+
+---
+
+### P1: 验收标准 4 和 2 在对应 Task 做完后仍可能达不到
+
+Evidence:
+
+**标准 4「常驻界面不再解释内部机制」← Task 9。**  
+Task 9 要删的 `.paper-hint` 原文是「先整理任务、核对终稿…」（计划 L1513）。仓库里那一行是「手艺芯片选骨架。常用句点一下写进相纸…」（`index.html:64`）。按计划删会变成「找不到这句，跳过」。留下的常驻解释还有 `#director-status`：「出图后自动看图。点下面的问题直接改，或自己写一句。」（`index.html:31`）——BANNED 列表没有它。  
+`standing_copy()` 用非贪婪 `.*?</div>` 剥 `dialog-root`：两个 dialog 的结构都是 backdrop 先闭合，正则只剥掉外壳，`id="confirm"` 的标题「会消耗这次选中后端的配额」仍可能留在 standing 里（实跑 `会消耗这次选中后端的配额 in standing True`）。今天没误伤是因为 BANNED 用的是另一句「会消耗所选后端配额」。换一句就会假红或假绿。
+
+**标准 2「任意比例完整可见、dock 不遮挡」← Task 6。**  
+自动化只断言字符串含 `object-fit: contain`、`--dock-h`、一段 `.stage > .viewer { min-height: 0 }`。当前 `.viewer` 是 `min-height: 280px; overflow: auto`，`.viewer img` 是 `max-height: calc(100vh - 340px)`、**没有** contain（`app.css:186-209`）。计划贴的 flex 只给 `.follow` `min-height: calc(var(--dock-h) * 0.42)`（约 55px），**没有**把 `.follow + .film-wrap + .facts` 锁成 132px。测试在「views.css 里出现 `--dock-h` 五个字符」时就会绿。真的不遮挡 **须人工核**。
+
+**标准 1「默认路径只有一个生图按钮」← Task 8。**  
+删 `gen-btn` + 去 `<form>` 后，默认路径确实只剩 `#brief-btn` → 确认卡。`#preview-btn` 走 `/api/preview`，`#director-revise` 是已有图之后的改稿。测试不数它们，与「默认路径」字面一致。这条可达。
+
+**标准 3「正文对比度 ≥ 4.5」← Task 2。**  
+六对 token 实算：最低 `--n-400` on `--n-850` = **7.52:1**，`--accent` on `--n-900` = **10.56:1**。按钮深字：`--n-950` on `--accent` = **10.68:1**。测试不扫真实「哪段文字叠在哪块底」；Task 3 之后若有人把浅字叠在 `--accent` 上（`--n-200` on `--accent` = **1.59:1**）会漏。作为 token 地板，可达；作为「所有正文」，偏弱。
+
+**标准 21「现有测试通过」。**  
+每个 Task 只跑 `test_studio_job.py` 与 `test_prompt_compile.py`。`tests/test_studio_snippets.py`（5 个后端用例）全程未跑、也未进 Task 10 的 CI。本期不改 `snippets.py`，回归风险低，但「现有测试全部」字面没做到。
+
+Trigger:
+把计划开头的验收表当成「做完对应 Task 就能打勾」。
+
+Impact:
+Task 9 做完后常驻解释文案仍在；Task 6 做完后测试绿、竖图仍可能被 `min-height: 280px` 旧规则或未锁死的 dock 挤出视口——如果执行者是「追加」而不是「替换」`.viewer` 块。
+
+Disprove attempt:
+尝试「paper-hint 计划表只是旧文案，执行者会对照 HTML 删掉整段」——零上下文工程师按表搜索原文，搜不到就会跳过。尝试「`--dock-h` 出现即表示预留」——CSS 可以出现该变量却不算高度。结论：1 和 3 大体可达，2 和 4 不能单靠对应 Task 的自动化打勾。
+
+---
+
+### P1: Task 5 没有可粘贴的 `main.js` 终稿；Task 3 还要改 JS，与「CSS 任务 / 逐字搬运」打架
+
+Evidence:
+Task 4 的 `boot()` 只拉 doctor/models，不填 select、不刷库（计划 L828–836）。真 `boot` 在 `app.js:1216-1232`，后面还有约 200 行 `addEventListener`（L1234–1430）。Task 5 Step 3 只说「所有事件接线集中到 main.js 底部」，**没有**给出完整 `main.js`。  
+Task 3（名义上 CSS）要求删 `app.js` 里对 `#develop-sheet` 的引用（L486）。`startBusy`（`app.js:116-121`）在 `develop` 时写 `sheet.hidden` / `sheet.style.aspectRatio`。若 Task 3 没改 JS，Task 5 逐字搬走后 `$("develop-sheet")` 为 null 会抛。若 Task 3 改了，Task 5 的「逐字」已经不成立。
+
+Trigger:
+执行者做完 Task 4 打开页面（计划 L853 已承认中间态破损），做 Task 5 时对着空骨架猜接线。
+
+Impact:
+漏接 `#new-take` / 空格对比 / 灯箱滑动 / `#preview-btn` 都不会被静态测试抓住。`startBusy` 与已删除的 develop-sheet 不同步则忙碌态运行时炸。
+
+Disprove attempt:
+尝试「接线可以从 app.js 底部抄」——可以，但那正是计划自评声称已经避免的「把剩下的搬过去」。结论：可达，但不是计划写的那种「每步可粘贴」。
+
+---
+
+### P2: 缓存 bust 文案过期；本仓 server 其实已经 `no-store`
+
+Evidence:
+计划 L505/L847 要替换 `?v=darkroom3`。当前 `index.html:7,241` 是 **`?v=darkroom9`**。新的四条 CSS 和 `main.js` **没有** query。  
+`studio/server.py:755`：`_send` 一律 `Cache-Control: no-store`，静态文件也走 `_send`（L783）。
+
+Trigger:
+执行者 grep `darkroom3` 找不到；或担心用户看到半新半旧资源。
+
+Impact:
+对本仓库自带 server，半新半旧**几乎不会发生**。过期版本号会让「按计划搜索」失败，浪费时间。若有人不用 `server.py`、改用会缓存的静态托管，新 URL 无 bust 才成为问题——那是计划外运行方式。
+
+Disprove attempt:
+尝试「这是 P0，用户一定缓存错」——被 `no-store` 推翻。降为 P2：改掉错误的 `darkroom3` 字面量，并写明「本 server 已 no-store，新文件可以不加 query」。
+
+---
+
+### P2: 其它会绊人、但不至于停工的缺口
+
+Evidence:
+- Task 8 写「`main.js` 里删只被 submit 用的 `explainAspectFail` / `savedName`」——Task 5 已把它们放进 `lib/status.js`。EXPECTED 不要求这两个名字，删了测试仍绿，只是执行者在 main 里找不到。
+- `EXPORT_RE`（L630–632）认 `export function/const`，不认 Task 4 `main.js` 的 `export { setMode }`。当前没有视图从 main 再 import `setMode`，不炸；以后会暗藏。
+- Task 10 不把 `test_prompt_compile.py` / `test_studio_snippets.py` 推进 CI，与「现有测试全部」措辞不一致。
+- `color-mix()` 计划写 Safari 16.2+ / Chrome 111+，无测试、无浏览器矩阵。
+- `index.html:59` 的 `#c45c26` 是 color input 的 value，不进 CSS 守卫——合理，但执行者若「扫全静态目录禁 hex」会误伤。
+
+Trigger / Impact / Disprove attempt:
+这些都是执行者能绕过或事后补的；没有一条会单独让 Task 在「按错的参考实现做完」后稳定红。不升级。
+
+---
+
+## Sound as written
+
+验证过、可以当地基用的部分：
+
+1. **30 / 32 / 21 的盘点是对的。** `app.css` 实数 unique hex 30、unique rgba 32、`:root` 自定义属性 21。hex 映射表没有漏 hex（漏的是 rgba 与「同 token 不同语义」）。
+2. **Task 2 的对比度数字是对的。** 六对 REQUIRED 全部 ≥ 7.52:1；计划自评写的 10.56 / 7.52 与实算一致。把地板做成 CI 计算而不是目视，这个设计成立。
+3. **Task 1 的 MIME 故事成立。** `server.py:782` 今天就是 `mimetypes.guess_type(...) or octet-stream`，没有 `STATIC_MIME`。本机两条 guess 已绿，计划没有假装它们会红。
+4. **Task 8 的入口计数不再是假红/假绿。** 今天 HTML 同时有 `id="brief-btn"`、`id="gen-btn"`、`type="submit"`；枚举求和会红，改完会只剩 brief-btn。`<form class="desk">` 改 `<div class="desk">` 没有 CSS `#form` 依赖（样式全是 `.desk`）。
+5. **「默认路径只留一个生图钮」在 Task 8 的切割下是可达的。** 真生图旁路是 form submit，不是不存在的 `generateDirect`。
+6. **叶子模块这个方向是对的。** `setStatus`/`startBusy` 被 canvas/director/brief 调用、main 又要 import 视图，确实会环。把它们从 main 拉出来是对症——只是没拉干净（`PROVIDER_NAMES`、视图互调、Task 9 又塞回 main）。
+7. **Task 4 结束时 `TestDomIdsResolve` 不会因为后面的新 id 变红。** 骨架 JS 不引用 `aspect-badge` / `backdrop-toggle` / `status-line`。用户担心的「测试中途必红」在这条上不成立。
+8. **本仓静态响应已经 `Cache-Control: no-store`。** 拆文件后半缓存的风险，低于计划没提 cache bust 时的直觉。
+9. **`object-fit: contain` 今天确实不在画布上。** Task 6 的 contain 断言在实现前是真红，不是走过场。
+10. **CI 真的没跑 Studio 测试。** `test.yml` 只有 `test_local_image_gen.py`。Task 10 的 Step 1 预测准。
+11. **相纸 / 显影 / 旧橙** 三处刻意变化在 Task 3 里写清楚了，包括删 `#develop-sheet` 和 `@keyframes safelight`。问题是把「只有这三处会变」写成了验收承诺。
+12. **行数天花板对 desk 的判断现在是对的。** 按函数体粗算 desk ≈ 220 行 + 常量表，不会先撞 400；director ≈ 225、brief（含未入表 helper）≈ 209，也还能住。
+
+---
+
+## Go/No-Go
+
+**No-Go。**
+
+不是「计划太粗」，而是「照着粘贴会与计划自己的测试打架」。Task 5 的视图环、`quoteCopy`/`PROVIDER_NAMES` 的叶子矛盾、Task 6/7 示例 CSS 触发 Task 3 守卫、Task 9 把 `showStatus` 放回 main——四条都是零上下文工程师无法用常识补丁安全绕过的，补丁还会被守卫拒绝。
+
+TDD 叙事、验收 #2/#4、rgba 残表、未分配函数，会让人在错误的绿上停下来，或在正确的红上改错东西。那些是 P1，单独不够 No-Go；叠在四条 P0 上，不能开工。
+
+---
+
+## Required Fixes
+
+1. **先画一张允许的视图依赖图，再改归属或接线。** 至少打破 `stage ⇄ library` 和 `director ⇄ brief`。可选：`selectItem` 用 `notify()`，library 订阅；或 `renderBrief`/`cancelBrief` 经 main 回调注入，views 互不 import。计划必须写出选中的那一种，并加一条测试钉死「views 不得互相 import」或「只允许 A→B、禁止回流」。
+2. **`PROVIDER_NAMES` 迁到叶子**（例如 `lib/providers.js` 或 `lib/format.js`）。`quoteCopy` 只保留一个家：建议 `lib/busy.js`，brief 从那里 import。删掉表里 brief 那一格的重复。
+3. **Task 6/7 的示例 CSS 改成 token。** 角标和环境光罩用 `color-mix(in srgb, var(--n-900) 72%, transparent)` 这类写法，禁止再出现 `rgba(11, 11, 12, …)`。Step 5 的 Expected 才能与 Task 3 共存。
+4. **`showStatus` / `showError` 放进 `lib/status.js`，在那里改写 `setStatus`。** Task 9 测试改读 `lib/status.js`。`main.js` 继续不导出视图需要的符号。同步改掉「到 main.js 里删 setStatus」这句过期地理。
+5. **补全函数表：** `newTake`、`modeLine`、`statusLabel`、`renderBatchJobs`、`sleep`、`waitBatch`、`openUpdates`、`closeUpdates`、`refreshVersionBadge`、`$`。`waitBatch` 家族必须和 `runBriefJobs` 同模块或同在叶子。给出 Task 5 终态 `main.js` 全文（boot + 全部 addEventListener）。
+6. **重写「视觉不变」承诺。** 写明：暖棕→冷锌、按钮高光消失、顶栏/侧栏渐变近乎抹平、三种 muted 合并、字体栈从 Avenir Next 换成系统字体、rem 吸附到 `--s-*`，都是 token 化的代价，不是回归。把 `--accent-hi` 的 `color-mix` 百分比写死（例如 100% / 82%），不要让按钮渐变两停点落到同一 token。
+7. **补 rgba 映射**（上表那些幕、遮罩、芯片），否则 Task 3 测试在「hex 都换完」之后仍然红。
+8. **Task 9 文案表改成仓库里的句子**；BANNED 加上 `#director-status` 和真实 `.paper-hint`；`standing_copy` 改成按 `id="updates"` / `id="confirm"` 整块剥，或按 `dialog-root` 做嵌套计数。
+9. **`TestDomIdsResolve` 同时扫 `$("id")`。** 对 `run-brief` / `cancel-brief` / `draft-*` 声明「运行时注入，不在 index.html」，不要让执行者改成 `getElementById` 后被误杀。
+10. **Step 2 的 Expected 改成真实颜色：** 哪些 ERROR、哪些空转绿、Task 6/9 是 4 条不是 3 条、`test_cost_disclosure_survives` 今天就是绿。Task 1 那两条 MIME 断言要么改成查 `STATIC_MIME`，要么在 Task 10 写明 Ubuntu 注册表的预期，避免 CI 第一次接入就因宿主 MIME 红。
+11. **把 `?v=darkroom3` 改成 `?v=darkroom9` 或删掉这句话**，并注明 `server.py` 已 `no-store`。
+12. **删掉 `generateDirect` 这个幽灵名字**，改写「删除 `#form` 的 submit 处理器」。
+
+---
+
+# Re-Review Arbitration（第二轮）
+
+Arbiter: claude-opus-5
+Time: 2026-08-20
+
+两席复审（grok-4.6-xhigh）**均判 No-Go**。仲裁采纳，并已在 commit `8d9a31c` 与本轮修订中全部收口。
+
+## 第一轮九条的收口情况
+
+已收口：P0-4、P1-1、P1-2、P1-3、P1-5。
+部分收口后已补齐：P0-1、P0-2、P0-3、P1-4。
+
+## 修订自身引入的缺陷（两席合并，仲裁逐条复核属实）
+
+| # | 问题 | 复核证据 | 处置 |
+|---|---|---|---|
+| N1 | Task 9 把 `showStatus` 定义并导出在 `main.js`，与三个调用它的视图成环——即 P0-1 刚修掉的那个环 | 计划 L1404 / L1472 | 移入 `lib/status.js`，加断言禁止回流 |
+| N2 | `standing_copy()` 的非贪婪正则只剥掉 backdrop 一层，确认卡仍在作用域内 | 实跑 9578 → 9299 字符，「预览不花额度」仍命中 | 改按对话框位置切分，加双向边界自检 |
+| N3 | 禁用词「先整理任务、核对终稿」在 `index.html` 里不存在，`assertNotIn` 永久绿 | grep 无命中；实际措辞是「手艺芯片选骨架…」 | 按当前文案重建列表，加反向断言要求每条此刻必须存在 |
+| N4 | `stage ⇄ library` 互调成环 | `selectItem` L475 调 `renderLibrary`；`renderLibrary` L407 调 `selectItem` | 立第 3 条分层规则：视图间不得互相 import，改走 `state` + `notify/subscribe` |
+| N5 | `director ⇄ brief` 互调成环 | `reviseSelected` L842 调 `renderBrief`；`runBriefJobs` L1158/L1163 调 `openDirector`/`lookSelected` | 同 N4 |
+| N6 | Task 6/7 示例 CSS 里的 `rgba(11,11,12,…)` 会触发 Task 3 的字面色守卫 | 实跑守卫命中 4 处 | 改 `color-mix(in srgb, var(--n-900) N%, transparent)` |
+| N7 | `quoteCopy` 同时分给 `views/brief.js` 与 `lib/busy.js` | 计划 L906 / L973 / L977 | 只归 `lib/busy.js` |
+| N8 | `lib/busy.js` 需要 `PROVIDER_NAMES`，而它被分在 `views/desk.js`——叶子反向依赖视图 | `expectCopy` / `startBusy` 各一处引用 | 新建 `lib/constants.js` 叶子模块承载纯数据 |
+
+## 根因
+
+N1、N4、N5、N7、N8 是同一个病：**按屏幕区域切分模块，但原代码是按直接调用组织的**。单文件里自由互调没有代价，一旦拆开就全变成模块图上的环。第一轮只修了 `main.js ⇄ views` 这一个环，没有推广成规则，于是同类问题在别处原样复现。
+
+现已立为三条硬规则（`main.js` 只接线 / `lib/` 是叶子 / 视图间不互 import），并各配一条守卫测试。
+
+## Verdict
+
+**Conditional Go。** N1–N8 全部收口，计划 1678 → 1787 行。实施前的剩余条件：本轮修订未再经第三方评审，执行 Task 5 时若守卫报出新的环，按第 3 条规则改状态广播，不要绕过测试。
+
+Final signature: claude-opus-5 会审仲裁（第二轮）2026-08-20
