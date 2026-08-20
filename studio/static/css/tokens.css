@@ -1,0 +1,43 @@
+/* 设计 token。其它 CSS 一律只引用这里的变量，不写字面色值。 */
+:root {
+  /* 中性灰阶：chrome 全部取自这里 */
+  --n-950: #09090b;
+  --n-900: #0b0b0c;
+  --n-850: #0e0e11;
+  --n-800: #18181b;
+  --n-700: #1c1c1f;
+  --n-600: #232327;
+  --n-400: #a1a1aa;
+  --n-200: #ededef;
+  --n-050: #fafafa;
+
+  /* 语义色：只用于状态，不用于装饰 */
+  --accent:  #f2b169;
+  --success: #8fd3a8;
+  --danger:  #e08b7e;
+  --info:    #9db9ee;
+
+  --font-sans:  -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --font-mono:  ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-brand: "Iowan Old Style", Palatino, "Songti SC", serif;
+
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+
+  /* 间距级数，基数 4px（spec §4.3） */
+  --s-4: 4px;
+  --s-6: 6px;
+  --s-8: 8px;
+  --s-11: 11px;
+  --s-14: 14px;
+  --s-18: 18px;
+  --s-22: 22px;
+
+  /* 沿用 app.css 原值——这条曲线本身没有问题，spec 未要求改 */
+  --ease: cubic-bezier(0.22, 0.8, 0.32, 1);
+
+  /* 舞台为 dock 预留的固定高度，Task 6 使用 */
+  --dock-h: 132px;
+}

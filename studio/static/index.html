@@ -4,7 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>local studio · 本机暗房</title>
-  <link rel="stylesheet" href="/static/app.css?v=darkroom9">
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/views.css">
 </head>
 <body>
   <header class="top">
@@ -37,6 +40,7 @@
             <button type="button" data-export="original">原图</button>
             <button type="button" data-export="xhs">小红书 3:4</button>
             <button type="button" data-export="wide">封面 16:9</button>
+            <button type="button" data-export="reel">竖屏 9:16</button>
             <button type="button" data-export="square">方图 1:1</button>
           </div>
         </div>
@@ -65,11 +69,11 @@
         <img id="hero" alt="" hidden>
         <article class="brief-card" id="brief-card" hidden></article>
         <div class="busy" id="busy" hidden>
-          <div class="develop-sheet" id="develop-sheet" hidden></div>
           <span class="spinner" aria-hidden="true"></span>
           <p id="busy-title">正在显影</p>
           <p class="busy-sub" id="busy-sub">请稍候，不要关闭或连点。</p>
           <p class="busy-expect" id="busy-expect" hidden></p>
+          <ul class="batch-jobs" id="batch-jobs" hidden></ul>
           <p class="busy-time" id="busy-time">已等 0 秒</p>
         </div>
       </div>
@@ -166,6 +170,8 @@
               <option>environment</option>
               <option>ccd</option>
               <option>split</option>
+              <option>reel</option>
+              <option>paper</option>
               <option>void</option>
               <option>habitat</option>
               <option>photo</option>
@@ -234,6 +240,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=darkroom9"></script>
+  <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>
