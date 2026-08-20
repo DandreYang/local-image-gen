@@ -34,6 +34,12 @@ OUTPUTS = WORKSPACE / "outputs"
 IMAGE_DIR = OUTPUTS / "images"
 INBOX = IMAGE_DIR / "inbox"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+JPEG_MAGIC = b"\xff\xd8\xff"
+OVERLAY_MAX_BYTES = 20 * 1024 * 1024
+COMPOSITE_MAX_BYTES = 40 * 1024 * 1024
+OVERLAY_DIR = OUTPUTS / "overlays"
+MASK_DIR = OUTPUTS / ".masks"
 STATIC_MIME = {
     ".js": "text/javascript; charset=utf-8",
     ".mjs": "text/javascript; charset=utf-8",
@@ -396,6 +402,38 @@ def is_under(path: Path, root: Path) -> bool:
         return True
     except (OSError, ValueError):
         return False
+
+
+def sniff_image_suffix(data: bytes) -> Optional[str]:
+    if data.startswith(PNG_MAGIC):
+        return ".png"
+    if data.startswith(JPEG_MAGIC):
+        return ".jpg"
+    return None
+
+
+def save_image_bytes(
+    dest_dir: Path,
+    data: bytes,
+    *,
+    max_bytes: int,
+    allowed: Tuple[str, ...],
+    name_suffix: str = "",
+) -> Path:
+    if not data:
+        raise ValueError("empty upload")
+    if len(data) > max_bytes:
+        raise ValueError("upload too large")
+    sniffed = sniff_image_suffix(data)
+    if sniffed is None or sniffed not in allowed:
+        raise ValueError("not a PNG or JPEG")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{uuid.uuid4().hex[:10]}{name_suffix}{sniffed}"
+    dest.write_bytes(data)
+    if not is_under(dest, OUTPUTS):
+        dest.unlink()
+        raise ValueError("image is outside the library")
+    return dest
 
 
 def load_receipt(path: Path) -> Optional[Dict[str, Any]]:
