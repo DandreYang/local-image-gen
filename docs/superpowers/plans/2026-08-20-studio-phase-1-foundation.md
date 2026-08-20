@@ -4,7 +4,11 @@
 
 **Goal:** 把 Studio 前端从单文件 vanilla 重构成带设计 token 的原生 ES Modules，画布改为完整显示，并收敛掉会误触烧配额的生图入口——全程不改后端业务逻辑。
 
-**Architecture:** `app.js`（1431 行）拆成 `js/` 下的 11 个模块，`app.css`（775 行）拆成 `css/` 下的 4 个文件。因为项目是零依赖、无构建步骤，前端没有 JS 测试运行器——所以本期用 **Python 静态分析测试**（`tests/test_studio_frontend.py`）来守契约：MIME 类型、模块图无环且引用存在、对比度达标、HTML 里生图入口唯一。这些断言在 CI 里可执行，且不引入任何依赖。
+**Architecture:** `app.js`（1431 行）拆成 `js/` 下的 13 个模块，`app.css`（775 行）拆成 `css/` 下的 4 个文件。因为项目是零依赖、无构建步骤，前端没有 JS 测试运行器——所以本期用 **Python 静态分析测试**（`tests/test_studio_frontend.py`）来守契约。
+
+**模块分层是硬规则**（会审 P0-1 收口）：`main.js` **只做事件接线，不导出任何视图需要的东西**。共享能力一律放进 `lib/` 下的**叶子模块**——叶子模块不 import 任何视图，`main.js` 与 `views/*` 都单向依赖它们。违反这条会造成 `main.js ⇄ views/*` 的双向依赖，被本计划自己的 `test_no_cycles` 拒绝，而且 ES module 循环在浏览器里往往照常工作，会出现「页面正常、测试红」的迷惑局面。
+
+**静态分析的能力边界要说清楚**（会审 P0-2 收口）：这套测试**不执行 JS**，所以运行时错误、CSS 层叠结果、真实渲染效果一概抓不到。会审实测过——把本计划的断言拼全后，一份在浏览器里根本打不开的实现照样返回 `Ran 30 tests OK`。因此测试只承担三件事：**拦住静默失败**（模块图、符号名、DOM id 三类在浏览器里无声崩溃的错误）、**守住可计算的属性**（对比度）、**防止已修的缺陷回潮**（旧橙、多入口、解释文案）。视觉与交互的正确性由每个 Task 末尾的**手工回归清单**负责，那不是可选步骤。
 
 **Tech Stack:** Python 3.9+ stdlib（`unittest`、`mimetypes`、`re`、`pathlib`）；原生 ES Modules；CSS 自定义属性。无 npm、无构建、无第三方库。
 
@@ -51,7 +55,9 @@
 | `studio/static/js/main.js` | 启动、事件接线、模式（simple/pro） |
 | `studio/static/js/state.js` | 单一 state 对象 + 订阅 |
 | `studio/static/js/api.js` | fetch 封装、错误规范化 |
-| `studio/static/js/lib/format.js` | 时长 / 时间 / 比例 / 转义 / 错误文案 |
+| `studio/static/js/lib/format.js` | 时长 / 时间 / 比例 / 转义 |
+| `studio/static/js/lib/status.js` | 状态条渲染与错误规范化（**叶子模块**） |
+| `studio/static/js/lib/busy.js` | 忙碌遮罩与耗时预估（**叶子模块**） |
 | `studio/static/js/lib/canvas.js` | contain 计算、裁切导出 |
 | `studio/static/js/views/stage.js` | 画布 + 比例角标 + 环境光 |
 | `studio/static/js/views/library.js` | 胶片条 + 灯箱（本期仅迁移，第 4 期重写） |
@@ -246,10 +252,32 @@ class TestContrast(unittest.TestCase):
                     round(ratio, 2), floor, f"{fg} on {bg} 只有 {ratio:.2f}:1"
                 )
 
-    def test_legacy_accent_is_gone(self):
-        """#e0893c 饱和度过高，与暖调作品抢同一色相。"""
+    def test_spacing_scale_defined(self):
+        """spec §4.3：间距基数 4px，级数 4/6/8/11/14/18/22。"""
         text = (STATIC / "css" / "tokens.css").read_text(encoding="utf-8")
-        self.assertNotIn("#e0893c", text.lower())
+        for step in (4, 6, 8, 11, 14, 18, 22):
+            with self.subTest(step=step):
+                self.assertRegex(
+                    text, rf"--s-{step}\s*:\s*{step}px\s*;", f"tokens.css 缺少 --s-{step}"
+                )
+
+    def test_legacy_accent_is_gone_in_every_form(self):
+        """#e0893c 饱和度过高，与暖调作品抢同一色相。
+
+        会审 P0-4：旧橙在 app.css 里有 6 处是 rgba(224, 137, 60, ...) 形式，
+        只查 hex 会全部漏掉。这里同时扫 css/ 全目录与两种写法。
+        """
+        for path in (STATIC / "css").glob("*.css"):
+            text = path.read_text(encoding="utf-8").lower()
+            with self.subTest(css=path.name):
+                self.assertNotIn("#e0893c", text)
+                self.assertNotIn("#e79a4e", text)
+                self.assertNotIn("#8a5a28", text)
+                self.assertNotRegex(
+                    text,
+                    r"rgba?\(\s*224\s*,\s*137\s*,\s*60",
+                    "旧橙以 rgba 形式存活",
+                )
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
@@ -294,6 +322,16 @@ mkdir -p studio/static/css studio/static/js/views studio/static/js/lib
   --r-lg: 10px;
   --r-xl: 14px;
 
+  /* 间距级数，基数 4px（spec §4.3） */
+  --s-4: 4px;
+  --s-6: 6px;
+  --s-8: 8px;
+  --s-11: 11px;
+  --s-14: 14px;
+  --s-18: 18px;
+  --s-22: 22px;
+
+  /* 沿用 app.css 原值——这条曲线本身没有问题，spec 未要求改 */
   --ease: cubic-bezier(0.22, 0.8, 0.32, 1);
 
   /* 舞台为 dock 预留的固定高度，Task 6 使用 */
@@ -342,12 +380,24 @@ class TestCssStructure(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue((STATIC / "css" / name).is_file(), f"缺少 css/{name}")
 
-    def test_no_literal_hex_outside_tokens(self):
-        """除 tokens.css 外不准写字面色值，否则分层配色会被绕过。"""
+    def test_no_literal_color_outside_tokens(self):
+        """除 tokens.css 外不准写字面色值，否则分层配色会被绕过。
+
+        会审 P0-4：只查 #RRGGBB 会被 rgba() / hsl() 绕过，而 app.css 里
+        恰恰有 32 种 rgb/rgba 形式。这里三种写法一起查。
+        允许 rgba(0,0,0,a) 与 rgba(255,255,255,a) —— 纯黑纯白的透明叠加
+        是阴影与高光的通用手法，不属于配色决策。
+        """
+        pattern = re.compile(
+            r"#[0-9a-fA-F]{3,8}\b|hsla?\([^)]*\)|rgba?\([^)]*\)", re.I
+        )
+        neutral = re.compile(
+            r"rgba?\(\s*(0\s*,\s*0\s*,\s*0|255\s*,\s*255\s*,\s*255)\b", re.I
+        )
         for name in self.FILES[1:]:
             text = (STATIC / "css" / name).read_text(encoding="utf-8")
             stripped = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-            found = re.findall(r"#[0-9a-fA-F]{3,8}\b", stripped)
+            found = [m for m in pattern.findall(stripped) if not neutral.match(m)]
             with self.subTest(name=name):
                 self.assertEqual(found, [], f"css/{name} 出现字面色值 {found}，应改用 token")
 
@@ -367,25 +417,86 @@ Expected: `TestCssStructure` 四条全 FAIL
 
 - [ ] **Step 3: 拆分**
 
-把 `studio/static/app.css` 的内容按职责搬进三个新文件，**逐条把字面色值换成 token**。对照表：
+把 `studio/static/app.css` 的内容按职责搬进三个新文件，**逐条把字面色值换成 token**。
+
+`app.css` 实测有 **30 种不同 hex** 与 **32 种 rgb/rgba 形式**，下面是**完整**映射表（会审 P1-1：原表只覆盖 11 种，缺 19 个颜色决策，执行者会被迫自行发明）：
+
+**深色底面 → 中性灰阶**
+
+| 旧值 | 新 token | 出现处 |
+|---|---|---|
+| `#0e0b09` | `var(--n-900)` | `--bg` |
+| `#0c0a08` ×4 | `var(--n-950)` | 舞台底、status、changelog、input 底 |
+| `#0b0d0f` | `var(--n-950)` | `.frame` 底 |
+| `#120f0c` | `var(--n-950)` | 顶栏渐变下端 |
+| `#171310` | `var(--n-900)` | 顶栏渐变上端 |
+| `#14110d` ×2 | `var(--n-900)` | 侧栏渐变下端 |
+| `#1a1511` ×2 | `var(--n-850)` | 侧栏渐变上端 |
+| `#1a1410` | `var(--n-850)` | 舞台径向渐变 |
+| `#1b1612` | `var(--n-850)` | `--panel` |
+| `#16120f` ×2 | `var(--n-850)` | dialog 渐变下端 |
+| `#1d1813` ×2 | `var(--n-800)` | dialog 渐变上端 |
+| `#342b22` ×2 | `var(--n-600)` | 滚动条滑块 |
+| `#2c261f` | `var(--n-600)` | `--line` |
+
+**文字**
 
 | 旧值 | 新 token |
 |---|---|
-| `#0e0b09` / `#0c0a08` | `var(--n-900)` |
-| `#1b1612` / `#1a1511` | `var(--n-850)` |
 | `#f4eee6` | `var(--n-200)` |
 | `#9a8c7b` | `var(--n-400)` |
-| `#2c261f` | `var(--n-600)` |
-| `#e0893c` / `#e79a4e` | `var(--accent)` |
-| `#7eb8a4` | `var(--success)` |
-| `#d46a5c` | `var(--danger)` |
+| `#8b8680` ×2 | `var(--n-400)` |
+| `#a39a8b` | `var(--n-400)` |
+| `#1c1914` | `var(--n-950)` |
+| `#1a1008` | `var(--n-950)` |
+| `#2a1b08` | `var(--n-950)` |
+
+**语义色**
+
+| 旧值 | 新 token |
+|---|---|
+| `#e0893c` / `#e79a4e` / `#8a5a28` | `var(--accent)` |
+| `#e2a54a`（`--safelight`） | `var(--accent)` |
+| `#7eb8a4`（`--good`） | `var(--success)` |
+| `#d46a5c`（`--bad`） | `var(--danger)` |
+| `#7ea0b5` / `#46606f`（`--cyanotype*`） | `var(--info)` |
+
+**rgba 形式（会审 P0-4：这 6 处只查 hex 抓不到）**
+
+| 旧值 | 新写法 |
+|---|---|
+| `rgba(224, 137, 60, 0.05)` | `color-mix(in srgb, var(--accent) 5%, transparent)` |
+| `rgba(224, 137, 60, 0.11)` | `color-mix(in srgb, var(--accent) 11%, transparent)` |
+| `rgba(224, 137, 60, 0.22)` | `color-mix(in srgb, var(--accent) 22%, transparent)` |
+| `rgba(224, 137, 60, 0.35)` | `color-mix(in srgb, var(--accent) 35%, transparent)` |
+| `rgba(244, 238, 230, 0.07)`（`--hair`） | `color-mix(in srgb, var(--n-200) 7%, transparent)` |
+
+`color-mix()` 是 CSS 原生函数，Safari 16.2+ / Chrome 111+ 支持，不引入任何依赖。`rgba(0,0,0,a)` 与 `rgba(255,255,255,a)` 形式的阴影与高光**保持原样**——测试已豁免它们。
+
+**被废弃、不进新 token 体系的自定义属性（会审 P1-5 / spec §4.5）**
+
+| 旧属性 | 处置 |
+|---|---|
+| `--paper` `#f3eee3`、`--paper-line` `#c9c0b0`、`--print-ink` `#1c1914` | 相纸质感整体移除。`.paper` 改为普通浮层：底 `var(--n-850)`、边框 `var(--n-600)`、文字 `var(--n-200)`。这是 spec §4.5 明令的四项之一 |
+| `--safelight` `#e2a54a` | `safelight` 呼吸动画移除，属性删除。相关 `@keyframes safelight` 与 `.busy.developing` 的 `animation` 一并删 |
+| `--cyanotype` / `--cyanotype-dim` | 归并到 `var(--info)`，属性删除 |
+| `--accent-hi` / `--accent-dim` | 归并到 `var(--accent)`，按需用 `color-mix()` 调深浅 |
+| `--hair` | 改为 `color-mix()` 形式，保留变量名或直接内联 |
+
+**`develop-sheet` 拟物显影**（spec §4.5 第二项）：删除 `.develop-sheet` 及其 `::before` / `::after` 与 `@keyframes develop`，同时删掉 `index.html` 里的 `<div class="develop-sheet" id="develop-sheet" hidden></div>` 与 `app.js` 中对它的引用。忙碌态在本期只保留 spinner + 计时；候选格的扫光与潜影动画属于第 3 期。
+
+**圆角与间距**
+
+| 旧值 | 新 token |
+|---|---|
 | `2px` / `3px` 圆角 | `var(--r-sm)` |
 | `4px` 圆角 | `var(--r-md)` |
+| `padding` / `gap` 里的 `rem` 值 | 就近取 `--s-*` 级数；差值 ≤ 2px 时直接取最近一档 |
 
-归属规则：
+**归属规则**
 - `base.css` —— `*`、`html`、`body`、`::selection`、滚动条、`:focus-visible`、`.kicker`
-- `components.css` —— `button`、`.chip`、`.pill`、`.dialog*`、`.lightbox*`、`select/textarea/input`
-- `views.css` —— `.top`、`main`、`.round`、`.stage`、`.viewer`、`.film*`、`.facts`、`.desk`、`.brief-card`、`@media`
+- `components.css` —— `button`、`.chip`、`.pill`、`.dialog*`、`.lightbox*`、`select/textarea/input`、`.status*`
+- `views.css` —— `.top`、`main`、`.round`、`.stage`、`.viewer`、`.paper`、`.busy`、`.follow`、`.film*`、`.facts`、`.desk`、`.brief-card`、`@media`
 
 `--serif` 的使用只保留 wordmark（`.brand h1`），其余改 `var(--font-sans)`。
 
@@ -410,7 +521,14 @@ Run: `python3 tests/test_studio_frontend.py -v`
 Expected: 全部 PASS
 
 Run: `python3 studio/server.py` 然后打开 `http://127.0.0.1:8765`
-Expected: 页面样式与拆分前一致（本任务是纯搬运，不改视觉）
+
+Expected: 页面**布局与结构**与拆分前一致。**视觉会有三处刻意变化**（spec §4.5 要求的移除项，不是回归）：
+
+1. `.paper` 从米色相纸变成深色浮层——首屏观感变化最大的一处
+2. 忙碌态不再有拟物显影动画，只剩 spinner + 计时
+3. 橙色整体降饱和（`#e0893c` → `#f2b169`）
+
+除这三处外的任何变化都算回归，需回头核对映射表。
 
 - [ ] **Step 6: 提交**
 
@@ -504,6 +622,60 @@ class TestModuleGraph(unittest.TestCase):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
         self.assertIn('type="module"', html)
         self.assertIn('src="/static/js/main.js"', html)
+
+
+NAMED_IMPORT_RE = re.compile(
+    r'import\s*\{([^}]*)\}\s*from\s*["\'](\.[^"\']+)["\']', re.S
+)
+EXPORT_RE = re.compile(
+    r"export\s+(?:async\s+)?(?:function|const|let|class)\s+([A-Za-z_$][\w$]*)"
+)
+
+
+class TestSymbolResolution(unittest.TestCase):
+    """会审 P0-2：模块存在但导出名拼错，浏览器会静默拒绝整张模块图。
+
+    这是 Task 5 搬运 1431 行时的头号失败模式，而模块图测试只查文件存在。
+    """
+
+    def test_every_named_import_is_actually_exported(self):
+        root = STATIC / "js"
+        for path in sorted(root.rglob("*.js")):
+            text = path.read_text(encoding="utf-8")
+            for names, spec in NAMED_IMPORT_RE.findall(text):
+                target = (path.parent / spec).resolve()
+                if not target.is_file():
+                    continue  # 由 test_every_import_target_exists 负责
+                exported = set(EXPORT_RE.findall(target.read_text(encoding="utf-8")))
+                for raw in names.split(","):
+                    name = raw.split(" as ")[0].strip()
+                    if not name:
+                        continue
+                    with self.subTest(module=path.name, name=name, target=target.name):
+                        self.assertIn(
+                            name,
+                            exported,
+                            f"{path.name} 从 {target.name} 导入了未导出的 {name}",
+                        )
+
+
+DOM_ID_RE = re.compile(r'getElementById\(\s*["\']([\w-]+)["\']')
+QUERY_ID_RE = re.compile(r'querySelector(?:All)?\(\s*["\']#([\w-]+)')
+
+
+class TestDomIdsResolve(unittest.TestCase):
+    """会审 P0-2：JS 引用了 HTML 里不存在的 id，运行时才炸。"""
+
+    def test_every_referenced_id_exists_in_html(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        declared = set(re.findall(r'id="([\w-]+)"', html))
+        missing = {}
+        for path in sorted((STATIC / "js").rglob("*.js")):
+            text = path.read_text(encoding="utf-8")
+            for ident in DOM_ID_RE.findall(text) + QUERY_ID_RE.findall(text):
+                if ident not in declared:
+                    missing.setdefault(path.name, set()).add(ident)
+        self.assertEqual(missing, {}, f"JS 引用了 index.html 里不存在的 id：{missing}")
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
@@ -730,7 +902,34 @@ class TestViewModules(unittest.TestCase):
         "views/brief.js": ["renderBrief", "cancelBrief", "runBrief", "askConfirm"],
         "views/desk.js": ["fillProviders", "fillModels", "renderTemplates", "formBody"],
         "lib/canvas.js": ["exportSelected", "EXPORT_PRESETS"],
+        "lib/status.js": ["setStatus", "humanError"],
+        "lib/busy.js": ["startBusy", "stopBusy", "quoteCopy"],
     }
+
+    LEAF_MODULES = ["lib/status.js", "lib/busy.js", "lib/format.js", "state.js", "api.js"]
+
+    def test_leaf_modules_import_no_views(self):
+        """会审 P0-1：叶子模块一旦反向依赖视图，main.js 与 views 就形成循环。"""
+        root = STATIC / "js"
+        for module in self.LEAF_MODULES:
+            path = root / module
+            with self.subTest(module=module):
+                self.assertTrue(path.is_file(), f"缺少 js/{module}")
+                for spec in IMPORT_RE.findall(path.read_text(encoding="utf-8")):
+                    self.assertNotIn("views/", spec, f"叶子模块 {module} 反向依赖了 {spec}")
+                    self.assertNotIn("main.js", spec, f"叶子模块 {module} 反向依赖了 main.js")
+
+    def test_main_exports_nothing_views_need(self):
+        """main.js 只做接线。任何视图从 main.js import 都会成环。"""
+        root = STATIC / "js"
+        for path in root.rglob("*.js"):
+            if path.name == "main.js":
+                continue
+            for spec in IMPORT_RE.findall(path.read_text(encoding="utf-8")):
+                with self.subTest(module=path.name, spec=spec):
+                    self.assertNotIn(
+                        "main.js", spec, f"{path.name} 从 main.js 导入——会成环"
+                    )
 
     def test_each_module_exports_its_contract(self):
         root = STATIC / "js"
@@ -774,9 +973,25 @@ Expected: `test_each_module_exports_its_contract` FAIL —— 缺少 `js/views/s
 | `renderBrief` `cancelBrief` `runBrief` `runBriefJobs` `collectEditedJobs` `askConfirm` `quoteCopy` | `views/brief.js` |
 | `fillProviders` `fillModels` `fillFollowProviders` `fillFollowModels` `ensureOption` `providerLabel` `renderTemplates` `renderRefs` `renderSnippets` `refreshSnippets` `removeSnippet` `saveSnippetFromSelection` `insertIntoPrompt` `colorSentence` `formBody` `uniqueImages` `TEMPLATES` `PROVIDER_NAMES` `PROVIDER_FAMILY` | `views/desk.js` |
 | `exportSelected` `EXPORT_PRESETS` | `lib/canvas.js` |
-| `durationFromName` `expectCopy` `startBusy` `stopBusy` `waitingCopy` `explainAspectFail` `humanError` `savedName` `setStatus` | `main.js`（Task 9 会重写 `setStatus` / `humanError`） |
+| `setStatus` `humanError` `explainAspectFail` `savedName` | **`lib/status.js`**（叶子模块） |
+| `durationFromName` `expectCopy` `startBusy` `stopBusy` `waitingCopy` `quoteCopy` | **`lib/busy.js`**（叶子模块） |
 
-`desk.js` 会超过 400 行，按 `test_no_module_exceeds_400_lines` 的要求再拆出 `views/snippets.js`（`renderSnippets` / `refreshSnippets` / `removeSnippet` / `saveSnippetFromSelection` / `insertIntoPrompt` / `colorSentence`）。
+**这两个叶子模块是 P0-1 的修法，不可省略。** 原方案把它们留在 `main.js`，但会审用符合本计划结构的 fixture 复现了循环：`exportSelected`（`app.js:729,731`）、`reviseSelected`（`772,791,867,869`）、`runBrief`（`1102,1113,1121`）都调用 `setStatus` / `startBusy`，而 `main.js` 又必须从这些视图 import 做接线 —— `main.js ⇄ views/*` 双向依赖，Task 4 的 `test_no_cycles` 会红。
+
+依赖方向固定为单向：
+
+```
+main.js ──> views/*.js ──┐
+   │                     ├──> lib/status.js
+   └─────────────────────┤    lib/busy.js
+                         │    lib/format.js
+                         └──> lib/canvas.js ──> lib/status.js
+                              state.js  api.js
+```
+
+`lib/*` 与 `state.js` / `api.js` **不得 import 任何 `views/` 或 `main.js`**。`main.js` **不得导出任何视图需要的东西**——它只负责 `addEventListener` 接线与启动。
+
+**行数预算**（会审 P1-2：原方案判断错了风险文件）。实测 `desk.js` 约 274 行不会超上限，真正会超的是 `main.js`（约 450 行）——把 `status` 与 `busy` 迁出后降到约 200 行，正好由 P0-1 一并解决。**不需要**再拆 `views/snippets.js`。
 
 所有事件接线集中到 `main.js` 底部，从各视图模块 import 具名函数。
 
@@ -832,6 +1047,15 @@ class TestCanvasContain(unittest.TestCase):
         css = (STATIC / "css" / "views.css").read_text(encoding="utf-8")
         self.assertIn("--dock-h", css, "舞台必须为 dock 预留固定高度，dock 不得压住画面")
 
+    def test_viewer_can_shrink(self):
+        """min-height:0 缺失时 flex 子元素不会收缩，图会把 dock 顶出视口。"""
+        css = (STATIC / "css" / "views.css").read_text(encoding="utf-8")
+        self.assertRegex(
+            css,
+            r"\.stage\s*>\s*\.viewer[^{]*\{[^}]*min-height:\s*0",
+            ".stage > .viewer 缺少 min-height: 0",
+        )
+
     def test_aspect_badge_exists(self):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
         self.assertIn('id="aspect-badge"', html)
@@ -860,12 +1084,22 @@ Expected: `TestCanvasContain` 三条 FAIL
   overflow: hidden;
 }
 
-/* 舞台为 dock 预留固定高度，dock 永不压住画面 */
+/* 舞台为 dock 预留固定高度，dock 永不压住画面。
+   会审 P1-4：.stage 的直接子元素实测有 4 个（.viewer / .follow /
+   .film-wrap / .facts），两行栅格会让多出的静默落进隐式 auto 行——
+   不报错，但「预留高度」的承诺在布局上不成立。改用 flex + 固定高度
+   的 dock 容器，子元素数量变化不会破坏约束。 */
 .stage {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) var(--dock-h);
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 }
+.stage > .viewer { flex: 1 1 auto; min-height: 0; }
+.stage > .follow,
+.stage > .film-wrap,
+.stage > .facts { flex: 0 0 auto; }
+/* dock 三件套的总高度即 --dock-h，画布拿到的是剩余空间 */
+.stage > .follow { min-height: calc(var(--dock-h) * 0.42); }
 
 .viewer img {
   max-width: 100%;
@@ -1090,21 +1324,35 @@ class TestSingleGenerateEntry(unittest.TestCase):
         self.assertNotRegex(html, r"<form\b", "参数区不得是 <form>")
         self.assertNotIn('type="submit"', html)
 
-    def test_exactly_one_primary_generate_control(self):
+    def test_exactly_one_control_can_start_a_generation(self):
+        """会审 P0-3：原写法只数 brief-btn 出现次数，今天就是绿的——
+        此刻 brief-btn 与 gen-btn 并存，它照样通过。改为枚举全部入口求和。
+        """
         html = (STATIC / "index.html").read_text(encoding="utf-8")
-        self.assertEqual(html.count('id="brief-btn"'), 1)
+        entries = []
+        for marker in ('id="brief-btn"', 'id="gen-btn"', 'type="submit"'):
+            entries.extend([marker] * html.count(marker))
+        self.assertEqual(
+            entries, ['id="brief-btn"'], f"能触发生成的控件不唯一：{entries}"
+        )
 
     def test_no_submit_listener_remains(self):
+        """引号与 onsubmit 两种写法一起查——单引号能绕过原来的写法。"""
+        pattern = re.compile(r"""addEventListener\(\s*['"]submit['"]|onsubmit\s*=""")
         for path in (STATIC / "js").rglob("*.js"):
             text = path.read_text(encoding="utf-8")
             with self.subTest(module=path.name):
-                self.assertNotIn('addEventListener("submit"', text)
+                self.assertIsNone(pattern.search(text), f"{path.name} 仍有 submit 处理器")
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIsNone(pattern.search(html), "index.html 仍有内联 onsubmit")
 ```
 
 - [ ] **Step 2: 运行确认失败**
 
 Run: `python3 tests/test_studio_frontend.py -v`
-Expected: 四条全 FAIL
+Expected: `test_skip_confirm_button_removed`、`test_desk_is_not_a_form`、`test_exactly_one_control_can_start_a_generation` 三条 FAIL。`test_no_submit_listener_remains` 在 Task 5 已把 submit 处理器搬进 `main.js` 的前提下也 FAIL。
+
+（会审 P0-3 纠正：原方案预测「四条全 FAIL」时，`test_exactly_one_primary_generate_control` 其实是绿的——它只数 `brief-btn`，而 `gen-btn` 并存也不影响计数。现已改为枚举求和。）
 
 - [ ] **Step 3: 改 HTML**
 
@@ -1159,19 +1407,44 @@ submit listener come back."
 
 ```python
 class TestCopyAndErrors(unittest.TestCase):
+    """会审 P0-3：禁用词必须限定作用域。
+
+    `预览不花额度` 同时存在于确认卡的成本披露里，而 spec 明令保留后者
+    （「消耗配额的动作必须显式同意」）。全文 assertNotIn 会永远失败。
+    这里只扫**常驻界面区域**，排除对话框与确认卡。
+    """
+
     BANNED = [
         "会消耗所选后端配额",
         "主路径：",
         "先整理任务、核对终稿",
-        "预览不花额度",
         "库内路径，可多选",
     ]
 
-    def test_no_mechanism_explaining_copy(self):
+    @staticmethod
+    def standing_copy() -> str:
+        """剥掉 .dialog-root 与 .brief-card，只留常驻界面。"""
         html = (STATIC / "index.html").read_text(encoding="utf-8")
+        html = re.sub(
+            r'<div class="dialog-root".*?</div>\s*(?=<div|<script|</body)',
+            "",
+            html,
+            flags=re.S,
+        )
+        return re.sub(r"<article class=\"brief-card\".*?</article>", "", html, flags=re.S)
+
+    def test_no_mechanism_explaining_copy_in_standing_ui(self):
+        standing = self.standing_copy()
         for phrase in self.BANNED:
             with self.subTest(phrase=phrase):
-                self.assertNotIn(phrase, html, f"常驻文案仍在解释系统机制：{phrase}")
+                self.assertNotIn(
+                    phrase, standing, f"常驻文案仍在解释系统机制：{phrase}"
+                )
+
+    def test_cost_disclosure_survives_in_the_confirm_dialog(self):
+        """反向断言：成本披露是 spec 要求保留的，不能被一起删掉。"""
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn("预览不花额度", html, "确认卡的成本披露被误删——spec 要求保留")
 
     def test_status_uses_normalized_shape(self):
         js = (STATIC / "js" / "main.js").read_text(encoding="utf-8")
@@ -1370,9 +1643,23 @@ regression on a pull request."
 - `views/stage.js` 的 `setBackdrop(kind)` 与 `renderAspectBadge(item)` —— Task 6、7 定义，Task 5 的 `selectItem` 调用。
 - `--dock-h` 在 Task 2 定义、Task 6 使用。
 
-**4. 发现并已修的问题**
+**4. 会审后的修订记录**
 
-Task 5 的 `views/desk.js` 会超过 400 行的行数上限，与 Task 5 自己的 `test_no_module_exceeds_400_lines` 冲突——已在 Task 5 Step 3 里补上拆出 `views/snippets.js` 的指示。
+本计划第一版经对抗会审判定 **No-Go**（记录：`docs/reviews/2026-08-20-studio-phase-1-plan-adversarial-board.md`）。四条 P0 与五条 P1 已按仲裁清单收口：
+
+| 编号 | 问题 | 修订 |
+|---|---|---|
+| P0-1 | Task 5 把 `setStatus` / `startBusy` 等留在 `main.js`，与视图形成双向依赖，被本计划自己的 `test_no_cycles` 拒绝 | 新增叶子模块 `lib/status.js` 与 `lib/busy.js`，固定单向依赖图，并加两条守卫测试 |
+| P0-2 | 把全部断言拼齐后，一份浏览器里打不开的实现照样返回 `Ran 30 tests OK` | 新增 `TestSymbolResolution`（导入名必须真被导出）与 `TestDomIdsResolve`（JS 引用的 id 必须存在），并在 Architecture 里写明静态分析的能力边界 |
+| P0-3 | 两条断言永远达不到预期：生图入口计数今天就绿；禁用词误伤 spec 要求保留的成本披露 | 入口改为枚举求和；禁用词作用域限定在常驻界面，并加一条反向断言保护成本披露 |
+| P0-4 | `rgba(224,137,60,…)` 让被废弃的旧橙带着「测试通过」存活 6 处 | 守卫扩展到 `rgb/rgba/hsl`，legacy 检查扫 `css/` 全目录并同时禁 hex 与 rgba 两种写法 |
+| P1-1 | 颜色映射表只覆盖 30 个 hex 中的 11 个，8 个自定义属性无归属 | 补全为完整映射表，含 rgba 形式与被废弃属性的处置 |
+| P1-2 | 400 行风险判断错误——是 `main.js`（~450）不是 `desk.js`（274） | 删除错误的拆 `snippets.js` 补救，改为由 P0-1 迁出 `lib/*` 一并解决 |
+| P1-3 | `tokens.css` 缺 spec §4.3 的间距级数，而自评表记为已覆盖 | 补 `--s-4` 至 `--s-22` 七档并加断言 |
+| P1-4 | `.stage` 两行栅格假设 2 个子元素，实际 4 个，多出的静默落进隐式行 | 改用 flex 布局，并加 `min-height: 0` 断言 |
+| P1-5 | spec §4.5 的移除清单只做了 status 条 | Task 3 补上相纸质感、`develop-sheet`、`safelight` 三项的明确指示，并把三处刻意的视觉变化写进验收预期 |
+
+**被会审推翻、无需修改的**：六对对比度全部达标且余量充足（`--accent` on `--n-900` 是 10.56:1，最紧的 `--n-400` on `--n-850` 是 7.52:1）；`module_graph()` 的路径运算正确；MIME 断言在本机通过；删除 `<form>` 无连带依赖。
 
 ---
 
