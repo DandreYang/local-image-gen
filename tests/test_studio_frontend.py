@@ -381,5 +381,35 @@ class TestViewModules(unittest.TestCase):
                 self.assertLessEqual(lines, 400, f"{path.name} 有 {lines} 行，拆得不够细")
 
 
+class TestCanvasContain(unittest.TestCase):
+    def test_viewer_image_uses_contain_not_crop(self):
+        css = (STATIC / "css" / "views.css").read_text(encoding="utf-8")
+        self.assertIn("object-fit: contain", css, "画布必须 contain，spec 原则 3 禁止裁切")
+        self.assertNotRegex(
+            css,
+            r"\.viewer[^{]*\{[^}]*object-fit:\s*cover",
+            "画布不得使用 cover——会裁掉画面",
+        )
+
+    def test_stage_reserves_dock_height(self):
+        css = (STATIC / "css" / "views.css").read_text(encoding="utf-8")
+        self.assertIn("--dock-h", css, "舞台必须为 dock 预留固定高度，dock 不得压住画面")
+
+    def test_viewer_can_shrink(self):
+        """min-height:0 缺失时 flex 子元素不会收缩，图会把 dock 顶出视口。"""
+        css = (STATIC / "css" / "views.css").read_text(encoding="utf-8")
+        self.assertRegex(
+            css,
+            r"\.stage\s*>\s*\.viewer[^{]*\{[^}]*min-height:\s*0",
+            ".stage > .viewer 缺少 min-height: 0",
+        )
+
+    def test_aspect_badge_exists(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="aspect-badge"', html)
+        js = (STATIC / "js" / "views" / "stage.js").read_text(encoding="utf-8")
+        self.assertRegex(js, r"export\s+function\s+renderAspectBadge\b")
+
+
 if __name__ == "__main__":
     unittest.main()

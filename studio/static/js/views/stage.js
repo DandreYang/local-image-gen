@@ -44,12 +44,22 @@ export function renderFacts(item) {
   facts.appendChild(wrap);
 }
 
+export function renderAspectBadge(item) {
+  const node = $("aspect-badge");
+  if (!node) return;
+  const ratio = item && (item.aspect_ratio || item.size);
+  node.hidden = !ratio;
+  node.textContent = ratio || "";
+  node.title = item && item.cropped_from ? "这张是从原图顶对齐裁出来的" : "后端实际给出的画幅";
+}
+
 function renderSelection() {
   const item = state.selected;
   const hero = $("hero");
   if (!item) {
     hero.hidden = true;
     renderFacts(null);
+    renderAspectBadge(null);
     return;
   }
   $("empty-view").hidden = true;
@@ -59,6 +69,7 @@ function renderSelection() {
   hero.src = item.url;
   hero.alt = item.name;
   renderFacts(item);
+  renderAspectBadge(item);
 }
 
 // 按住对比：上一张 = 素材库里时间相邻的旧 take（改稿链在时间上是连续的）。

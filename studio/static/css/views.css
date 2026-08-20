@@ -98,11 +98,17 @@ main {
 }
 .export-row button:hover { color: var(--n-200); border-color: var(--accent); filter: none; }
 
-/* ---- 舞台 ---- */
+/* ---- 舞台 ----
+   .stage 的直接子元素有 4 个（.viewer / .follow / .film-wrap / .facts），
+   两行栅格假设只有 2 个会让多出的静默落进隐式行——不报错，但「dock 永不
+   压住画面」的承诺在布局上不成立。改用 flex：.viewer 吃掉剩余空间，
+   dock 三件套按内容定高，min-height:0 让 .viewer 能真正收缩而不是把
+   兄弟元素挤出视口。 */
 .stage {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   background:
     radial-gradient(1200px 500px at 50% 0%, var(--n-850) 0%, transparent 55%),
     radial-gradient(900px 600px at 50% 115%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 60%),
@@ -113,22 +119,26 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.5rem 1.2rem;
-  min-height: 280px;
+  padding: 1.2rem;
+  min-height: 0;
   position: relative;
-  overflow: auto;
+  overflow: hidden;
 }
+.stage > .viewer { flex: 1 1 auto; min-height: 0; }
+.stage > .follow,
+.stage > .film-wrap,
+.stage > .facts { flex: 0 0 auto; }
+/* dock 三件套（改稿条 + 胶片 + facts）的总高度即 --dock-h，画布拿到剩余空间 */
+.stage > .follow { min-height: calc(var(--dock-h) * 0.42); }
 body.is-busy .viewer img { opacity: 0.28; }
-/* 这两条规则会在 Task 6 被 contain + flex dock 布局整体替换 */
 .viewer img {
   max-width: 100%;
-  max-height: calc(100vh - 340px);
-  background: var(--n-850);
-  padding: 12px;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
   border-radius: var(--r-sm);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.05),
-    0 30px 80px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
   cursor: zoom-in;
   transition: opacity 0.2s ease;
 }
@@ -146,6 +156,21 @@ body.is-busy .viewer img { opacity: 0.28; }
   background: color-mix(in srgb, var(--n-950) 85%, transparent);
   border-radius: var(--r-sm);
 }
+.aspect-badge {
+  position: absolute;
+  top: 0.8rem;
+  right: 0.8rem;
+  z-index: 3;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  color: var(--n-400);
+  border: 1px solid var(--n-600);
+  border-radius: var(--r-sm);
+  padding: 0.2rem 0.5rem;
+  background: color-mix(in srgb, var(--n-900) 72%, transparent);
+}
+.aspect-badge[hidden] { display: none; }
 
 /* ---- 相纸：空态即主界面 ----
    spec §4.5：相纸质感（米色纹理 + 深色印刷字）整体移除，改成普通深色浮层。 */
@@ -488,7 +513,7 @@ body.is-busy .viewer img { opacity: 0.28; }
   .round { border-right: 0; border-top: 1px solid color-mix(in srgb, var(--n-200) 7%, transparent); }
   .desk { border-left: 0; border-top: 1px solid color-mix(in srgb, var(--n-200) 7%, transparent); }
   .paper { width: 100%; }
-  .viewer img { max-height: 52vh; padding: 8px; }
+  .viewer img { max-height: 52vh; }
   .follow { flex-wrap: wrap; }
   .follow textarea { flex: 1 1 100%; }
   .follow-route { flex: 1; }
