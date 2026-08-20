@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import json
 import mimetypes
@@ -522,6 +523,14 @@ def media_item(path: Path) -> Dict[str, Any]:
     }
 
 
+def _skip_library_path(path: Path) -> bool:
+    try:
+        parts = path.resolve().relative_to(OUTPUTS.resolve()).parts
+    except (OSError, ValueError):
+        return True
+    return any(part.startswith(".") or part == "overlays" for part in parts)
+
+
 def list_library() -> List[Dict[str, Any]]:
     if not OUTPUTS.is_dir():
         return []
@@ -529,11 +538,65 @@ def list_library() -> List[Dict[str, Any]]:
     for path in OUTPUTS.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES:
             continue
-        if path.name.startswith("."):
+        if _skip_library_path(path):
             continue
         items.append(media_item(path))
     items.sort(key=lambda item: item["mtime"], reverse=True)
     return items
+
+
+def list_overlays() -> List[Dict[str, Any]]:
+    if not OVERLAY_DIR.is_dir():
+        return []
+    items: List[Dict[str, Any]] = []
+    for path in sorted(OVERLAY_DIR.iterdir()):
+        if not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES:
+            continue
+        if not is_under(path, OUTPUTS):
+            continue
+        rel = path.resolve().relative_to(OUTPUTS.resolve()).as_posix()
+        items.append(
+            {
+                "id": rel,
+                "name": path.name,
+                "url": "/media/" + rel,
+                "bytes": path.stat().st_size,
+            }
+        )
+    return items
+
+
+def save_overlay(data: bytes) -> Dict[str, Any]:
+    path = save_image_bytes(
+        OVERLAY_DIR,
+        data,
+        max_bytes=OVERLAY_MAX_BYTES,
+        allowed=(".png", ".jpg"),
+    )
+    rel = path.resolve().relative_to(OUTPUTS.resolve()).as_posix()
+    return {"id": rel, "name": path.name, "url": "/media/" + rel, "bytes": path.stat().st_size}
+
+
+def save_composite(png: bytes, composed_from: str, overlays: Any) -> Dict[str, Any]:
+    source = resolve_library_image(composed_from)
+    source_rel = source.resolve().relative_to(OUTPUTS.resolve()).as_posix()
+    path = save_image_bytes(
+        IMAGE_DIR,
+        png,
+        max_bytes=COMPOSITE_MAX_BYTES,
+        allowed=(".png",),
+        name_suffix="-composed",
+    )
+    records = overlays if isinstance(overlays, list) else None
+    write_media_receipt(
+        path,
+        {
+            "success": True,
+            "composed_from": source_rel,
+            "overlays": records,
+        },
+    )
+    return media_item(path)
 
 
 def compile_job(job: Dict[str, Any]) -> Dict[str, Any]:
@@ -850,8 +913,13 @@ def parse_generate(body: Dict[str, Any]) -> List[str]:
         args.extend(["--prompt-profile", profile])
     if body.get("raw"):
         args.append("--raw")
-    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    args.extend(["--out-dir", str(IMAGE_DIR)])
+    if body.get("scratch"):
+        scratch_dir = OUTPUTS / ".repaint"
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        args.extend(["--out-dir", str(scratch_dir)])
+    else:
+        IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        args.extend(["--out-dir", str(IMAGE_DIR)])
     for raw in body.get("images") or []:
         path = Path(str(raw))
         if not path.is_absolute():
@@ -859,6 +927,13 @@ def parse_generate(body: Dict[str, Any]) -> List[str]:
         if not path.is_file() or not is_under(path, OUTPUTS):
             raise ValueError(f"reference image is outside the library: {raw}")
         args.extend(["-i", str(path)])
+    mask_raw = str(body.get("mask") or "").strip()
+    if mask_raw:
+        provider = str(body.get("provider") or "auto").strip()
+        if provider != "openai":
+            raise ValueError("mask requires provider openai")
+        mask_path = resolve_library_image(mask_raw)
+        args.extend(["--mask", str(mask_path)])
     if body.get("dry_run"):
         args.append("--dry-run")
     return args
@@ -971,6 +1046,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(*json_bytes(payload))
             return
+        if path == "/api/overlays":
+            self._send(*json_bytes({"success": True, "items": list_overlays()}))
+            return
         if path == "/api/snippets":
             self._send(*json_bytes({"success": True, "snippets": load_snippets()}))
             return
@@ -1045,6 +1123,11 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._read_json()
                 body["dry_run"] = False
                 payload = run_cli(parse_generate(body), timeout=320)
+                if body.get("composed_from"):
+                    source = resolve_library_image(str(body.get("composed_from")))
+                    payload["composed_from"] = source.resolve().relative_to(OUTPUTS.resolve()).as_posix()
+                if isinstance(body.get("overlays"), list):
+                    payload["overlays"] = body.get("overlays")
                 prompt_meta = payload.get("prompt") if isinstance(payload.get("prompt"), dict) else {}
                 used = str(prompt_meta.get("used") or body.get("prompt") or "")
                 payload = finalize_generated(payload, body, used)
@@ -1053,8 +1136,25 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(*json_bytes(payload))
             return
+        if path == "/api/composite":
+            try:
+                body = self._read_json()
+                raw = str(body.get("png_base64") or "").strip()
+                if not raw:
+                    raise ValueError("png_base64 is required")
+                png = base64.b64decode(raw, validate=False)
+                item = save_composite(png, str(body.get("composed_from") or ""), body.get("overlays"))
+            except (ValueError, json.JSONDecodeError, OSError) as exc:
+                self._send(*json_bytes({"success": False, "error": str(exc)}, 400))
+                return
+            self._send(*json_bytes({"success": True, "item": item}))
+            return
         if path == "/api/upload":
-            self._send(*json_bytes(self._save_upload()))
+            kind = (parse_qs(parsed.query).get("kind") or [""])[0].strip()
+            self._send(*json_bytes(self._save_upload(kind)))
+            return
+        if path == "/api/overlays":
+            self._send(*json_bytes(self._save_upload("overlay")))
             return
         if path == "/api/snippets":
             try:
@@ -1082,13 +1182,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send(*json_bytes({"success": True, "snippets": load_snippets()}))
 
-    def _save_upload(self) -> Dict[str, Any]:
+    def _read_multipart_images(self, max_bytes: int) -> List[bytes]:
         content_type = self.headers.get("Content-Type") or ""
         if "multipart/form-data" not in content_type:
-            return {"success": False, "error": "multipart/form-data required"}
+            raise ValueError("multipart/form-data required")
         length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0 or length > 20 * 1024 * 1024:
-            return {"success": False, "error": "upload too large or empty"}
+        if length <= 0 or length > max_bytes:
+            raise ValueError("upload too large or empty")
         payload = self.rfile.read(length)
         boundary = None
         for part in content_type.split(";"):
@@ -1096,30 +1196,64 @@ class Handler(BaseHTTPRequestHandler):
             if part.startswith("boundary="):
                 boundary = part.split("=", 1)[1].strip().strip('"')
         if not boundary:
-            return {"success": False, "error": "missing multipart boundary"}
+            raise ValueError("missing multipart boundary")
         marker = b"--" + boundary.encode("ascii", "replace")
-        chunks = payload.split(marker)
-        saved: List[str] = []
-        INBOX.mkdir(parents=True, exist_ok=True)
-        for chunk in chunks:
+        bodies: List[bytes] = []
+        for chunk in payload.split(marker):
             header_end = chunk.find(b"\r\n\r\n")
-            if header_end < 0:
-                continue
-            header = chunk[:header_end].decode("utf-8", "replace")
-            if "filename=" not in header:
-                continue
-            name = header.split("filename=", 1)[1].split("\r\n", 1)[0].strip().strip('"')
-            suffix = Path(name).suffix.lower()
-            if suffix not in IMAGE_SUFFIXES:
+            if header_end < 0 or b"filename=" not in chunk[:header_end]:
                 continue
             body = chunk[header_end + 4 :]
             if body.endswith(b"\r\n"):
                 body = body[:-2]
-            target = INBOX / f"{uuid.uuid4().hex[:10]}{suffix}"
-            target.write_bytes(body)
-            saved.append(str(target.resolve().relative_to(OUTPUTS.resolve())))
-        if not saved:
-            return {"success": False, "error": "no image part found"}
+            if body:
+                bodies.append(body)
+        if not bodies:
+            raise ValueError("no image part found")
+        return bodies
+
+    def _save_upload(self, kind: str = "") -> Dict[str, Any]:
+        try:
+            bodies = self._read_multipart_images(OVERLAY_MAX_BYTES)
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+        if kind == "overlay":
+            saved = []
+            item = None
+            for body in bodies:
+                try:
+                    item = save_overlay(body)
+                except ValueError as exc:
+                    return {"success": False, "error": str(exc)}
+                saved.append(item["id"])
+            return {"success": True, "item": item, "items": list_overlays(), "saved": saved}
+        if kind == "mask":
+            saved: List[str] = []
+            for body in bodies:
+                try:
+                    path = save_image_bytes(
+                        MASK_DIR,
+                        body,
+                        max_bytes=OVERLAY_MAX_BYTES,
+                        allowed=(".png",),
+                    )
+                except ValueError as exc:
+                    return {"success": False, "error": str(exc)}
+                saved.append(str(path.resolve().relative_to(OUTPUTS.resolve()).as_posix()))
+            return {"success": True, "items": saved}
+        INBOX.mkdir(parents=True, exist_ok=True)
+        saved = []
+        for body in bodies:
+            try:
+                path = save_image_bytes(
+                    INBOX,
+                    body,
+                    max_bytes=OVERLAY_MAX_BYTES,
+                    allowed=(".png", ".jpg"),
+                )
+            except ValueError as exc:
+                return {"success": False, "error": str(exc)}
+            saved.append(str(path.resolve().relative_to(OUTPUTS.resolve()).as_posix()))
         return {"success": True, "items": saved}
 
 
