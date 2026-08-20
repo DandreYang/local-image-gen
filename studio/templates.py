@@ -206,6 +206,27 @@ TEMPLATES: Dict[str, Dict[str, object]] = {
         "aspect": "3:4",
         "ban": "单张。时间地点用事实原文。码区留白，不要发明二维码。不要拼图。",
     },
+    "reel": {
+        "label": "视频静帧",
+        "profile": "reel",
+        "aspect": "9:16",
+        "ban": (
+            "一张 9:16 静帧，不是视频、不是分镜拼图。"
+            "一个动作、一个瞬间，像从短视频里抽出的一帧。"
+            "有标题就原文入画，安全区避开边缘。现场光或电影光。"
+            "不要 6 秒片子，不要九宫格，不要假进度条。"
+        ),
+    },
+    "paper": {
+        "label": "层叠剪纸",
+        "profile": "paper",
+        "aspect": "3:4",
+        "ban": (
+            "整幅重做成层叠手工纸片，不要给照片盖纸纹。"
+            "锁住主体数量、姿态和关系。浅浮雕，不是玩偶，不是微缩沙盘。"
+            "大块简化场景，奶油纸底，装饰克制。不要真实皮肤和布料。"
+        ),
+    },
     "void": {
         "label": "负空间剪影",
         "profile": "void",
@@ -269,6 +290,7 @@ TEMPLATES: Dict[str, Dict[str, object]] = {
 }
 
 KEYWORD_TO_TEMPLATE = (
+    (("小视频", "视频封面", "视频配图", "首帧", "抖音封面", "短视频", "竖视频"), "reel"),
     (("资料卡", "镂空卡片", "手持卡片"), "card"),
     (("小红书封面", "小红书", "主标题", "副标题"), "xiaohongshu"),
     (("等距", "沙盘", "微缩模型", "isometric"), "isometric"),
@@ -278,6 +300,7 @@ KEYWORD_TO_TEMPLATE = (
     (("产品主图", "包装静物", "packshot", "贴纸"), "packshot"),
     (("旅行海报", "旅游海报", "国旗变成", "丝网招贴"), "travel-poster"),
     (("古风", "仙侠", "妆发衣"), "period"),
+    (("剪纸", "纸艺", "纸片拼贴", "层叠纸"), "paper"),
     (("拼豆", "拼豆风", "perler"), "beads"),
     (("漫画素描", "怪诞素描", "街头速写"), "sketch"),
     (("负空间", "留白剪影", "剪影开口"), "void"),
@@ -316,14 +339,15 @@ def pick_template(prompt: str, explicit: str = "") -> str:
 
 
 def split_count(prompt: str) -> int:
+    """Independent style variants. 套图 beats are planned in job.py, not here."""
     text = prompt or ""
-    if any(token in text for token in ("三种", "三款", "3种", "三个风格")):
+    if any(token in text for token in ("三种", "三款", "3种", "三个风格", "三种风格")):
         return 3
-    if any(token in text for token in ("两种", "两款", "2种")):
+    if any(token in text for token in ("两种", "两款", "2种", "两种风格")):
         return 2
-    if any(token in text for token in ("四种", "四款", "4种")):
+    if any(token in text for token in ("四种", "四款", "4种", "四种风格")):
         return 4
-    if any(token in text for token in ("一套", "不同风格", "多张", "多种", "几种")):
+    if any(token in text for token in ("不同风格", "多种风格", "几种风格")):
         return 3
     return 1
 
