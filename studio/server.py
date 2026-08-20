@@ -41,6 +41,11 @@ OVERLAY_MAX_BYTES = 20 * 1024 * 1024
 COMPOSITE_MAX_BYTES = 40 * 1024 * 1024
 OVERLAY_DIR = OUTPUTS / "overlays"
 MASK_DIR = OUTPUTS / ".masks"
+PROJECTS_DIR = OUTPUTS / "projects"
+THUMB_DIR = OUTPUTS / ".thumbs"
+TRASH_DIR = OUTPUTS / ".trash"
+INDEX_PATH = OUTPUTS / ".index.json"
+PROJECT_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 STATIC_MIME = {
     ".js": "text/javascript; charset=utf-8",
     ".mjs": "text/javascript; charset=utf-8",
@@ -559,6 +564,162 @@ def list_library() -> List[Dict[str, Any]]:
         items.append(media_item(path))
     items.sort(key=lambda item: item["mtime"], reverse=True)
     return items
+
+
+def list_library_cached() -> List[Dict[str, Any]]:
+    try:
+        payload = json.loads(INDEX_PATH.read_text(encoding="utf-8"))
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if isinstance(items, list) and items:
+            if all((OUTPUTS / str(item.get("id") or "")).is_file() for item in items):
+                return items
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
+    items = list_library()
+    try:
+        atomic_write_text(INDEX_PATH, json.dumps({"items": items}, ensure_ascii=False, indent=2) + "\n")
+    except OSError:
+        pass
+    return items
+
+
+def thumb_file(rel: str) -> Path:
+    source = resolve_library_image(rel)
+    cache = THUMB_DIR / (Path(rel).as_posix() + ".jpg")
+    if cache.is_file() and cache.stat().st_mtime >= source.stat().st_mtime:
+        return cache
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "darwin":
+        proc = subprocess.run(
+            ["sips", "-s", "format", "jpeg", "-Z", "480", str(source), "--out", str(cache)],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode == 0 and cache.is_file() and is_under(cache, OUTPUTS):
+            return cache
+    return source
+
+
+def slugify_project(name: str) -> str:
+    raw = re.sub(r"[^a-z0-9]+", "-", str(name or "").lower()).strip("-")
+    if not raw:
+        raw = "project"
+    slug = raw[:64]
+    if not PROJECT_SLUG.fullmatch(slug):
+        slug = re.sub(r"[^a-z0-9-]", "", "p" + slug)[:64]
+    if not PROJECT_SLUG.fullmatch(slug):
+        slug = ("p" + uuid.uuid4().hex)[:16]
+    return slug
+
+
+def load_project(slug: str) -> Optional[Dict[str, Any]]:
+    if not PROJECT_SLUG.fullmatch(str(slug or "")):
+        return None
+    path = PROJECTS_DIR / slug / "project.json"
+    if not path.is_file() or not is_under(path, OUTPUTS):
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def list_projects() -> List[Dict[str, Any]]:
+    if not PROJECTS_DIR.is_dir():
+        return []
+    rows: List[Dict[str, Any]] = []
+    for path in sorted(PROJECTS_DIR.glob("*/project.json")):
+        if not is_under(path, OUTPUTS):
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict):
+            payload.setdefault("id", path.parent.name)
+            rows.append(payload)
+    return rows
+
+
+def save_project(body: Dict[str, Any]) -> Dict[str, Any]:
+    name = str(body.get("name") or "").strip()
+    slug = str(body.get("id") or "").strip()
+    if slug:
+        if not PROJECT_SLUG.fullmatch(slug):
+            raise ValueError("invalid project id")
+    else:
+        slug = slugify_project(name)
+    refs = []
+    for raw in body.get("refs") or []:
+        path = resolve_library_image(str(raw))
+        refs.append(path.resolve().relative_to(OUTPUTS.resolve()).as_posix())
+    overlays = []
+    for raw in body.get("overlays") or []:
+        path = resolve_library_image(str(raw))
+        overlays.append(path.resolve().relative_to(OUTPUTS.resolve()).as_posix())
+    payload = {
+        "id": slug,
+        "name": name or slug,
+        "refs": refs,
+        "overlays": overlays,
+        "brand_constraints": [str(item) for item in (body.get("brand_constraints") or []) if str(item).strip()],
+        "defaults": body.get("defaults") if isinstance(body.get("defaults"), dict) else {},
+    }
+    dest = PROJECTS_DIR / slug / "project.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not is_under(dest, OUTPUTS):
+        raise ValueError("project is outside the library")
+    atomic_write_text(dest, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    return payload
+
+
+def patch_receipt(rel: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+    path = resolve_library_image(rel)
+    allowed = {key: fields[key] for key in ("starred", "project_id") if key in fields}
+    merge_sidecar(path, allowed)
+    return media_item(path)
+
+
+def _rel_of(path: Path) -> str:
+    return path.resolve().relative_to(OUTPUTS.resolve()).as_posix()
+
+
+def trash_item(rel: str) -> Dict[str, Any]:
+    root = resolve_library_image(rel)
+    wanted = {root}
+    sidecar = root.with_suffix(".json")
+    if sidecar.is_file():
+        wanted.add(sidecar)
+    thumb = THUMB_DIR / (rel + ".jpg")
+    if thumb.is_file():
+        wanted.add(thumb)
+    for item in list_library():
+        pointers = [item.get("composed_from"), item.get("parent"), item.get("cropped_from")]
+        if rel in {str(ptr or "") for ptr in pointers} or any(str(ptr or "").endswith("/" + Path(rel).name) for ptr in pointers):
+            child = resolve_library_image(str(item["id"]))
+            wanted.add(child)
+            child_side = child.with_suffix(".json")
+            if child_side.is_file():
+                wanted.add(child_side)
+    for path in list(wanted):
+        if not is_under(path, OUTPUTS):
+            raise ValueError("trash path is outside the library")
+    moved: List[Tuple[Path, Path]] = []
+    try:
+        for path in wanted:
+            dest = TRASH_DIR / _rel_of(path)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists():
+                dest = dest.with_name(dest.stem + "-" + uuid.uuid4().hex[:6] + dest.suffix)
+            path.replace(dest)
+            moved.append((path, dest))
+    except OSError as exc:
+        for original, dest in reversed(moved):
+            original.parent.mkdir(parents=True, exist_ok=True)
+            dest.replace(original)
+        raise ValueError(f"trash failed: {exc}") from exc
+    return {"success": True, "moved": [str(dest) for _src, dest in moved]}
 
 
 def list_overlays() -> List[Dict[str, Any]]:
@@ -1146,9 +1307,25 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*json_bytes(run_cli(["--list-models"], timeout=15)))
             return
         if path == "/api/library":
-            items = list_library()
+            items = list_library_cached()
             warnings = drain_sidecar_warnings()
             self._send(*json_bytes({"success": True, "items": items, "warnings": warnings}))
+            return
+        if path.startswith("/thumb/"):
+            rel = path[len("/thumb/") :]
+            try:
+                target = thumb_file(rel)
+            except ValueError:
+                self._send(*json_bytes({"error": "not found"}, 404))
+                return
+            if not target.is_file():
+                self._send(*json_bytes({"error": "not found"}, 404))
+                return
+            mime = mimetypes.guess_type(str(target))[0] or "image/jpeg"
+            self._send(200, target.read_bytes(), mime)
+            return
+        if path == "/api/projects":
+            self._send(*json_bytes({"success": True, "items": list_projects()}))
             return
         if path == "/api/batch":
             query = parse_qs(parsed.query)
@@ -1177,6 +1354,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/brief":
             try:
                 body = self._read_json()
+                images = list(body.get("images") or [])
+                project = load_project(str(body.get("project_id") or ""))
+                if project:
+                    for ref in project.get("refs") or []:
+                        if ref not in images:
+                            images.append(ref)
                 payload = build_brief(
                     str(body.get("prompt") or ""),
                     provider=str(body.get("provider") or "auto"),
@@ -1185,10 +1368,13 @@ class Handler(BaseHTTPRequestHandler):
                     quality=str(body.get("quality") or "high"),
                     resolution=str(body.get("resolution") or "2k"),
                     model=str(body.get("model") or ""),
-                    images=list(body.get("images") or []),
+                    images=images,
                 )
                 if payload.get("success"):
                     payload = attach_compiled_drafts(payload)
+                    if project:
+                        payload["project"] = project
+                        payload["brand_constraints"] = list(project.get("brand_constraints") or [])
             except Exception as exc:  # noqa: BLE001
                 self._send(*json_bytes({"success": False, "error": str(exc)}, 400))
                 return
@@ -1268,6 +1454,33 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/overlays":
             self._send(*json_bytes(self._save_upload("overlay")))
+            return
+        if path == "/api/trash":
+            try:
+                body = self._read_json()
+                payload = trash_item(str(body.get("id") or body.get("image") or ""))
+            except (ValueError, json.JSONDecodeError, OSError) as exc:
+                self._send(*json_bytes({"success": False, "error": str(exc)}, 400))
+                return
+            self._send(*json_bytes(payload))
+            return
+        if path == "/api/receipt":
+            try:
+                body = self._read_json()
+                item = patch_receipt(str(body.get("id") or ""), body)
+            except (ValueError, json.JSONDecodeError, OSError) as exc:
+                self._send(*json_bytes({"success": False, "error": str(exc)}, 400))
+                return
+            self._send(*json_bytes({"success": True, "item": item}))
+            return
+        if path == "/api/projects":
+            try:
+                body = self._read_json()
+                item = save_project(body)
+            except (ValueError, json.JSONDecodeError, OSError) as exc:
+                self._send(*json_bytes({"success": False, "error": str(exc)}, 400))
+                return
+            self._send(*json_bytes({"success": True, "item": item, "items": list_projects()}))
             return
         if path == "/api/snippets":
             try:

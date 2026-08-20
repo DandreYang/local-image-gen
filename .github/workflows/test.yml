@@ -35,6 +35,8 @@ jobs:
         run: python tests/test_studio_overlay_geom.py
       - name: Studio phase 3
         run: python tests/test_studio_phase3.py
+      - name: Studio phase 4
+        run: python tests/test_studio_phase4.py
       - name: CLI contract
         run: |
           python scripts/local_image_gen.py --version

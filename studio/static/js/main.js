@@ -6,7 +6,7 @@ import { exportSelected } from "./lib/canvas.js";
 import { formBody } from "./lib/format.js";
 
 import { startCompare, stopCompare, setBackdrop } from "./views/stage.js";
-import { refreshLibrary, renderLibrary, openLightbox, closeLightbox, lightboxStep } from "./views/library.js";
+import { refreshLibrary, openLibrary, closeLibrary, initLibrary, openLightbox, closeLightbox, lightboxStep } from "./views/library.js";
 import { lookSelected, reviseSelected } from "./views/director.js";
 import { cancelBrief, runBrief } from "./views/brief.js";
 import {
@@ -23,6 +23,8 @@ import {
 import { openOverlay, initOverlay, closeOverlay } from "./views/overlay.js";
 import { initCandidates } from "./views/candidates.js";
 import { initCmdk } from "./lib/cmdk.js";
+import { initTemplates } from "./views/templates.js";
+import { initProjects } from "./views/projects.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -102,6 +104,9 @@ export async function boot() {
   initOverlay();
   initCandidates();
   initCmdk();
+  initTemplates();
+  initLibrary();
+  await initProjects();
 }
 
 $("version-pill").addEventListener("click", openUpdates);
@@ -115,12 +120,15 @@ document.addEventListener("keydown", (event) => {
     closeOverlay();
     return;
   }
+  if ($("library-root") && !$("library-root").hidden) {
+    closeLibrary();
+    return;
+  }
   if (!$("updates").hidden) closeUpdates();
   else if ($("brief-card") && !$("brief-card").hidden && $("confirm").hidden) cancelBrief();
 });
 
 $("provider").addEventListener("change", fillModels);
-$("filter").addEventListener("input", renderLibrary);
 
 $("backdrop-toggle").addEventListener("click", () => {
   setBackdrop($("viewer").dataset.backdrop === "flat" ? "ambient" : "flat");
@@ -210,15 +218,7 @@ $("snippet-color").addEventListener("change", (event) => {
   insertIntoPrompt(colorSentence(event.target.value));
 });
 $("new-take").addEventListener("click", newTake);
-$("library-open").addEventListener("click", () => {
-  const root = $("library-root");
-  if (root) root.hidden = false;
-});
-if ($("library-root")) {
-  $("library-root").addEventListener("click", (event) => {
-    if (event.target.closest("[data-library-close]")) $("library-root").hidden = true;
-  });
-}
+$("library-open").addEventListener("click", () => openLibrary());
 $("director-look").addEventListener("click", () => lookSelected());
 $("director-revise").addEventListener("click", reviseSelected);
 

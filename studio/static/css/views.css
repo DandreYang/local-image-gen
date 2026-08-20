@@ -113,6 +113,10 @@ main:has(#process:not([hidden])) {
 .project-rail { min-width: 8rem; }
 .template-groups { overflow: auto; display: flex; flex-direction: column; gap: var(--s-14); }
 .brand-constraints { color: var(--accent); }
+.template-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); gap: var(--s-8); }
+.template-card { display: flex; flex-direction: column; gap: 4px; padding: var(--s-6); }
+.template-card img { width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--n-850); }
+.library-session { display: grid; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); gap: var(--s-8); }
 #confirm.dialog-root { align-items: flex-end; }
 #confirm .dialog { width: min(40rem, 100%); border-radius: var(--r-xl) var(--r-xl) 0 0; }
 

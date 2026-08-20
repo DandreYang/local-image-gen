@@ -62,6 +62,7 @@ export function formBody() {
     optimize: $("optimize").value,
     profile: $("profile").value,
     images: state.refs,
+    project_id: state.project && state.project.id,
   };
 }
 

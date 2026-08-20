@@ -116,17 +116,17 @@ export function renderTemplates() {
   const root = $("templates");
   if (!root) return;
   root.innerHTML = "";
-  for (const [id, label] of TEMPLATES) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = label;
-    button.className = $("template").value === id ? "on" : "";
-    button.addEventListener("click", () => {
-      $("template").value = $("template").value === id ? "" : id;
-      renderTemplates();
-    });
-    root.appendChild(button);
-  }
+  const current = $("template").value;
+  const found = TEMPLATES.find((row) => row[0] === current);
+  const badge = document.createElement("button");
+  badge.type = "button";
+  badge.id = "template-badge";
+  badge.textContent = (found ? found[1] : "按这句话推断") + " [换]";
+  badge.addEventListener("click", () => {
+    state.templateSheet = true;
+    notify();
+  });
+  root.appendChild(badge);
 }
 
 export function renderRefs() {

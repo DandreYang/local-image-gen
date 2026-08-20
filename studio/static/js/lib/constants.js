@@ -32,6 +32,16 @@ export const TEMPLATES = [
   ["product", "产品"],
 ];
 
+export const TEMPLATE_GROUPS = [
+  ["封面与社媒", ["xiaohongshu", "cover", "social", "magazine", "reel"]],
+  ["人物", ["portrait", "period", "ccd", "snapshot", "panning", "lookbook", "photo"]],
+  ["产品", ["product", "packshot", "framebreak", "material"]],
+  ["版面与信息", ["infographic", "calendar-poster", "invite", "travel-poster", "split", "card"]],
+  ["场景与图形", ["isometric", "environment", "graphic", "habitat", "void"]],
+  ["手作与介质", ["beads", "paper", "sketch"]],
+  ["改图", ["edit"]],
+];
+
 export const OVERLAY_SLOTS = {
   "calendar-poster": { anchor: "bottom-right", width_pct: 16, margin_pct: 5 },
   "invite": { anchor: "bottom-right", width_pct: 16, margin_pct: 5 },

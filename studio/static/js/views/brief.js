@@ -197,6 +197,8 @@ export async function runBrief() {
       return;
     }
     showStatus({ ok: true, message: "请核对发给生图模型的终稿。可直接改字，取消不会出图。" });
+    if (payload.template) $("template").value = payload.template;
+    if (payload.brand_constraints) state.brandConstraints = payload.brand_constraints;
     renderBrief(payload);
   } catch (error) {
     showStatus({ ok: false, message: String(error.message || error) });

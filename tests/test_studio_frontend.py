@@ -285,7 +285,9 @@ class TestViewModules(unittest.TestCase):
         "views/stage.js": ["selectItem", "renderFacts", "previousTake", "startCompare", "stopCompare"],
         "views/candidates.js": ["initCandidates", "showCandidates", "pollBatch"],
         "lib/cmdk.js": ["openCmdk", "closeCmdk", "initCmdk"],
-        "views/library.js": ["refreshLibrary", "renderLibrary", "filteredItems", "openLightbox", "renderLightbox", "lightboxStep", "closeLightbox"],
+        "views/library.js": ["refreshLibrary", "renderLibrary", "filteredItems", "openLightbox", "renderLightbox", "lightboxStep", "closeLightbox", "openLibrary", "closeLibrary", "initLibrary"],
+        "views/templates.js": ["openTemplateSheet", "closeTemplateSheet", "initTemplates"],
+        "views/projects.js": ["initProjects", "applyProject"],
         "views/director.js": ["openDirector", "renderDirector", "lookSelected", "reviseSelected"],
         "views/brief.js": ["renderBrief", "cancelBrief", "runBrief", "runBriefJobs", "collectEditedJobs", "askConfirm"],
         "views/desk.js": [
@@ -294,7 +296,7 @@ class TestViewModules(unittest.TestCase):
             "refreshSnippets", "removeSnippet", "saveSnippetFromSelection",
             "insertIntoPrompt", "colorSentence",
         ],
-        "lib/constants.js": ["TEMPLATES", "PROVIDER_NAMES", "PROVIDER_FAMILY", "AREA_LABELS", "AREA_INSTRUCTIONS"],
+        "lib/constants.js": ["TEMPLATES", "TEMPLATE_GROUPS", "PROVIDER_NAMES", "PROVIDER_FAMILY", "AREA_LABELS", "AREA_INSTRUCTIONS"],
         "lib/canvas.js": [
             "exportSelected",
             "EXPORT_PRESETS",
@@ -724,6 +726,20 @@ class TestPhase3Flow(unittest.TestCase):
     def test_ci_runs_phase3(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         self.assertIn("tests/test_studio_phase3.py", workflow)
+
+
+class TestPhase4Library(unittest.TestCase):
+    def test_filmstrip_is_gone(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn('id="film"', html)
+        self.assertIn('id="library-root"', html)
+        self.assertIn("template-badge", (STATIC / "js" / "views" / "desk.js").read_text(encoding="utf-8"))
+        self.assertIn("TEMPLATE_GROUPS", (STATIC / "js" / "lib" / "constants.js").read_text(encoding="utf-8"))
+
+    def test_ci_runs_phase4(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertIn("tests/test_studio_phase4.py", workflow)
+        self.assertLess(workflow.index("Studio phase 3"), workflow.index("Studio phase 4"))
 
 
 if __name__ == "__main__":

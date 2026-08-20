@@ -23,6 +23,9 @@ export const state = {
   project: null,
   brandConstraints: [],
   pendingBatch: null,
+  templateSheet: false,
+  libraryFilter: "",
+  projects: [],
 };
 
 const listeners = new Set();
