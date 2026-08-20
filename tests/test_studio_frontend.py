@@ -668,5 +668,32 @@ class TestCanvasContracts(unittest.TestCase):
         self.assertNotIn("views/", text)
 
 
+class TestOverlayWiring(unittest.TestCase):
+    def test_main_wires_overlay_and_does_not_export_it(self):
+        main = (STATIC / "js" / "main.js").read_text(encoding="utf-8")
+        self.assertIn("openOverlay", main)
+        self.assertIn("initOverlay", main)
+        self.assertNotRegex(main, r"export\s+function\s+openOverlay")
+
+    def test_mode_toggle_exists(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="mode-toggle"', html)
+
+    def test_simple_hides_workbench_and_repaint(self):
+        css = (STATIC / "css" / "views.css").read_text(encoding="utf-8")
+        self.assertIn('[data-mode="simple"] .pro-only', css)
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="pro-only"', html)
+
+    def test_ci_runs_phase2_suites(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertIn("tests/test_studio_sidecar.py", workflow)
+        self.assertIn("tests/test_studio_security.py", workflow)
+        self.assertIn("tests/test_studio_composite.py", workflow)
+        self.assertIn("tests/test_studio_overlay_geom.py", workflow)
+        self.assertIn("tests/test_studio_server.py", workflow)
+        self.assertLess(workflow.index("Studio server launch"), workflow.index("Studio sidecar"))
+
+
 if __name__ == "__main__":
     unittest.main()

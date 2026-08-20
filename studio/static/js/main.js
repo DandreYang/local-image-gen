@@ -20,6 +20,7 @@ import {
   insertIntoPrompt,
   colorSentence,
 } from "./views/desk.js";
+import { openOverlay, initOverlay, closeOverlay } from "./views/overlay.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -96,6 +97,7 @@ export async function boot() {
   await refreshLibrary();
   await refreshSnippets();
   refreshVersionBadge();
+  initOverlay();
 }
 
 $("version-pill").addEventListener("click", openUpdates);
@@ -105,6 +107,10 @@ $("updates").addEventListener("click", (event) => {
 });
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
+  if (state.overlay) {
+    closeOverlay();
+    return;
+  }
   if (!$("updates").hidden) closeUpdates();
   else if ($("brief-card") && !$("brief-card").hidden && $("confirm").hidden) cancelBrief();
 });
@@ -114,6 +120,18 @@ $("filter").addEventListener("input", renderLibrary);
 
 $("backdrop-toggle").addEventListener("click", () => {
   setBackdrop($("viewer").dataset.backdrop === "flat" ? "ambient" : "flat");
+});
+
+$("mode-toggle").addEventListener("click", () => {
+  setMode(state.mode === "pro" ? "simple" : "pro");
+  $("mode-toggle").textContent = state.mode === "pro" ? "专业" : "默认";
+});
+$("mode-toggle").textContent = state.mode === "pro" ? "专业" : "默认";
+
+["overlay-qr", "overlay-logo", "overlay-workbench", "overlay-repaint"].forEach((id) => {
+  const node = $(id);
+  if (!node) return;
+  node.addEventListener("click", () => openOverlay(state.selected, node.getAttribute("data-overlay")));
 });
 
 document.querySelectorAll("[data-export]").forEach((button) => {

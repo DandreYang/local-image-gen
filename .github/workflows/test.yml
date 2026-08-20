@@ -25,6 +25,14 @@ jobs:
         run: python tests/test_studio_frontend.py
       - name: Studio server launch
         run: python tests/test_studio_server.py
+      - name: Studio sidecar
+        run: python tests/test_studio_sidecar.py
+      - name: Studio CSRF and uploads
+        run: python tests/test_studio_security.py
+      - name: Studio composite
+        run: python tests/test_studio_composite.py
+      - name: Studio overlay geometry
+        run: python tests/test_studio_overlay_geom.py
       - name: CLI contract
         run: |
           python scripts/local_image_gen.py --version
