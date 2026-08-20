@@ -321,6 +321,7 @@ class TestViewModules(unittest.TestCase):
         "lib/status.js": ["showStatus", "showError"],
         "lib/busy.js": ["durationFromName", "expectCopy", "startBusy", "stopBusy", "waitingCopy", "quoteCopy"],
         "lib/format.js": ["escapeHtml", "dash", "formatDuration", "formatTime", "aspectFromText", "formBody", "uniqueImages"],
+        "views/overlay.js": ["openOverlay", "closeOverlay", "initOverlay"],
     }
 
     LEAF_MODULES = [
@@ -558,6 +559,40 @@ class TestCopyAndErrors(unittest.TestCase):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
         self.assertIn('id="status-detail"', html)
         self.assertIn("<details", html)
+
+
+class TestOverlaySheet(unittest.TestCase):
+    def test_sheet_lives_outside_main(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="overlay-root"', html)
+        self.assertIn('id="overlay-sheet"', html)
+        self.assertIn('id="overlay-canvas"', html)
+        main_end = html.index("</main>")
+        self.assertGreater(html.index('id="overlay-root"'), main_end, "sheet 必须在 main 外，不能焊进三栏")
+
+    def test_overlay_module_is_self_contained(self):
+        path = STATIC / "js" / "views" / "overlay.js"
+        self.assertTrue(path.is_file())
+        text = path.read_text(encoding="utf-8")
+        self.assertRegex(text, r"export\s+function\s+openOverlay\b")
+        self.assertRegex(text, r"export\s+function\s+closeOverlay\b")
+        self.assertRegex(text, r"export\s+function\s+initOverlay\b")
+        for spec in IMPORT_RE.findall(text):
+            self.assertNotIn("views/", spec)
+            self.assertNotIn("main.js", spec)
+        self.assertNotIn("getElementById(\"stage\")", text.replace("'", '"'))
+        self.assertNotIn('getElementById("desk")', text)
+        self.assertNotIn('getElementById("viewer")', text)
+
+    def test_open_requires_an_item_snapshot(self):
+        js = (STATIC / "js" / "views" / "overlay.js").read_text(encoding="utf-8")
+        self.assertIn("state.overlay", js)
+        state_js = (STATIC / "js" / "state.js").read_text(encoding="utf-8")
+        self.assertIn("overlay:", state_js)
+
+    def test_expected_includes_overlay_view(self):
+        text = Path(__file__).read_text(encoding="utf-8")
+        self.assertIn('"views/overlay.js"', text)
 
 
 class TestCanvasContracts(unittest.TestCase):

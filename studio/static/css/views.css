@@ -554,3 +554,20 @@ body.is-busy .viewer img { opacity: 0.28; }
   .lightbox-nav.prev { left: 0.5rem; }
   .lightbox-nav.next { right: 0.5rem; }
 }
+
+.overlay-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-8); }
+.overlay-head h2 { margin: 0; font-family: var(--font-sans); font-size: 1.1rem; color: var(--n-200); }
+.overlay-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--n-900);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.overlay-stage canvas { max-width: 100%; max-height: 56vh; }
+.overlay-scan { min-height: 1.4em; color: var(--accent); font-size: 12px; }
+.overlay-dock { display: flex; flex-wrap: wrap; gap: var(--s-8); align-items: center; }
+[data-mode="simple"] .pro-only { display: none !important; }

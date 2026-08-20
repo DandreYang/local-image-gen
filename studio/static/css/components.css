@@ -178,3 +178,30 @@ select:focus, textarea:focus, input:focus { border-color: color-mix(in srgb, var
   max-height: 14rem;
   overflow: auto;
 }
+
+.sheet-root {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.sheet-root[hidden] { display: none; }
+.sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--n-950) 66%, transparent);
+}
+.sheet {
+  position: relative;
+  width: min(72rem, 100%);
+  max-height: min(92vh, 56rem);
+  display: flex;
+  flex-direction: column;
+  background: var(--n-850);
+  border: 1px solid var(--n-600);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  padding: var(--s-18);
+  box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.45);
+}

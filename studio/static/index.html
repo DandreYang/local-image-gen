@@ -206,6 +206,21 @@
     </div>
   </main>
 
+  <div class="sheet-root" id="overlay-root" hidden>
+    <div class="sheet-backdrop" data-overlay-close></div>
+    <section class="sheet" id="overlay-sheet" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
+      <header class="overlay-head">
+        <h2 id="overlay-title">贴图</h2>
+        <button type="button" class="ghost" id="overlay-close" data-overlay-close>关闭</button>
+      </header>
+      <div class="overlay-stage">
+        <canvas id="overlay-canvas"></canvas>
+      </div>
+      <p class="overlay-scan" id="overlay-scan" aria-live="polite"></p>
+      <div class="overlay-dock" id="overlay-dock"></div>
+    </section>
+  </div>
+
   <div class="dialog-root" id="updates" hidden>
     <div class="dialog-backdrop" data-updates-close></div>
     <div class="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="updates-title">
