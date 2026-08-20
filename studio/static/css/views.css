@@ -172,6 +172,36 @@ body.is-busy .viewer img { opacity: 0.28; }
 }
 .aspect-badge[hidden] { display: none; }
 
+/* 画布底：环境光态用当前图自身模糊放大铺满，纯中性态是纯色——
+   评估白平衡/肤色时环境光是第二个色源，会误导判断，所以纯中性态必须
+   随手可切。--ambient-src 由 stage.js 的 setBackdrop() 按选中项写入。 */
+.viewer[data-backdrop="flat"] { background: var(--n-900); }
+
+.viewer[data-backdrop="ambient"] { background: var(--n-900); }
+.viewer[data-backdrop="ambient"]::before {
+  content: "";
+  position: absolute;
+  inset: -16%;
+  z-index: 0;
+  background-image: var(--ambient-src);
+  background-size: cover;
+  background-position: center;
+  filter: blur(54px) saturate(1.7) brightness(0.6);
+}
+.viewer[data-backdrop="ambient"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--n-900) 66%, transparent),
+    color-mix(in srgb, var(--n-900) 50%, transparent) 45%,
+    color-mix(in srgb, var(--n-900) 84%, transparent)
+  );
+}
+.viewer[data-backdrop="ambient"] > * { position: relative; z-index: 2; }
+
 /* ---- 相纸：空态即主界面 ----
    spec §4.5：相纸质感（米色纹理 + 深色印刷字）整体移除，改成普通深色浮层。 */
 .paper {

@@ -44,6 +44,25 @@ export function renderFacts(item) {
   facts.appendChild(wrap);
 }
 
+// 环境光是第二个色源：评估白平衡与肤色时会误导判断，所以 pro 模式默认纯中性。
+export function setBackdrop(kind) {
+  const viewer = $("viewer");
+  if (!viewer) return;
+  if (kind) {
+    state.canvasBackdrop = kind;
+    localStorage.setItem("studio-backdrop", kind);
+  }
+  const chosen =
+    state.canvasBackdrop === "auto"
+      ? state.mode === "pro"
+        ? "flat"
+        : "ambient"
+      : state.canvasBackdrop;
+  viewer.dataset.backdrop = chosen;
+  const item = state.selected;
+  viewer.style.setProperty("--ambient-src", item ? `url("${item.url}")` : "none");
+}
+
 export function renderAspectBadge(item) {
   const node = $("aspect-badge");
   if (!node) return;
@@ -60,6 +79,7 @@ function renderSelection() {
     hero.hidden = true;
     renderFacts(null);
     renderAspectBadge(null);
+    setBackdrop();
     return;
   }
   $("empty-view").hidden = true;
@@ -70,6 +90,7 @@ function renderSelection() {
   hero.alt = item.name;
   renderFacts(item);
   renderAspectBadge(item);
+  setBackdrop();
 }
 
 // 按住对比：上一张 = 素材库里时间相邻的旧 take（改稿链在时间上是连续的）。

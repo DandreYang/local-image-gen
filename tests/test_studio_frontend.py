@@ -411,5 +411,21 @@ class TestCanvasContain(unittest.TestCase):
         self.assertRegex(js, r"export\s+function\s+renderAspectBadge\b")
 
 
+class TestBackdrop(unittest.TestCase):
+    def test_both_backdrops_defined(self):
+        css = (STATIC / "css" / "views.css").read_text(encoding="utf-8")
+        self.assertIn('data-backdrop="ambient"', css)
+        self.assertIn('data-backdrop="flat"', css)
+
+    def test_toggle_is_exported(self):
+        js = (STATIC / "js" / "views" / "stage.js").read_text(encoding="utf-8")
+        self.assertRegex(js, r"export\s+function\s+setBackdrop\b")
+
+    def test_pro_mode_defaults_to_flat(self):
+        """环境光是第二个色源，评估白平衡时会误导判断。"""
+        js = (STATIC / "js" / "views" / "stage.js").read_text(encoding="utf-8")
+        self.assertIn('"pro"', js, "setBackdrop 的 auto 分支必须按 state.mode 决定")
+
+
 if __name__ == "__main__":
     unittest.main()

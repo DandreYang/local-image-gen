@@ -5,7 +5,7 @@ import { startBusy, stopBusy, waitingCopy, quoteCopy } from "./lib/busy.js";
 import { exportSelected } from "./lib/canvas.js";
 import { formBody } from "./lib/format.js";
 
-import { startCompare, stopCompare } from "./views/stage.js";
+import { startCompare, stopCompare, setBackdrop } from "./views/stage.js";
 import { refreshLibrary, renderLibrary, openLightbox, closeLightbox, lightboxStep } from "./views/library.js";
 import { lookSelected, reviseSelected } from "./views/director.js";
 import { cancelBrief, runBrief, askConfirm } from "./views/brief.js";
@@ -92,6 +92,7 @@ export async function boot() {
   fillFollowProviders();
   fillFollowModels();
   renderTemplates();
+  setBackdrop();
   await refreshLibrary();
   await refreshSnippets();
   refreshVersionBadge();
@@ -110,6 +111,10 @@ document.addEventListener("keydown", (event) => {
 
 $("provider").addEventListener("change", fillModels);
 $("filter").addEventListener("input", renderLibrary);
+
+$("backdrop-toggle").addEventListener("click", () => {
+  setBackdrop($("viewer").dataset.backdrop === "flat" ? "ambient" : "flat");
+});
 
 document.querySelectorAll("[data-export]").forEach((button) => {
   button.addEventListener("click", () => exportSelected(button.getAttribute("data-export")));
