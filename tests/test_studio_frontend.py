@@ -294,7 +294,9 @@ class TestViewModules(unittest.TestCase):
         ],
         "lib/constants.js": ["TEMPLATES", "PROVIDER_NAMES", "PROVIDER_FAMILY", "AREA_LABELS", "AREA_INSTRUCTIONS"],
         "lib/canvas.js": ["exportSelected", "EXPORT_PRESETS"],
-        "lib/status.js": ["setStatus", "humanError", "explainAspectFail", "savedName"],
+        # explainAspectFail/savedName 曾在此列——只被 Task 8 删掉的直出提交
+        # 处理器调用，收敛入口后随调用点一起删除。
+        "lib/status.js": ["setStatus", "humanError"],
         "lib/busy.js": ["durationFromName", "expectCopy", "startBusy", "stopBusy", "waitingCopy", "quoteCopy"],
         "lib/format.js": ["escapeHtml", "dash", "formatDuration", "formatTime", "aspectFromText", "formBody", "uniqueImages"],
     }
@@ -425,6 +427,41 @@ class TestBackdrop(unittest.TestCase):
         """环境光是第二个色源，评估白平衡时会误导判断。"""
         js = (STATIC / "js" / "views" / "stage.js").read_text(encoding="utf-8")
         self.assertIn('"pro"', js, "setBackdrop 的 auto 分支必须按 state.mode 决定")
+
+
+class TestSingleGenerateEntry(unittest.TestCase):
+    def test_skip_confirm_button_removed(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("跳过确认直接生", html)
+        self.assertNotIn('id="gen-btn"', html)
+
+    def test_desk_is_not_a_form(self):
+        """<form> 的 submit 会被回车触发，绕过终稿核对卡。"""
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertNotRegex(html, r"<form\b", "参数区不得是 <form>")
+        self.assertNotIn('type="submit"', html)
+
+    def test_exactly_one_control_can_start_a_generation(self):
+        """会审 P0-3：原写法只数 brief-btn 出现次数，那样今天就是绿的——
+        此刻 brief-btn 与 gen-btn 并存时它照样通过。改为枚举全部入口求和。
+        """
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        entries = []
+        for marker in ('id="brief-btn"', 'id="gen-btn"', 'type="submit"'):
+            entries.extend([marker] * html.count(marker))
+        self.assertEqual(
+            entries, ['id="brief-btn"'], f"能触发生成的控件不唯一：{entries}"
+        )
+
+    def test_no_submit_listener_remains(self):
+        """引号与 onsubmit 两种写法一起查——单引号能绕过原来的写法。"""
+        pattern = re.compile(r"""addEventListener\(\s*['"]submit['"]|onsubmit\s*=""")
+        for path in (STATIC / "js").rglob("*.js"):
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(module=path.name):
+                self.assertIsNone(pattern.search(text), f"{path.name} 仍有 submit 处理器")
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIsNone(pattern.search(html), "index.html 仍有内联 onsubmit")
 
 
 if __name__ == "__main__":

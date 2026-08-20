@@ -1,14 +1,14 @@
 import { state, setMode, notify } from "./state.js";
-import { getJson, fetchLibrary } from "./api.js";
-import { setStatus, humanError, explainAspectFail, savedName } from "./lib/status.js";
-import { startBusy, stopBusy, waitingCopy, quoteCopy } from "./lib/busy.js";
+import { getJson } from "./api.js";
+import { setStatus } from "./lib/status.js";
+import { startBusy, stopBusy } from "./lib/busy.js";
 import { exportSelected } from "./lib/canvas.js";
 import { formBody } from "./lib/format.js";
 
 import { startCompare, stopCompare, setBackdrop } from "./views/stage.js";
 import { refreshLibrary, renderLibrary, openLightbox, closeLightbox, lightboxStep } from "./views/library.js";
 import { lookSelected, reviseSelected } from "./views/director.js";
-import { cancelBrief, runBrief, askConfirm } from "./views/brief.js";
+import { cancelBrief, runBrief } from "./views/brief.js";
 import {
   fillProviders,
   fillModels,
@@ -210,65 +210,6 @@ $("preview-btn").addEventListener("click", async () => {
     setStatus(String(error.message || error), true);
   } finally {
     stopBusy();
-    $("preview-btn").disabled = false;
-  }
-});
-
-// 生成成功后要「刷新库 → 选中新图 → 打开导演面板（带 draft/brief/job 覆盖）→
-// 自动看图」。库抓取走叶子层 fetchLibrary，选中态与 extras 都走
-// state + notify() 信号，由 library.js/director.js 各自的订阅消费——
-// 与 brief.js 的 runBriefJobs 用的是同一套约定，main.js 不直接调用
-// selectItem/openDirector/lookSelected。
-$("form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (!$("prompt").value.trim()) {
-    setStatus("先在相纸上写一句要画什么。", true);
-    $("prompt").focus();
-    return;
-  }
-  const provider = $("provider").value;
-  const providerLabelText = $("provider").selectedOptions[0]
-    ? $("provider").selectedOptions[0].textContent
-    : provider;
-  const ok = await askConfirm(`将用 ${providerLabelText} 出一张图。` + quoteCopy(1, provider));
-  if (!ok) return;
-  $("gen-btn").disabled = true;
-  $("preview-btn").disabled = true;
-  startBusy("正在显影", waitingCopy(provider, $("aspect").value), { develop: true, provider });
-  setStatus("已把任务交给 local-image-gen，等待后端返回…");
-  try {
-    const form = formBody();
-    const payload = await getJson("/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    const failed = payload.success === false;
-    if (failed && payload.saved_but_failed) {
-      setStatus(explainAspectFail(payload), true);
-    } else {
-      setStatus(failed ? humanError(payload) : payload, failed);
-    }
-    await fetchLibrary();
-    const name = payload.image || payload.saved_image || savedName(payload);
-    const match = name
-      ? state.items.find((item) => name.endsWith(item.name) || item.name === name.split(/[/\\]/).pop())
-      : null;
-    if (match) {
-      state.selected = match;
-      state.pendingDirectorExtras = {
-        draft: (payload.prompt && payload.prompt.used) || form.prompt,
-        brief: form.prompt,
-        job: form,
-      };
-      state.pendingLook = true;
-      notify();
-    }
-  } catch (error) {
-    setStatus(String(error.message || error), true);
-  } finally {
-    stopBusy();
-    $("gen-btn").disabled = false;
     $("preview-btn").disabled = false;
   }
 });

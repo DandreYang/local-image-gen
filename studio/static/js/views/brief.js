@@ -193,7 +193,6 @@ export async function runBriefJobs() {
     develop: true,
     provider: $("provider").value,
   });
-  $("gen-btn").disabled = true;
   try {
     const jobs = collectEditedJobs();
     const payload = await getJson("/api/confirm-generate", {
@@ -208,7 +207,6 @@ export async function runBriefJobs() {
     setStatus(String(error.message || error), true);
   } finally {
     stopBusy();
-    $("gen-btn").disabled = false;
   }
 }
 
