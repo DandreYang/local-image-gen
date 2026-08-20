@@ -211,7 +211,7 @@ REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 DEFAULT_REPO_SLUG = "DandreYang/local-image-gen"
 UPDATE_CHECK_TIMEOUT = 2
-META_COMMANDS = ("doctor", "update")
+META_COMMANDS = ("doctor", "update", "studio")
 ASPECT_PATTERN = re.compile(
     r"^\s*(?:(?P<w>\d+(?:\.\d+)?)\s*[:/x]\s*(?P<h>\d+(?:\.\d+)?)|(?P<name>[A-Za-z][A-Za-z0-9_-]*))\s*$"
 )
@@ -2761,6 +2761,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         return parse_update_args(tokens)
     if command == "doctor":
         return parse_doctor_args(tokens)
+    if command == "studio":
+        return parse_studio_args(tokens)
     return parse_job_args(tokens)
 
 
@@ -2801,6 +2803,32 @@ def parse_doctor_args(argv: Sequence[str]) -> argparse.Namespace:
     return args
 
 
+def parse_studio_args(argv: Sequence[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="local-image-gen studio",
+        description="Start the local Studio UI.",
+    )
+    parser.add_argument("--version", action="version", version=f"local-image-gen {__version__}")
+    parser.add_argument("--host", default="127.0.0.1", help="Bind address. Default 127.0.0.1.")
+    parser.add_argument("--lan", action="store_true", help="Bind 0.0.0.0 so other devices on the LAN can connect.")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--no-open", action="store_true", dest="no_open", help="Do not open a browser.")
+    parser.add_argument("--daemon", action="store_true", help="Detach from this terminal. Implies --no-open.")
+    parser.add_argument("--stop", action="store_true", help="Stop the Studio started from this install home.")
+    args = parser.parse_args(list(argv))
+    args.command = "studio"
+    args.doctor = False
+    args.list_providers = False
+    args.list_models = False
+    args.prompt = None
+    args.dry_run = False
+    return args
+
+
+def run_studio(args: argparse.Namespace) -> int:
+    raise ImageGenError("studio runtime is not implemented")
+
+
 def parse_job_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate or edit images via local subscriptions or official API keys.",
@@ -2810,6 +2838,10 @@ def parse_job_args(argv: Sequence[str]) -> argparse.Namespace:
             "  local-image-gen doctor            Diagnose backends and install freshness\n"
             "  local-image-gen update            Fast-forward this install\n"
             "  local-image-gen update --dry-run  Show the update steps only\n"
+            "  local-image-gen studio            Start the local Studio UI\n"
+            "  local-image-gen studio --no-open  Start without opening a browser\n"
+            "  local-image-gen studio --lan --daemon\n"
+            "  local-image-gen studio --stop     Stop a detached Studio\n"
         ),
     )
     parser.add_argument("--version", action="version", version=f"local-image-gen {__version__}")
@@ -2869,7 +2901,7 @@ def parse_job_args(argv: Sequence[str]) -> argparse.Namespace:
         args.prompt = args.prompt_file.expanduser().read_text(encoding="utf-8")
         args.prompt_from_file = True
     if not args.prompt or not str(args.prompt).strip():
-        parser.error("A prompt is required unless doctor, update, --list-providers, or --list-models is used.")
+        parser.error("A prompt is required unless doctor, update, studio, --list-providers, or --list-models is used.")
     args.prompt = str(args.prompt).strip()
     if args.mask:
         args.mask = args.mask.expanduser()
@@ -3126,6 +3158,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             fail(str(exc))
             return 1
         return 0
+    if getattr(args, "command", None) == "studio":
+        try:
+            return run_studio(args)
+        except ImageGenError as exc:
+            sys.stderr.write(str(exc) + "\n")
+            return 1
     if args.doctor:
         print_json(doctor_payload(loaded_files))
         return 0

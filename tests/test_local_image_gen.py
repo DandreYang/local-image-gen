@@ -1618,5 +1618,55 @@ class SelfUpdateTests(unittest.TestCase):
             self.assertFalse(any(args and args[0] == "pull" for args in calls))
 
 
+class StudioLaunchTests(unittest.TestCase):
+    def test_parse_studio_defaults(self) -> None:
+        args = image_gen.parse_args(["studio"])
+        self.assertEqual(args.command, "studio")
+        self.assertFalse(args.doctor)
+        self.assertFalse(args.list_providers)
+        self.assertFalse(args.list_models)
+        self.assertIsNone(args.prompt)
+        self.assertEqual(args.host, "127.0.0.1")
+        self.assertFalse(args.lan)
+        self.assertEqual(args.port, 8765)
+        self.assertFalse(args.no_open)
+        self.assertFalse(args.daemon)
+        self.assertFalse(args.stop)
+
+    def test_parse_studio_flags(self) -> None:
+        args = image_gen.parse_args(["studio", "--daemon", "--lan", "--port", "9000"])
+        self.assertEqual(args.command, "studio")
+        self.assertTrue(args.daemon)
+        self.assertTrue(args.lan)
+        self.assertEqual(args.port, 9000)
+
+    def test_parse_studio_stop(self) -> None:
+        args = image_gen.parse_args(["studio", "--stop"])
+        self.assertTrue(args.stop)
+
+    def test_quoted_studio_prompt_is_generate(self) -> None:
+        job = image_gen.parse_args(["studio poster", "--dry-run"])
+        self.assertEqual(job.command, "generate")
+        self.assertEqual(job.prompt, "studio poster")
+
+    def test_studio_rejects_generate_flags(self) -> None:
+        with self.assertRaises(SystemExit):
+            image_gen.parse_args(["studio", "--provider", "grok"])
+        with self.assertRaises(SystemExit):
+            image_gen.parse_args(["studio", "poster"])
+        with self.assertRaises(SystemExit):
+            image_gen.parse_args(["--studio"])
+
+    def test_job_help_lists_studio(self) -> None:
+        from io import StringIO
+
+        buf = StringIO()
+        with patch.object(sys, "stdout", buf), self.assertRaises(SystemExit):
+            image_gen.parse_job_args(["--help"])
+        text = buf.getvalue()
+        self.assertIn("local-image-gen studio", text)
+        self.assertIn("--stop", text)
+
+
 if __name__ == "__main__":
     unittest.main()
