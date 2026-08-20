@@ -32,6 +32,11 @@ export const TEMPLATES = [
   ["product", "产品"],
 ];
 
+export const OVERLAY_SLOTS = {
+  "calendar-poster": { anchor: "bottom-right", width_pct: 16, margin_pct: 5 },
+  invite: { anchor: "bottom-right", width_pct: 16, margin_pct: 5 },
+};
+
 export const PROVIDER_NAMES = {
   auto: "自动路由",
   grok: "Grok",
