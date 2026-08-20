@@ -303,6 +303,8 @@ def write_media_receipt(path: Path, payload: Dict[str, Any]) -> None:
             "cli": "local-image-gen",
             "studio": True,
             "version": getattr(cli, "__version__", None),
+            "composed_from": payload.get("composed_from"),
+            "overlays": payload.get("overlays"),
         },
     )
 
@@ -477,6 +479,8 @@ def media_item(path: Path) -> Dict[str, Any]:
         "cropped_from": cropped_from,
         "notes": (receipt or {}).get("notes"),
         "receipt": receipt,
+        "composed_from": (receipt or {}).get("composed_from"),
+        "overlays": (receipt or {}).get("overlays"),
     }
 
 

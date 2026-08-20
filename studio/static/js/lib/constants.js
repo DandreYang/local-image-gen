@@ -34,7 +34,7 @@ export const TEMPLATES = [
 
 export const OVERLAY_SLOTS = {
   "calendar-poster": { anchor: "bottom-right", width_pct: 16, margin_pct: 5 },
-  invite: { anchor: "bottom-right", width_pct: 16, margin_pct: 5 },
+  "invite": { anchor: "bottom-right", width_pct: 16, margin_pct: 5 },
 };
 
 export const PROVIDER_NAMES = {
