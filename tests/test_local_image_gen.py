@@ -1763,6 +1763,74 @@ class StudioLaunchTests(unittest.TestCase):
             self.assertFalse((home / "studio.pid").exists())
         self.assertIn(image_gen.signal.SIGTERM, signals)
 
+    def test_server_argv_daemon_implies_no_open(self) -> None:
+        args = image_gen.parse_args(["studio", "--daemon", "--lan", "--port", "9000"])
+        argv = image_gen.studio_server_argv(args)
+        self.assertEqual(argv[0], sys.executable)
+        self.assertTrue(str(argv[1]).endswith("studio/server.py"))
+        self.assertIn("--lan", argv)
+        self.assertIn("--no-open", argv)
+        self.assertIn("9000", argv)
+
+    def test_server_argv_foreground_opens_browser(self) -> None:
+        args = image_gen.parse_args(["studio"])
+        argv = image_gen.studio_server_argv(args)
+        self.assertNotIn("--no-open", argv)
+
+    def test_refuse_second_start_without_popen(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "studio").mkdir()
+            (home / "studio" / "server.py").write_text("# fake\n", encoding="utf-8")
+            (home / "studio.pid").write_text(
+                json.dumps({"pid": 77, "host": "127.0.0.1", "port": 8765}) + "\n",
+                encoding="utf-8",
+            )
+            with patch.object(image_gen, "default_share_home", return_value=home), patch.object(
+                image_gen, "package_root", return_value=home
+            ), patch.object(image_gen, "studio_pid_status", return_value="alive"), patch.object(
+                image_gen.subprocess, "Popen"
+            ) as fake_popen:
+                code = image_gen.run_studio(image_gen.parse_args(["studio"]))
+            fake_popen.assert_not_called()
+        self.assertEqual(code, 1)
+
+    def test_daemon_spawns_detached(self) -> None:
+        class FakeProc:
+            pid = 321
+
+        captured: dict = {}
+
+        def fake_popen(argv, **kwargs):
+            captured["argv"] = argv
+            captured["kwargs"] = kwargs
+            return FakeProc()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            server = home / "pkg" / "studio" / "server.py"
+            server.parent.mkdir(parents=True)
+            server.write_text("# fake\n", encoding="utf-8")
+            with patch.object(image_gen, "default_share_home", return_value=home), patch.object(
+                image_gen, "package_root", return_value=home / "pkg"
+            ), patch.object(image_gen.subprocess, "Popen", fake_popen):
+                code = image_gen.run_studio(image_gen.parse_args(["studio", "--daemon"]))
+            record = json.loads((home / "studio.pid").read_text(encoding="utf-8"))
+            self.assertTrue((home / "studio.log").exists())
+        self.assertEqual(code, 0)
+        self.assertEqual(record["pid"], 321)
+        self.assertTrue(captured["kwargs"].get("start_new_session"))
+        self.assertIn("--no-open", captured["argv"])
+
+    def test_missing_server_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.object(image_gen, "default_share_home", return_value=home), patch.object(
+                image_gen, "package_root", return_value=home / "empty"
+            ):
+                code = image_gen.run_studio(image_gen.parse_args(["studio"]))
+        self.assertEqual(code, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2827,13 +2827,6 @@ def parse_studio_args(argv: Sequence[str]) -> argparse.Namespace:
     return args
 
 
-def run_studio(args: argparse.Namespace) -> int:
-    if args.stop:
-        return stop_studio()
-    sys.stderr.write("studio runtime is not implemented\n")
-    return 2
-
-
 def studio_server_path() -> Path:
     return package_root() / "studio" / "server.py"
 
@@ -2978,6 +2971,85 @@ def stop_studio() -> int:
     remove_studio_record()
     print("stopped", flush=True)
     return 0
+
+
+def studio_server_argv(args: argparse.Namespace) -> List[str]:
+    argv = [sys.executable, str(studio_server_path()), "--port", str(args.port)]
+    if args.lan:
+        argv.append("--lan")
+    else:
+        argv.extend(["--host", str(args.host)])
+    if args.daemon or args.no_open:
+        argv.append("--no-open")
+    return argv
+
+
+def _clear_stale_studio() -> Optional[Dict[str, Any]]:
+    record = read_studio_record()
+    if record is None:
+        return None
+    status = studio_pid_status(record)
+    if status == "alive":
+        return record
+    remove_studio_record()
+    return None
+
+
+def _stop_child(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            return
+        time.sleep(0.05)
+    proc.kill()
+
+
+def run_studio(args: argparse.Namespace) -> int:
+    if args.stop:
+        return stop_studio()
+    server = studio_server_path()
+    if not server.is_file():
+        sys.stderr.write("studio is not in this install\n")
+        return 1
+    live = _clear_stale_studio()
+    if live is not None:
+        url = studio_url(str(live["host"]), int(live["port"]))
+        sys.stderr.write(f"studio is already running (pid {live['pid']}, {url})\n")
+        return 1
+    host = studio_bind_host(args)
+    argv = studio_server_argv(args)
+    if args.daemon:
+        studio_runtime_dir().mkdir(parents=True, exist_ok=True)
+        log = studio_log_path().open("a", encoding="utf-8")
+        try:
+            proc = subprocess.Popen(
+                argv,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        except Exception:
+            log.close()
+            raise
+        log.close()
+        write_studio_record(int(proc.pid), host, int(args.port))
+        print_studio_banner(host, int(args.port))
+        print(f"log   {studio_log_path()}", flush=True)
+        print("stop  local-image-gen studio --stop", flush=True)
+        return 0
+    proc = subprocess.Popen(argv)
+    write_studio_record(int(proc.pid), host, int(args.port))
+    try:
+        return int(proc.wait() or 0)
+    except KeyboardInterrupt:
+        _stop_child(proc)
+        print("stopped", flush=True)
+        return 0
+    finally:
+        remove_studio_record()
 
 
 def parse_job_args(argv: Sequence[str]) -> argparse.Namespace:
