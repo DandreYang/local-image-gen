@@ -1,3 +1,5 @@
+import { state } from "./state.js";
+
 // 后端返回形态不统一：有 {success:false,error}，有 HTTP 非 200，也有非 JSON。
 // 统一成 {ok, message, detail} 再交给 UI，UI 只显示 message。
 export function normalizeError(payload, fallback) {
@@ -33,4 +35,13 @@ export function postJson(url, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+// 库数据的抓取与 state.items 的写入放在叶子层：library.js 用它实现
+// refreshLibrary()（抓完自己 render），brief.js 生成完成后也要抓新库列表，
+// 但不该为此导入 library.js——views 之间不互相 import，这里下沉成叶子能力。
+export async function fetchLibrary() {
+  const payload = await getJson("/api/library");
+  state.items = payload.items || [];
+  return state.items;
 }

@@ -1,3 +1,7 @@
+import { state } from "../state.js";
+
+const $ = (id) => document.getElementById(id);
+
 export function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -43,4 +47,31 @@ export function aspectFromText(text) {
   if (/横版|横屏|横幅/.test(blob)) return "16:9";
   if (/方形|方图/.test(blob)) return "1:1";
   return "";
+}
+
+// director.js 与 brief.js 都需要「读一次当前表单状态」，desk.js 只是恰好拥有
+// 这些 <select>；把它放进叶子层，两个视图都能直接 import，不必互相依赖。
+export function formBody() {
+  return {
+    prompt: $("prompt").value,
+    provider: $("provider").value,
+    model: $("model").value,
+    aspect: $("aspect").value || aspectFromText($("prompt").value),
+    quality: $("quality").value,
+    resolution: $("resolution").value,
+    optimize: $("optimize").value,
+    profile: $("profile").value,
+    images: state.refs,
+  };
+}
+
+export function uniqueImages(items) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items || []) {
+    if (!item || seen.has(item)) continue;
+    seen.add(item);
+    out.push(item);
+  }
+  return out;
 }

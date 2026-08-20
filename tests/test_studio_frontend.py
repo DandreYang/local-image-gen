@@ -274,5 +274,112 @@ class TestDomIdsResolve(unittest.TestCase):
         self.assertEqual(missing, {}, f"JS 引用了 index.html 里不存在的 id：{missing}")
 
 
+class TestViewModules(unittest.TestCase):
+    # 复审收口：syncFollowRoute/ensureOption 从 stage.js 移到 desk.js（与其
+    # 依赖 fillFollowModels 同处一模块）；formBody/uniqueImages 提升到
+    # lib/format.js（director.js 与 brief.js 都要用，任何一方拥有都会让
+    # 另一方跨视图 import）；EXPORT_PRESETS 只在 lib/canvas.js 定义一次，
+    # 不在 lib/constants.js 重复（重复会诱使某处走 `export {...} from`
+    # 重导出语法，那种语法不会被下面的正则匹配到，等于测试白写）。
+    EXPECTED = {
+        "views/stage.js": ["selectItem", "renderFacts", "previousTake", "startCompare", "stopCompare"],
+        "views/library.js": ["refreshLibrary", "renderLibrary", "filteredItems", "openLightbox", "renderLightbox", "lightboxStep", "closeLightbox"],
+        "views/director.js": ["openDirector", "renderDirector", "lookSelected", "reviseSelected"],
+        "views/brief.js": ["renderBrief", "cancelBrief", "runBrief", "runBriefJobs", "collectEditedJobs", "askConfirm"],
+        "views/desk.js": [
+            "fillProviders", "fillModels", "fillFollowProviders", "fillFollowModels",
+            "providerLabel", "renderTemplates", "renderRefs", "renderSnippets",
+            "refreshSnippets", "removeSnippet", "saveSnippetFromSelection",
+            "insertIntoPrompt", "colorSentence",
+        ],
+        "lib/constants.js": ["TEMPLATES", "PROVIDER_NAMES", "PROVIDER_FAMILY", "AREA_LABELS", "AREA_INSTRUCTIONS"],
+        "lib/canvas.js": ["exportSelected", "EXPORT_PRESETS"],
+        "lib/status.js": ["setStatus", "humanError", "explainAspectFail", "savedName"],
+        "lib/busy.js": ["durationFromName", "expectCopy", "startBusy", "stopBusy", "waitingCopy", "quoteCopy"],
+        "lib/format.js": ["escapeHtml", "dash", "formatDuration", "formatTime", "aspectFromText", "formBody", "uniqueImages"],
+    }
+
+    LEAF_MODULES = [
+        "lib/status.js",
+        "lib/busy.js",
+        "lib/format.js",
+        "lib/constants.js",
+        "lib/canvas.js",
+        "state.js",
+        "api.js",
+    ]
+
+    def test_leaf_modules_import_no_views(self):
+        """会审 P0-1：叶子模块一旦反向依赖视图，main.js 与 views 就形成循环。"""
+        root = STATIC / "js"
+        for module in self.LEAF_MODULES:
+            path = root / module
+            with self.subTest(module=module):
+                self.assertTrue(path.is_file(), f"缺少 js/{module}")
+                for spec in IMPORT_RE.findall(path.read_text(encoding="utf-8")):
+                    self.assertNotIn("views/", spec, f"叶子模块 {module} 反向依赖了 {spec}")
+                    self.assertNotIn("main.js", spec, f"叶子模块 {module} 反向依赖了 main.js")
+
+    def test_main_exports_nothing_views_need(self):
+        """main.js 只做接线。任何视图从 main.js import 都会成环。"""
+        root = STATIC / "js"
+        for path in root.rglob("*.js"):
+            if path.name == "main.js":
+                continue
+            for spec in IMPORT_RE.findall(path.read_text(encoding="utf-8")):
+                with self.subTest(module=path.name, spec=spec):
+                    self.assertNotIn(
+                        "main.js", spec, f"{path.name} 从 main.js 导入——会成环"
+                    )
+
+    def test_views_do_not_import_each_other(self):
+        """复审收口：原代码里 stage⇄library、director⇄brief 互相调用。
+
+        按屏幕区域拆开后这些互调就是模块环。视图之间只能通过
+        state + notify/subscribe 通信，不得直接 import 对方——
+        包括静态 import 与动态 import()。
+        """
+        views = STATIC / "js" / "views"
+        dynamic_import = re.compile(r'import\(\s*["\']([^"\']+)["\']')
+        for path in sorted(views.glob("*.js")):
+            text = path.read_text(encoding="utf-8")
+            specs = list(IMPORT_RE.findall(text)) + dynamic_import.findall(text)
+            for spec in specs:
+                if not spec.startswith("."):
+                    continue
+                target = (path.parent / spec).resolve()
+                with self.subTest(module=path.name, spec=spec):
+                    self.assertNotEqual(
+                        target.parent.name,
+                        "views",
+                        f"{path.name} import 了同级视图 {target.name}（可能是动态 import）；"
+                        "改用 state + notify()，由对方 subscribe 重渲染",
+                    )
+
+    def test_each_module_exports_its_contract(self):
+        root = STATIC / "js"
+        for module, names in self.EXPECTED.items():
+            path = root / module
+            with self.subTest(module=module):
+                self.assertTrue(path.is_file(), f"缺少 js/{module}")
+                text = path.read_text(encoding="utf-8")
+                for name in names:
+                    self.assertRegex(
+                        text,
+                        rf"export\s+(?:async\s+)?(?:function|const|let)\s+{name}\b",
+                        f"js/{module} 未导出 {name}",
+                    )
+
+    def test_monolith_is_gone(self):
+        self.assertFalse((STATIC / "app.js").exists(), "app.js 应在迁移后删除")
+
+    def test_no_module_exceeds_400_lines(self):
+        """单文件过大会让后续期次难以修改。"""
+        for path in (STATIC / "js").rglob("*.js"):
+            lines = len(path.read_text(encoding="utf-8").splitlines())
+            with self.subTest(module=path.name):
+                self.assertLessEqual(lines, 400, f"{path.name} 有 {lines} 行，拆得不够细")
+
+
 if __name__ == "__main__":
     unittest.main()
