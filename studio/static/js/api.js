@@ -37,6 +37,10 @@ export function postJson(url, body) {
   });
 }
 
+export function postForm(url, formData) {
+  return getJson(url, { method: "POST", body: formData });
+}
+
 // 库数据的抓取与 state.items 的写入放在叶子层：library.js 用它实现
 // refreshLibrary()（抓完自己 render），brief.js 生成完成后也要抓新库列表，
 // 但不该为此导入 library.js——views 之间不互相 import，这里下沉成叶子能力。

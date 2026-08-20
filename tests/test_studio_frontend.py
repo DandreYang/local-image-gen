@@ -321,7 +321,7 @@ class TestViewModules(unittest.TestCase):
         "lib/status.js": ["showStatus", "showError"],
         "lib/busy.js": ["durationFromName", "expectCopy", "startBusy", "stopBusy", "waitingCopy", "quoteCopy"],
         "lib/format.js": ["escapeHtml", "dash", "formatDuration", "formatTime", "aspectFromText", "formBody", "uniqueImages"],
-        "views/overlay.js": ["openOverlay", "closeOverlay", "initOverlay"],
+        "views/overlay.js": ["openOverlay", "closeOverlay", "initOverlay", "saveOverlayCompose", "applyOverlayAsset"],
     }
 
     LEAF_MODULES = [
@@ -593,6 +593,29 @@ class TestOverlaySheet(unittest.TestCase):
     def test_expected_includes_overlay_view(self):
         text = Path(__file__).read_text(encoding="utf-8")
         self.assertIn('"views/overlay.js"', text)
+
+
+class TestOverlayWorkbench(unittest.TestCase):
+    def test_api_can_post_form_without_forcing_content_type(self):
+        text = (STATIC / "js" / "api.js").read_text(encoding="utf-8")
+        self.assertRegex(text, r"export\s+function\s+postForm\b")
+
+    def test_overlay_saves_through_composite(self):
+        text = (STATIC / "js" / "views" / "overlay.js").read_text(encoding="utf-8")
+        self.assertRegex(text, r"export\s+async\s+function\s+saveOverlayCompose\b")
+        self.assertIn("/api/composite", text)
+        self.assertIn("png_base64", text)
+        self.assertIn("composed_from", text)
+        self.assertIn("measurePlacementScan", text)
+        self.assertIn("detectQuietRect", text)
+
+    def test_named_entries_exist_in_export_menu(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn("贴二维码", html)
+        self.assertIn("贴 logo", html)
+        self.assertIn('id="overlay-qr"', html)
+        self.assertIn('id="overlay-logo"', html)
+        self.assertIn('id="overlay-workbench"', html)
 
 
 class TestCanvasContracts(unittest.TestCase):
