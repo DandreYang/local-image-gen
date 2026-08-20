@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { setStatus } from "./status.js";
+import { showStatus } from "./status.js";
 
 // 定稿导出：Canvas 顶对齐 cover 裁剪，与服务端 recover_aspect 的约定一致（标题在上方更安全）。
 export const EXPORT_PRESETS = {
@@ -41,8 +41,8 @@ export async function exportSelected(preset) {
     link.download = spec ? `${base}-${spec.w}x${spec.h}.png` : `${base}.png`;
     link.click();
     URL.revokeObjectURL(link.href);
-    setStatus(`已导出 ${spec ? spec.label + " · " : ""}${targetW}×${targetH}。`);
+    showStatus({ ok: true, message: `已导出 ${spec ? spec.label + " · " : ""}${targetW}×${targetH}。` });
   } catch (error) {
-    setStatus(String(error.message || error), true);
+    showStatus({ ok: false, message: String(error.message || error) });
   }
 }

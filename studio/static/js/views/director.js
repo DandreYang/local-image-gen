@@ -2,7 +2,7 @@ import { state, subscribe, notify } from "../state.js";
 import { getJson } from "../api.js";
 import { escapeHtml, formBody, uniqueImages, aspectFromText } from "../lib/format.js";
 import { AREA_LABELS, AREA_INSTRUCTIONS, PROVIDER_NAMES, PROVIDER_FAMILY } from "../lib/constants.js";
-import { setStatus, humanError } from "../lib/status.js";
+import { showStatus, showError } from "../lib/status.js";
 import { startBusy, stopBusy } from "../lib/busy.js";
 
 const $ = (id) => document.getElementById(id);
@@ -136,7 +136,7 @@ export async function lookSelected() {
 export async function reviseSelected() {
   const text = $("director-text").value.trim();
   if (!text) {
-    setStatus("写一句要改什么。", true);
+    showStatus({ ok: false, message: "写一句要改什么。" });
     return;
   }
   if (!state.selected) return;
@@ -155,7 +155,7 @@ export async function reviseSelected() {
       }),
     });
     if (!payload.success) {
-      setStatus(humanError(payload), true);
+      showError(payload, "这一句没能改成终稿。");
       return;
     }
     state.director.turns.push({ role: "user", text });
@@ -208,7 +208,7 @@ export async function reviseSelected() {
     }
     // director.js 不直接调用 brief.js 的 renderBrief——写进 state.pendingBrief 再
     // notify()，brief.js 自己订阅消费。notify() 是同步的，所以视觉顺序不变：
-    // 确认卡先出现，随后才是下面的 renderDirector()/setStatus()。
+    // 确认卡先出现，随后才是下面的 renderDirector()/showStatus()。
     state.pendingBrief = {
       template_label: payload.mode === "edit" ? "改上一张" : "新画一张",
       searched: false,
@@ -236,9 +236,9 @@ export async function reviseSelected() {
     };
     notify();
     renderDirector();
-    setStatus(payload.reason || "请核对终稿。取消不会出图。");
+    showStatus({ ok: true, message: payload.reason || "请核对终稿。取消不会出图。" });
   } catch (error) {
-    setStatus(String(error.message || error), true);
+    showStatus({ ok: false, message: String(error.message || error) });
   } finally {
     stopBusy();
   }

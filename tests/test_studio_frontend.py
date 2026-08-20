@@ -294,9 +294,10 @@ class TestViewModules(unittest.TestCase):
         ],
         "lib/constants.js": ["TEMPLATES", "PROVIDER_NAMES", "PROVIDER_FAMILY", "AREA_LABELS", "AREA_INSTRUCTIONS"],
         "lib/canvas.js": ["exportSelected", "EXPORT_PRESETS"],
-        # explainAspectFail/savedName 曾在此列——只被 Task 8 删掉的直出提交
-        # 处理器调用，收敛入口后随调用点一起删除。
-        "lib/status.js": ["setStatus", "humanError"],
+        # setStatus/humanError（Task 5 直接搬运）在 Task 9 被 showStatus/
+        # showError 取代——旧版把整个 payload 原样丢给用户读，新版只显示
+        # 一句人话，原始返回收进可折叠的 detail。
+        "lib/status.js": ["showStatus", "showError"],
         "lib/busy.js": ["durationFromName", "expectCopy", "startBusy", "stopBusy", "waitingCopy", "quoteCopy"],
         "lib/format.js": ["escapeHtml", "dash", "formatDuration", "formatTime", "aspectFromText", "formBody", "uniqueImages"],
     }
@@ -462,6 +463,80 @@ class TestSingleGenerateEntry(unittest.TestCase):
                 self.assertIsNone(pattern.search(text), f"{path.name} 仍有 submit 处理器")
         html = (STATIC / "index.html").read_text(encoding="utf-8")
         self.assertIsNone(pattern.search(html), "index.html 仍有内联 onsubmit")
+
+
+class TestCopyAndErrors(unittest.TestCase):
+    """会审 P0-3：禁用词必须限定作用域。
+
+    `预览不花额度` 同时存在于确认卡的成本披露里，而 spec 明令保留后者
+    （「消耗配额的动作必须显式同意」）。全文 assertNotIn 会永远失败。
+    这里只扫**常驻界面区域**，排除对话框与确认卡。
+    """
+
+    BANNED = [
+        "会消耗所选后端配额",          # 顶栏 .warn
+        "主路径：",                    # .hint
+        "手艺芯片选骨架",              # .paper-hint
+        "库内路径，可多选",            # .refs > span
+        "出图后自动看图。点下面的问题",  # .director-status 初始文案
+    ]
+
+    @staticmethod
+    def standing_copy() -> str:
+        """只留常驻界面：截到第一个浮层容器为止。
+
+        `brief-card` **不切**——它是 `<article ... hidden></article>` 空壳，
+        内容由 JS 注入，本身不含任何文案；从它切会把参数区和相纸提示一起
+        丢掉，禁用词里三条就再也检查不到了。
+        """
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        markers = ['<div class="dialog-root"', '<div class="lightbox"']
+        cut = min([html.index(m) for m in markers if m in html] or [len(html)])
+        return html[:cut]
+
+    def test_standing_copy_boundary_is_correct(self):
+        """守卫自身的自检：剥少了断言永远通过，剥多了断言永远失效。"""
+        standing = self.standing_copy()
+        self.assertNotIn(
+            "点确认才会真正出图", standing, "剥少了：确认卡文案仍在常驻区域内"
+        )
+        self.assertIn("整理并出图", standing, "剥多了：主行动按钮被切掉")
+        self.assertIn('class="desk"', standing, "剥多了：参数区被切掉，禁用词将检查不到")
+
+    def test_no_mechanism_explaining_copy_in_standing_ui(self):
+        standing = self.standing_copy()
+        for phrase in self.BANNED:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(
+                    phrase, standing, f"常驻文案仍在解释系统机制：{phrase}"
+                )
+
+    def test_cost_disclosure_survives_in_the_confirm_dialog(self):
+        """反向断言：成本披露是 spec 要求保留的，不能被一起删掉。"""
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn("预览不花额度", html, "确认卡的成本披露被误删——spec 要求保留")
+
+    def test_status_uses_normalized_shape(self):
+        """showStatus 必须在叶子模块 lib/status.js，不能在 main.js——否则重新成环。
+
+        JSON.stringify(payload, null, 2) 的字面量只在 lib/status.js 内扫描：
+        api.js 的 normalizeError 用同一形状的调用给 detail 字段填内容，
+        那是有意为之（供「查看原始返回」展开），不是本条要拦的「把整个
+        payload 直接当消息展示」的旧模式，全文件扫描会把它错杀。
+        """
+        leaf = (STATIC / "js" / "lib" / "status.js").read_text(encoding="utf-8")
+        self.assertRegex(leaf, r"export\s+function\s+showStatus\b")
+        self.assertRegex(leaf, r"export\s+function\s+showError\b")
+        main = (STATIC / "js" / "main.js").read_text(encoding="utf-8")
+        self.assertNotRegex(
+            main, r"export\s+function\s+showStatus\b", "showStatus 不得定义在 main.js"
+        )
+        self.assertNotIn("JSON.stringify(payload, null, 2)", leaf)
+
+    def test_detail_is_collapsible(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="status-detail"', html)
+        self.assertIn("<details", html)
 
 
 if __name__ == "__main__":

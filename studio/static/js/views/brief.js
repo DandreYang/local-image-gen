@@ -2,7 +2,7 @@ import { state, subscribe, notify } from "../state.js";
 import { getJson, fetchLibrary } from "../api.js";
 import { escapeHtml, formBody } from "../lib/format.js";
 import { PROVIDER_NAMES } from "../lib/constants.js";
-import { setStatus, humanError } from "../lib/status.js";
+import { showStatus, showError } from "../lib/status.js";
 import { startBusy, stopBusy, waitingCopy, quoteCopy } from "../lib/busy.js";
 
 const $ = (id) => document.getElementById(id);
@@ -151,7 +151,7 @@ export function cancelBrief() {
 
 export async function runBrief() {
   if (!$("prompt").value.trim()) {
-    setStatus("先在相纸上写一句要画什么。", true);
+    showStatus({ ok: false, message: "先在相纸上写一句要画什么。" });
     $("prompt").focus();
     return;
   }
@@ -166,13 +166,13 @@ export async function runBrief() {
       }),
     });
     if (!payload.success) {
-      setStatus(humanError(payload), true);
+      showError(payload, "这一句没能整理成终稿。");
       return;
     }
-    setStatus("请核对发给生图模型的终稿。可直接改字，取消不会出图。");
+    showStatus({ ok: true, message: "请核对发给生图模型的终稿。可直接改字，取消不会出图。" });
     renderBrief(payload);
   } catch (error) {
-    setStatus(String(error.message || error), true);
+    showStatus({ ok: false, message: String(error.message || error) });
   } finally {
     stopBusy();
   }
@@ -201,10 +201,21 @@ export async function runBriefJobs() {
       body: JSON.stringify({ jobs, mode: state.brief.mode || (jobs[0] && jobs[0].mode) }),
     });
     const snap = payload.batch_id ? await waitBatch(payload.batch_id) : payload;
-    setStatus(snap, snap.success === false);
+    if (snap.success === false) {
+      showError(snap, "这一批没能全部生成。");
+    } else {
+      const rows = snap.jobs || [];
+      const done = rows.filter((job) => job.status === "done").length;
+      const total = rows.length || done || 1;
+      showStatus({
+        ok: true,
+        message: `已生成 ${done}/${total} 张。`,
+        detail: JSON.stringify(snap, null, 2),
+      });
+    }
     await refreshLibraryAndSelect(snap, jobs);
   } catch (error) {
-    setStatus(String(error.message || error), true);
+    showStatus({ ok: false, message: String(error.message || error) });
   } finally {
     stopBusy();
   }

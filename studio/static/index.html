@@ -23,7 +23,6 @@
       <button type="button" class="pill" id="version-pill">…</button>
       <button type="button" class="pill" id="log-pill">更新日志</button>
       <button type="button" class="pill" id="backdrop-toggle" title="纯色画布更适合评估白平衡">画布底</button>
-      <span class="warn">127.0.0.1 · 会消耗所选后端配额</span>
     </div>
   </header>
 
@@ -32,7 +31,7 @@
       <p class="kicker">本轮</p>
       <p class="round-empty" id="round-empty">还没有 take。<br>在相纸上写一句就开始。</p>
       <div class="director" id="director" hidden>
-        <p class="director-status" id="director-status">出图后自动看图。点下面的问题直接改，或自己写一句。</p>
+        <p class="director-status" id="director-status">可以看这张，或直接说一句接着改。默认改上一张，不从零再赌。按住空格对比上一张。</p>
         <div class="director-issues" id="director-issues"></div>
         <div class="director-turns" id="director-turns"></div>
         <div class="export" id="export">
@@ -65,7 +64,6 @@
             <button type="button" class="ghost snippet-save" id="snippet-save" title="把相纸上选中的那句收到常用">收这句话</button>
           </div>
           <button type="button" class="go" id="brief-btn">整理并出图</button>
-          <p class="paper-hint">手艺芯片选骨架。常用句点一下写进相纸，确认卡里看得见。Option 点击常用句可删。</p>
         </div>
         <span class="aspect-badge" id="aspect-badge" hidden></span>
         <img id="hero" alt="" hidden>
@@ -187,7 +185,7 @@
       <input type="hidden" id="template" value="">
 
       <div class="refs">
-        <span>参考图（库内路径，可多选）</span>
+        <span>参考图</span>
         <div id="refs" class="ref-list"></div>
         <label class="upload">上传到素材库
           <input id="upload" type="file" accept="image/png,image/jpeg,image/webp" multiple>
@@ -198,8 +196,13 @@
         <button type="button" id="new-take" class="ghost">新画一张</button>
         <button type="button" id="preview-btn" class="ghost">只预览一稿</button>
       </div>
-      <p class="hint">主路径：在相纸上写一句 → 整理并出图。出图后自动看图，点问题就能改。预览不花额度。</p>
-      <pre id="status" class="status" hidden></pre>
+      <div class="status" id="status" hidden>
+        <p class="status-line" id="status-line"></p>
+        <details class="status-detail" id="status-detail-wrap" hidden>
+          <summary>查看原始返回</summary>
+          <pre id="status-detail"></pre>
+        </details>
+      </div>
     </div>
   </main>
 

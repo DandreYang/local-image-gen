@@ -1,7 +1,7 @@
 import { state, subscribe, notify } from "../state.js";
 import { getJson } from "../api.js";
 import { TEMPLATES, PROVIDER_NAMES } from "../lib/constants.js";
-import { setStatus } from "../lib/status.js";
+import { showStatus } from "../lib/status.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -196,7 +196,7 @@ export async function refreshSnippets() {
 export async function removeSnippet(id) {
   const payload = await getJson("/api/snippets?id=" + encodeURIComponent(id), { method: "DELETE" });
   if (payload.success === false) {
-    setStatus(payload.error || "删不掉这句。", true);
+    showStatus({ ok: false, message: payload.error || "删不掉这句。" });
     return;
   }
   state.snippets = payload.snippets || [];
@@ -209,7 +209,7 @@ export async function saveSnippetFromSelection() {
   const end = node.selectionEnd || 0;
   const picked = (start !== end ? node.value.slice(start, end) : "").trim();
   if (!picked) {
-    setStatus("先在相纸上选中要收藏的那句。", true);
+    showStatus({ ok: false, message: "先在相纸上选中要收藏的那句。" });
     return;
   }
   const payload = await getJson("/api/snippets", {
@@ -218,12 +218,12 @@ export async function saveSnippetFromSelection() {
     body: JSON.stringify({ text: picked }),
   });
   if (payload.success === false) {
-    setStatus(payload.error || "没收下。", true);
+    showStatus({ ok: false, message: payload.error || "没收下。" });
     return;
   }
   state.snippets = payload.snippets || [];
   renderSnippets();
-  setStatus("已收到常用句。");
+  showStatus({ ok: true, message: "已收到常用句。" });
 }
 
 subscribe(() => {

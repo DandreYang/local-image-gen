@@ -1,6 +1,6 @@
 import { state, setMode, notify } from "./state.js";
 import { getJson } from "./api.js";
-import { setStatus } from "./lib/status.js";
+import { showStatus, showError } from "./lib/status.js";
 import { startBusy, stopBusy } from "./lib/busy.js";
 import { exportSelected } from "./lib/canvas.js";
 import { formBody } from "./lib/format.js";
@@ -193,7 +193,7 @@ $("director-revise").addEventListener("click", reviseSelected);
 
 $("preview-btn").addEventListener("click", async () => {
   if (!$("prompt").value.trim()) {
-    setStatus("先在相纸上写一句要画什么。", true);
+    showStatus({ ok: false, message: "先在相纸上写一句要画什么。" });
     $("prompt").focus();
     return;
   }
@@ -205,9 +205,17 @@ $("preview-btn").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(formBody()),
     });
-    setStatus(payload, payload.success === false);
+    if (payload.success === false) {
+      showError(payload, "这一句没能整理成终稿。");
+    } else {
+      showStatus({
+        ok: true,
+        message: "已整理好提示词，未出图。",
+        detail: JSON.stringify(payload, null, 2),
+      });
+    }
   } catch (error) {
-    setStatus(String(error.message || error), true);
+    showStatus({ ok: false, message: String(error.message || error) });
   } finally {
     stopBusy();
     $("preview-btn").disabled = false;
@@ -221,7 +229,7 @@ $("upload").addEventListener("change", async (event) => {
   for (const file of files) data.append("file", file, file.name);
   const payload = await getJson("/api/upload", { method: "POST", body: data });
   if (!payload.success) {
-    setStatus(payload, true);
+    showError(payload, "上传失败。");
     return;
   }
   state.refs.push(...payload.items);
@@ -230,7 +238,7 @@ $("upload").addEventListener("change", async (event) => {
 });
 
 window.addEventListener("DOMContentLoaded", () => {
-  boot().catch((error) => setStatus(String(error.message || error), true));
+  boot().catch((error) => showStatus({ ok: false, message: String(error.message || error) }));
 });
 
 export { setMode };

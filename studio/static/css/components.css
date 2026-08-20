@@ -151,19 +151,30 @@ select:focus, textarea:focus, input:focus { border-color: color-mix(in srgb, var
 .lightbox-nav.prev { left: 1.1rem; }
 .lightbox-nav.next { right: 1.1rem; }
 
-/* ---- 状态条（Task 9 会替换成新版可折叠结构，这里先做等价的 token 化搬运） ---- */
+/* ---- 状态条：一句人话 + 折叠的原始返回。
+   旧版直接把整个 payload JSON.stringify 展示，用户读一屏 JSON 才能找到
+   那句人话；现在 showStatus() 只写一行到 .status-line，原始返回收进
+   <details>，默认收起但仍可查——信息没有丢，只是不再默认铺开。 */
 .status {
   margin-top: 0.9rem;
-  padding: 0.65rem 0.7rem;
+  padding: 0.65rem 0.75rem;
   background: var(--n-950);
   border: 1px solid var(--n-600);
-  border-top: 1px dashed color-mix(in srgb, var(--accent) 65%, black);
+  border-radius: var(--r-md);
   color: var(--success);
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   line-height: 1.5;
+}
+.status.bad { color: var(--danger); border-color: var(--danger); }
+.status-line { margin: 0; white-space: pre-wrap; }
+.status-detail { margin-top: 0.5rem; }
+.status-detail[hidden] { display: none; }
+.status-detail summary { cursor: pointer; color: var(--n-400); font-size: 0.68rem; }
+.status-detail pre {
+  margin: 0.4rem 0 0;
+  font: 0.68rem/1.5 var(--font-mono);
+  color: var(--n-400);
   white-space: pre-wrap;
   max-height: 14rem;
   overflow: auto;
 }
-.status.bad { color: var(--danger); border-top-color: var(--danger); }
