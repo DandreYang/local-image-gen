@@ -11,12 +11,14 @@ import argparse
 import base64
 import binascii
 import datetime as dt
+import errno
 import hashlib
 import json
 import mimetypes
 import os
 import re
 import shutil
+import signal
 import struct
 import subprocess
 import sys
@@ -2826,7 +2828,156 @@ def parse_studio_args(argv: Sequence[str]) -> argparse.Namespace:
 
 
 def run_studio(args: argparse.Namespace) -> int:
-    raise ImageGenError("studio runtime is not implemented")
+    if args.stop:
+        return stop_studio()
+    sys.stderr.write("studio runtime is not implemented\n")
+    return 2
+
+
+def studio_server_path() -> Path:
+    return package_root() / "studio" / "server.py"
+
+
+def studio_runtime_dir() -> Path:
+    return default_share_home()
+
+
+def studio_pid_path() -> Path:
+    return studio_runtime_dir() / "studio.pid"
+
+
+def studio_log_path() -> Path:
+    return studio_runtime_dir() / "studio.log"
+
+
+def studio_bind_host(args: argparse.Namespace) -> str:
+    return "0.0.0.0" if getattr(args, "lan", False) else str(args.host)
+
+
+def studio_url(host: str, port: int) -> str:
+    if host in {"0.0.0.0", "::"}:
+        return f"http://127.0.0.1:{port}"
+    return f"http://{host}:{port}"
+
+
+LAN_WARNING = "warning: LAN bind shares this machine's image backends with the network."
+
+
+def print_studio_banner(host: str, port: int) -> None:
+    if host in {"0.0.0.0", "::"}:
+        print(f"local studio  http://127.0.0.1:{port}", flush=True)
+        print(f"LAN          http://<this-machine-ip>:{port}", flush=True)
+        print(LAN_WARNING, flush=True)
+    else:
+        print(f"local studio  http://{host}:{port}", flush=True)
+
+
+def read_studio_record() -> Optional[Dict[str, Any]]:
+    path = studio_pid_path()
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict) or "pid" not in data:
+        return None
+    try:
+        data["pid"] = int(data["pid"])
+        data["port"] = int(data.get("port", 8765))
+        data["host"] = str(data.get("host") or "127.0.0.1")
+    except (TypeError, ValueError):
+        return None
+    return data
+
+
+def write_studio_record(pid: int, host: str, port: int) -> None:
+    studio_runtime_dir().mkdir(parents=True, exist_ok=True)
+    payload = {"pid": int(pid), "host": host, "port": int(port)}
+    studio_pid_path().write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def remove_studio_record() -> None:
+    path = studio_pid_path()
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+
+
+def studio_cmdline(pid: int) -> Optional[str]:
+    proc = Path("/proc") / str(pid) / "cmdline"
+    try:
+        raw = proc.read_bytes()
+        if raw:
+            return raw.replace(b"\x00", b" ").decode("utf-8", "replace").strip()
+    except OSError:
+        pass
+    try:
+        completed = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "args="],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    text = (completed.stdout or "").strip()
+    return text or None
+
+
+def studio_pid_status(record: Dict[str, Any]) -> str:
+    pid = int(record["pid"])
+    try:
+        os.kill(pid, 0)
+    except OSError as exc:
+        if exc.errno == errno.ESRCH:
+            return "dead"
+        if exc.errno == errno.EPERM:
+            return "alive"
+        return "dead"
+    cmdline = studio_cmdline(pid)
+    if cmdline is not None and "studio/server.py" not in cmdline:
+        return "stale"
+    return "alive"
+
+
+def stop_studio() -> int:
+    record = read_studio_record()
+    if record is None:
+        remove_studio_record()
+        print("studio is not running", flush=True)
+        return 0
+    status = studio_pid_status(record)
+    if status in {"dead", "stale"}:
+        remove_studio_record()
+        print("studio is not running", flush=True)
+        return 0
+    pid = int(record["pid"])
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        remove_studio_record()
+        print("studio is not running", flush=True)
+        return 0
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        try:
+            os.kill(pid, 0)
+        except OSError as exc:
+            if exc.errno == errno.ESRCH:
+                remove_studio_record()
+                print("stopped", flush=True)
+                return 0
+            break
+        time.sleep(0.05)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+    remove_studio_record()
+    print("stopped", flush=True)
+    return 0
 
 
 def parse_job_args(argv: Sequence[str]) -> argparse.Namespace:

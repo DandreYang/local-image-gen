@@ -1667,6 +1667,102 @@ class StudioLaunchTests(unittest.TestCase):
         self.assertIn("local-image-gen studio", text)
         self.assertIn("--stop", text)
 
+    def test_runtime_paths_use_share_home(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(image_gen, "default_share_home", return_value=Path(tmp)):
+                self.assertEqual(image_gen.studio_pid_path(), Path(tmp) / "studio.pid")
+                self.assertEqual(image_gen.studio_log_path(), Path(tmp) / "studio.log")
+
+    def test_server_path_is_under_package_root(self) -> None:
+        path = image_gen.studio_server_path()
+        self.assertEqual(path, image_gen.package_root() / "studio" / "server.py")
+
+    def test_pid_status_dead_stale_alive(self) -> None:
+        dead = {"pid": 999999, "host": "127.0.0.1", "port": 8765}
+        with patch.object(image_gen.os, "kill", side_effect=OSError(image_gen.errno.ESRCH, "gone")):
+            self.assertEqual(image_gen.studio_pid_status(dead), "dead")
+
+        def kill_ok(pid, sig):
+            return None
+
+        with patch.object(image_gen.os, "kill", kill_ok), patch.object(
+            image_gen, "studio_cmdline", return_value="/usr/bin/python3 other.py"
+        ):
+            self.assertEqual(
+                image_gen.studio_pid_status({"pid": 7, "host": "127.0.0.1", "port": 8765}),
+                "stale",
+            )
+        with patch.object(image_gen.os, "kill", kill_ok), patch.object(
+            image_gen, "studio_cmdline",
+            return_value="/usr/bin/python3 /opt/app/studio/server.py --port 8765",
+        ):
+            self.assertEqual(
+                image_gen.studio_pid_status({"pid": 8, "host": "127.0.0.1", "port": 8765}),
+                "alive",
+            )
+        with patch.object(image_gen.os, "kill", kill_ok), patch.object(
+            image_gen, "studio_cmdline", return_value=None
+        ):
+            self.assertEqual(
+                image_gen.studio_pid_status({"pid": 9, "host": "127.0.0.1", "port": 8765}),
+                "alive",
+            )
+
+    def test_stop_without_pid_is_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(image_gen, "default_share_home", return_value=Path(tmp)):
+                self.assertEqual(image_gen.stop_studio(), 0)
+                self.assertEqual(image_gen.run_studio(image_gen.parse_args(["studio", "--stop"])), 0)
+
+    def test_stop_does_not_signal_stale_pid(self) -> None:
+        signals = []
+
+        def fake_kill(pid, sig):
+            if sig == 0:
+                return None
+            signals.append((pid, sig))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "studio.pid").write_text(
+                json.dumps({"pid": 42, "host": "127.0.0.1", "port": 8765}) + "\n",
+                encoding="utf-8",
+            )
+            with patch.object(image_gen, "default_share_home", return_value=home), patch.object(
+                image_gen.os, "kill", fake_kill
+            ), patch.object(image_gen, "studio_cmdline", return_value="vim notes.txt"):
+                self.assertEqual(image_gen.stop_studio(), 0)
+            self.assertFalse((home / "studio.pid").exists())
+        self.assertEqual(signals, [])
+
+    def test_stop_signals_live_studio(self) -> None:
+        signals = []
+        alive = {"state": True}
+
+        def fake_kill(pid, sig):
+            if sig == 0:
+                if alive["state"]:
+                    return None
+                raise OSError(image_gen.errno.ESRCH, "gone")
+            signals.append(sig)
+            if sig == image_gen.signal.SIGTERM:
+                alive["state"] = False
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "studio.pid").write_text(
+                json.dumps({"pid": 4242, "host": "127.0.0.1", "port": 8765}) + "\n",
+                encoding="utf-8",
+            )
+            with patch.object(image_gen, "default_share_home", return_value=home), patch.object(
+                image_gen.os, "kill", fake_kill
+            ), patch.object(
+                image_gen, "studio_cmdline", return_value="python3 /x/studio/server.py"
+            ):
+                self.assertEqual(image_gen.stop_studio(), 0)
+            self.assertFalse((home / "studio.pid").exists())
+        self.assertIn(image_gen.signal.SIGTERM, signals)
+
 
 if __name__ == "__main__":
     unittest.main()
