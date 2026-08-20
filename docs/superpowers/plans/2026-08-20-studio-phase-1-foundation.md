@@ -1400,8 +1400,10 @@ submit listener come back."
 - Modify: `studio/static/js/main.js`、`studio/static/index.html`、`studio/static/css/components.css`、`tests/test_studio_frontend.py`
 
 **Interfaces:**
-- Consumes: Task 4 的 `api.js` 的 `normalizeError`
-- Produces: `main.js` 导出 `showStatus({ok, message, detail})`
+- Consumes: Task 4 的 `api.js` 的 `normalizeError`；Task 5 建立的叶子模块 `lib/status.js`
+- Produces: **`lib/status.js`** 导出 `showStatus({ok, message, detail})` 与 `showError(payload, fallback)`，取代 Task 5 迁过去的 `setStatus` / `humanError`
+
+> **不得放进 `main.js`。** 复审发现本任务原先把 `showStatus` 定义并导出在 `main.js`，而 `views/brief.js`、`views/director.js`、`lib/canvas.js` 都要调它——那正是 P0-1 修掉的那个环，会在这里原样复活。状态渲染属于叶子层。
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -1414,24 +1416,65 @@ class TestCopyAndErrors(unittest.TestCase):
     这里只扫**常驻界面区域**，排除对话框与确认卡。
     """
 
+    # 逐条对 index.html 实测存在——复审发现原表里「先整理任务、核对终稿」
+    # 在文件里根本不存在（措辞取自更早的版本），assertNotIn 一个不存在的
+    # 字符串永远是绿的，等于白写。
     BANNED = [
-        "会消耗所选后端配额",
-        "主路径：",
-        "先整理任务、核对终稿",
-        "库内路径，可多选",
+        "会消耗所选后端配额",          # 顶栏 .warn
+        "主路径：",                    # .hint
+        "手艺芯片选骨架",              # .paper-hint
+        "库内路径，可多选",            # .refs > span
+        "出图后自动看图。点下面的问题",  # .director-status 初始文案
     ]
 
     @staticmethod
     def standing_copy() -> str:
-        """剥掉 .dialog-root 与 .brief-card，只留常驻界面。"""
+        """只留常驻界面：截到第一个浮层容器为止。
+
+        复审纠正：原写法用非贪婪 `.*?</div>` 配前瞻，只吃掉了 dialog 的
+        backdrop 那一层（9578 → 9299 字符），确认卡整段还留着，
+        「预览不花额度」照样命中，守卫失效。
+
+        改用位置切分：带文案的浮层（dialog-root、lightbox）全部排在
+        `</main>` 之后，取第一个之前的部分即可，不需要配对标签。
+
+        `brief-card` **不切**——它是 `<article ... hidden></article>` 空壳，
+        内容由 JS 注入，本身不含任何文案；而它位于 `<main>` 中段（约 2685
+        字符处），从它切会把参数区和相纸提示一起丢掉，四条禁用词里有三条
+        就再也检查不到了。
+        """
         html = (STATIC / "index.html").read_text(encoding="utf-8")
-        html = re.sub(
-            r'<div class="dialog-root".*?</div>\s*(?=<div|<script|</body)',
-            "",
-            html,
-            flags=re.S,
+        markers = ['<div class="dialog-root"', '<div class="lightbox"']
+        cut = min([html.index(m) for m in markers if m in html] or [len(html)])
+        return html[:cut]
+
+    def test_standing_copy_boundary_is_correct(self):
+        """守卫自身的自检：剥少了断言永远通过，剥多了断言永远失效。
+
+        两个方向都要钉——复审发现原写法剥少了，第一次修又剥多了。
+        用确认卡独有的句子做上界、参数区做下界，两者都不受 Task 9
+        的文案删改影响，所以这条自检在实施前后都稳定。
+        """
+        standing = self.standing_copy()
+        self.assertNotIn(
+            "点确认才会真正出图", standing, "剥少了：确认卡文案仍在常驻区域内"
         )
-        return re.sub(r"<article class=\"brief-card\".*?</article>", "", html, flags=re.S)
+        self.assertIn("整理并出图", standing, "剥多了：主行动按钮被切掉")
+        self.assertIn('class="desk"', standing, "剥多了：参数区被切掉，禁用词将检查不到")
+
+    def test_every_banned_phrase_exists_before_the_work(self):
+        """反向自检：禁用词必须此刻真的存在，否则 assertNotIn 是永久绿。
+
+        这条在 Task 9 完成后会失败——那正是它的作用：证明前面那条
+        assertNotIn 确实做了功。实施 Task 9 时把本条标记为
+        `@unittest.expectedFailure` 或直接删除，并在提交信息里说明。
+        """
+        standing = self.standing_copy()
+        for phrase in self.BANNED:
+            with self.subTest(phrase=phrase):
+                self.assertIn(
+                    phrase, standing, f"禁用词表已过期：index.html 里没有「{phrase}」"
+                )
 
     def test_no_mechanism_explaining_copy_in_standing_ui(self):
         standing = self.standing_copy()
@@ -1447,9 +1490,17 @@ class TestCopyAndErrors(unittest.TestCase):
         self.assertIn("预览不花额度", html, "确认卡的成本披露被误删——spec 要求保留")
 
     def test_status_uses_normalized_shape(self):
-        js = (STATIC / "js" / "main.js").read_text(encoding="utf-8")
-        self.assertRegex(js, r"export\s+function\s+showStatus\b")
-        self.assertNotIn("JSON.stringify(payload, null, 2)", js)
+        """showStatus 必须在叶子模块 lib/status.js，不能在 main.js——否则重新成环。"""
+        leaf = (STATIC / "js" / "lib" / "status.js").read_text(encoding="utf-8")
+        self.assertRegex(leaf, r"export\s+function\s+showStatus\b")
+        self.assertRegex(leaf, r"export\s+function\s+showError\b")
+        main = (STATIC / "js" / "main.js").read_text(encoding="utf-8")
+        self.assertNotRegex(
+            main, r"export\s+function\s+showStatus\b", "showStatus 不得定义在 main.js"
+        )
+        for path in (STATIC / "js").rglob("*.js"):
+            with self.subTest(module=path.name):
+                self.assertNotIn("JSON.stringify(payload, null, 2)", path.read_text(encoding="utf-8"))
 
     def test_detail_is_collapsible(self):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
@@ -1464,10 +1515,10 @@ Expected: 三条全 FAIL
 
 - [ ] **Step 3: 替换 setStatus**
 
-`main.js` 里删除旧 `setStatus`，换成：
+在 **`studio/static/js/lib/status.js`**（Task 5 已建的叶子模块）里，用下面的实现取代迁过去的 `setStatus` / `humanError`。**不要放进 `main.js`**：
 
 ```js
-import { normalizeError } from "./api.js";
+import { normalizeError } from "../api.js";
 
 export function showStatus(result) {
   const box = document.getElementById("status");
