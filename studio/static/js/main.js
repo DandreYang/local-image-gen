@@ -21,6 +21,8 @@ import {
   colorSentence,
 } from "./views/desk.js";
 import { openOverlay, initOverlay, closeOverlay } from "./views/overlay.js";
+import { initCandidates } from "./views/candidates.js";
+import { initCmdk } from "./lib/cmdk.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -98,6 +100,8 @@ export async function boot() {
   await refreshSnippets();
   refreshVersionBadge();
   initOverlay();
+  initCandidates();
+  initCmdk();
 }
 
 $("version-pill").addEventListener("click", openUpdates);
@@ -206,6 +210,15 @@ $("snippet-color").addEventListener("change", (event) => {
   insertIntoPrompt(colorSentence(event.target.value));
 });
 $("new-take").addEventListener("click", newTake);
+$("library-open").addEventListener("click", () => {
+  const root = $("library-root");
+  if (root) root.hidden = false;
+});
+if ($("library-root")) {
+  $("library-root").addEventListener("click", (event) => {
+    if (event.target.closest("[data-library-close]")) $("library-root").hidden = true;
+  });
+}
 $("director-look").addEventListener("click", () => lookSelected());
 $("director-revise").addEventListener("click", reviseSelected);
 

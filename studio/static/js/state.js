@@ -15,6 +15,14 @@ export const state = {
   mode: localStorage.getItem("studio-mode") === "pro" ? "pro" : "simple",
   canvasBackdrop: localStorage.getItem("studio-backdrop") || "auto",
   overlay: null,
+  phase: "brief",
+  batch: null,
+  queue: [],
+  sessionId: null,
+  libraryOpen: false,
+  project: null,
+  brandConstraints: [],
+  pendingBatch: null,
 };
 
 const listeners = new Set();

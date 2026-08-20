@@ -283,6 +283,8 @@ class TestViewModules(unittest.TestCase):
     # 重导出语法，那种语法不会被下面的正则匹配到，等于测试白写）。
     EXPECTED = {
         "views/stage.js": ["selectItem", "renderFacts", "previousTake", "startCompare", "stopCompare"],
+        "views/candidates.js": ["initCandidates", "showCandidates", "pollBatch"],
+        "lib/cmdk.js": ["openCmdk", "closeCmdk", "initCmdk"],
         "views/library.js": ["refreshLibrary", "renderLibrary", "filteredItems", "openLightbox", "renderLightbox", "lightboxStep", "closeLightbox"],
         "views/director.js": ["openDirector", "renderDirector", "lookSelected", "reviseSelected"],
         "views/brief.js": ["renderBrief", "cancelBrief", "runBrief", "runBriefJobs", "collectEditedJobs", "askConfirm"],
@@ -330,6 +332,7 @@ class TestViewModules(unittest.TestCase):
         "lib/format.js",
         "lib/constants.js",
         "lib/canvas.js",
+        "lib/cmdk.js",
         "state.js",
         "api.js",
     ]
@@ -693,6 +696,34 @@ class TestOverlayWiring(unittest.TestCase):
         self.assertIn("tests/test_studio_overlay_geom.py", workflow)
         self.assertIn("tests/test_studio_server.py", workflow)
         self.assertLess(workflow.index("Studio server launch"), workflow.index("Studio sidecar"))
+
+
+class TestPhase3Flow(unittest.TestCase):
+    def test_simple_hides_pro_controls(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="pro-only">通路', html.replace("\n", ""))
+        self.assertIn('class="pro-only">模型', html.replace("\n", ""))
+        self.assertIn('class="pro-only">优化', html.replace("\n", ""))
+        self.assertIn('class="pro-only">CLI 模板', html.replace("\n", ""))
+        self.assertNotIn("更多设置 · 模型 / 质量 / 清晰度 / 优化 / 模板", html)
+
+    def test_candidates_and_cmdk_exist(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="candidates"', html)
+        self.assertIn('id="candidate-grid"', html)
+        self.assertIn('id="more-candidates"', html)
+        self.assertIn('id="process"', html)
+        self.assertIn('id="cmdk-root"', html)
+        self.assertIn('id="library-open"', html)
+        main = (STATIC / "js" / "main.js").read_text(encoding="utf-8")
+        self.assertIn("initCandidates", main)
+        self.assertIn("initCmdk", main)
+        brief = (STATIC / "js" / "views" / "brief.js").read_text(encoding="utf-8")
+        self.assertNotIn("startBusy", brief.split("export async function runBriefJobs")[1][:800])
+
+    def test_ci_runs_phase3(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertIn("tests/test_studio_phase3.py", workflow)
 
 
 if __name__ == "__main__":

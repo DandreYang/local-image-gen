@@ -10,7 +10,9 @@ const $ = (id) => document.getElementById(id);
 function modeLine(card) {
   const n = (card.jobs || []).length;
   if (card.mode === "series") return `套图 ${n} 张 · 串行锁脸`;
-  if (card.mode === "parallel" || n > 1) return `${n} 张独立风格 · 最多两路同时`;
+  if (card.mode === "variants" || card.mode === "parallel") return `${n} 张独立风格 · 最多两路同时`;
+  if (card.mode === "candidates") return `${n} 张候选 · 同一份终稿`;
+  if (n > 1) return `${n} 张`;
   return "1 张单图";
 }
 
@@ -66,6 +68,31 @@ export function askConfirm(copy) {
   return new Promise((resolve) => {
     const root = $("confirm");
     $("confirm-copy").textContent = copy;
+    const brand = $("brand-constraints");
+    const lines = (state.brief && state.brief.brand_constraints) || state.brandConstraints || [];
+    if (brand) {
+      brand.hidden = !lines.length;
+      brand.innerHTML = "";
+      lines.forEach((line, index) => {
+        const item = document.createElement("li");
+        item.textContent = String(line);
+        const drop = document.createElement("button");
+        drop.type = "button";
+        drop.className = "ghost";
+        drop.textContent = "去掉这条";
+        drop.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const next = lines.filter((_, row) => row !== index);
+          state.brandConstraints = next;
+          if (state.brief) state.brief.brand_constraints = next;
+          item.remove();
+          if (!next.length) brand.hidden = true;
+        });
+        item.appendChild(drop);
+        brand.appendChild(item);
+      });
+    }
     root.hidden = false;
     const finish = (ok) => {
       root.hidden = true;
@@ -184,40 +211,45 @@ export async function runBriefJobs() {
   const lead =
     state.brief.mode === "series"
       ? `套图 ${n} 张，一张接一张锁脸。`
-      : n > 1
-        ? `${n} 张独立风格，最多两路同时出。`
-        : "出 1 张。";
+      : state.brief.mode === "candidates"
+        ? `${n} 张候选，同一份终稿。`
+        : n > 1
+          ? `${n} 张独立风格，最多两路同时出。`
+          : "出 1 张。";
+  const constraints = (state.brief.brand_constraints || state.brandConstraints || []).filter(Boolean);
   const ok = await askConfirm(lead + quoteCopy(n, $("provider").value));
   if (!ok) return;
-  startBusy("正在显影", waitingCopy($("provider").value, $("aspect").value), {
-    develop: true,
-    provider: $("provider").value,
+  const jobs = collectEditedJobs().map((job) => {
+    if (!constraints.length) return job;
+    const extra = constraints.map((line) => String(line)).join(" ");
+    return { ...job, draft: extra + " " + (job.draft || job.prompt || "") };
   });
+  const body = {
+    jobs,
+    mode: state.brief.mode || (jobs[0] && jobs[0].mode),
+    session_id: state.sessionId,
+    template: state.brief.template,
+    parent: state.selected && state.selected.id,
+    project_id: state.project && state.project.id,
+  };
+  if (state.batch && state.batch.status === "running") {
+    state.queue.push(body);
+    showStatus({ ok: true, message: "已排到下一个任务。界面还可写下一句、打开素材库。" });
+    notify();
+    return;
+  }
   try {
-    const jobs = collectEditedJobs();
     const payload = await getJson("/api/confirm-generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobs, mode: state.brief.mode || (jobs[0] && jobs[0].mode) }),
+      body: JSON.stringify(body),
     });
-    const snap = payload.batch_id ? await waitBatch(payload.batch_id) : payload;
-    if (snap.success === false) {
-      showError(snap, "这一批没能全部生成。");
-    } else {
-      const rows = snap.jobs || [];
-      const done = rows.filter((job) => job.status === "done").length;
-      const total = rows.length || done || 1;
-      showStatus({
-        ok: true,
-        message: `已生成 ${done}/${total} 张。`,
-        detail: JSON.stringify(snap, null, 2),
-      });
-    }
-    await refreshLibraryAndSelect(snap, jobs);
+    if (payload.session_id) state.sessionId = payload.session_id;
+    state.pendingBatch = payload;
+    $("brief-card").hidden = true;
+    notify();
   } catch (error) {
     showStatus({ ok: false, message: String(error.message || error) });
-  } finally {
-    stopBusy();
   }
 }
 

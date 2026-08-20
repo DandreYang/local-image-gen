@@ -118,4 +118,49 @@ export function stopCompare() {
   $("compare-badge").hidden = true;
 }
 
-subscribe(() => renderSelection());
+function versionChain(item) {
+  if (!item) return [];
+  const byId = new Map((state.items || []).map((row) => [row.id, row]));
+  const chain = [];
+  const seen = new Set();
+  let cursor = item;
+  while (cursor && !seen.has(cursor.id)) {
+    chain.push(cursor);
+    seen.add(cursor.id);
+    cursor = cursor.parent ? byId.get(cursor.parent) : null;
+  }
+  return chain.reverse();
+}
+
+function renderProcess() {
+  const root = $("process");
+  const rail = $("process-rail");
+  if (!root || !rail) return;
+  const chain = versionChain(state.selected);
+  const show = Boolean(chain.length >= 2 || (state.mode === "pro" && chain.length));
+  root.hidden = !show;
+  rail.innerHTML = "";
+  chain.forEach((item, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "process-node" + (state.selected && state.selected.id === item.id ? " on" : "");
+    const img = document.createElement("img");
+    img.src = item.url;
+    img.alt = "";
+    button.appendChild(img);
+    const cap = document.createElement("span");
+    cap.textContent = "v" + (index + 1);
+    button.appendChild(cap);
+    button.title = item.prompt_original || item.name;
+    button.addEventListener("click", () => {
+      state.selected = item;
+      notify();
+    });
+    rail.appendChild(button);
+  });
+}
+
+subscribe(() => {
+  renderSelection();
+  renderProcess();
+});

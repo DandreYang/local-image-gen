@@ -184,6 +184,41 @@ def aspect_warning(provider: str, aspect: str) -> Optional[str]:
     )
 
 
+def is_series_request(prompt: str, template_id: str = "") -> bool:
+    text = prompt or ""
+    if any(token in text for token in ("套图", "组图", "三视图", "四视图", "正侧背")):
+        return True
+    if "一套" in text and "风格" not in text:
+        return True
+    if template_id in {"portrait", "period", "lookbook", "reel", "snapshot", "ccd"}:
+        if any(token in text for token in ("三张", "四张", "一组", "多张")) and "风格" not in text:
+            return True
+    return False
+
+
+def _series_count(prompt: str) -> int:
+    text = prompt or ""
+    if any(token in text for token in ("四视图", "四张", "四幅", "4张")):
+        return 4
+    if any(token in text for token in ("两张", "两幅", "2张", "两视图")):
+        return 2
+    return 3
+
+
+def parse_beats(prompt: str, template_id: str = "") -> List[str]:
+    text = prompt or ""
+    if any(token in text for token in ("三视图", "正面侧面", "正侧背")):
+        return ["正面全身", "侧面全身", "背面全身"]
+    if "四视图" in text:
+        return ["正面全身", "侧面全身", "背面全身", "四分之三侧"]
+    count = _series_count(text)
+    if template_id == "reel":
+        presets = ("开场静帧", "中段静帧", "封面静帧", "细节静帧")
+        return list(presets[:count])
+    presets = ("正面主图", "侧面或四分之三", "场景或全身", "细节")
+    return list(presets[:count])
+
+
 def build_job_prompt(
     user: str,
     template_id: str,
@@ -191,6 +226,9 @@ def build_job_prompt(
     facts: List[Dict[str, str]],
     *,
     images: Optional[List[str]] = None,
+    beat: str = "",
+    series_index: int = 0,
+    series_total: int = 0,
 ) -> str:
     template = TEMPLATES[template_id]
     headlines = extract_headlines(user)
@@ -206,6 +244,16 @@ def build_job_prompt(
         f"事实：{fact_lines}。" if fact_lines else "",
         str(template["ban"]),
     ]
+    if beat and series_total:
+        parts.append(
+            f"这一张是套图第 {series_index}/{series_total}，只画「{beat}」。"
+            "锁住同一张脸、发型和身份，不要换人。不要拼图、不要四宫格。"
+            "其它张会单独出，这一张只要这一个机位。"
+        )
+        if series_index == 1 and not images:
+            parts.append("这一张为后面的套图定身份。")
+        if series_index > 1:
+            parts.append("必须锁住上一张的脸和服装主色，只换机位或场景。")
     if headlines.get("headline"):
         parts.append(f'Text (verbatim) 主标题大字："{headlines["headline"]}"')
     if headlines.get("subhead"):
@@ -231,8 +279,6 @@ def brief(
         return {"success": False, "error": "请先写一句要画什么。"}
     chosen = pick_template(text, template_id)
     template = TEMPLATES[chosen]
-    count = split_count(text)
-    styles = default_styles(count)
     wanted_aspect = aspect or str(template["aspect"] or "1:1")
     research = research_facts(text)
     facts = user_facts(text) + [
@@ -248,29 +294,96 @@ def brief(
         warnings.append(str(research["error"]))
     if chosen in {"calendar-poster", "invite"}:
         warnings.append("二维码请后贴真码。模型画出来的码不能扫。")
-    if count > 1:
-        warnings.append(f"已拆成 {count} 张单图，每种风格一次，不会做拼图。")
-    jobs = []
-    for index, style in enumerate(styles, start=1):
-        job_prompt = build_job_prompt(text, chosen, style, facts, images=images)
-        jobs.append(
-            {
-                "id": str(index),
-                "style": style,
-                "aspect": wanted_aspect,
-                "profile": template["profile"],
-                "prompt": job_prompt,
-                "provider": provider,
-                "model": model,
-                "quality": quality,
-                "resolution": resolution,
-                "images": list(images or []),
-            }
+    if chosen == "reel":
+        warnings.append("只出静帧，不会生成视频。")
+    series = is_series_request(text, chosen)
+    jobs: List[Dict[str, Any]] = []
+    if series:
+        beats = parse_beats(text, chosen)
+        mode = "series"
+        warnings.append(
+            f"套图 {len(beats)} 张，串行锁脸：第一张定身份，后面带上一张当参考。不会拼成一张。"
         )
+        for index, beat in enumerate(beats, start=1):
+            job_prompt = build_job_prompt(
+                text,
+                chosen,
+                beat,
+                facts,
+                images=images,
+                beat=beat,
+                series_index=index,
+                series_total=len(beats),
+            )
+            jobs.append(
+                {
+                    "id": str(index),
+                    "style": beat,
+                    "beat": beat,
+                    "mode": mode,
+                    "aspect": wanted_aspect,
+                    "profile": template["profile"],
+                    "prompt": job_prompt,
+                    "provider": provider,
+                    "model": model,
+                    "quality": quality,
+                    "resolution": resolution,
+                    "images": list(images or []),
+                    "chain_prev": index > 1,
+                }
+            )
+    else:
+        count = split_count(text)
+        if count > 1:
+            styles = default_styles(count)
+            mode = "variants"
+            warnings.append(
+                f"已拆成 {count} 张独立单图，每种风格一次，最多两路同时出。不会做拼图。"
+            )
+            for index, style in enumerate(styles, start=1):
+                job_prompt = build_job_prompt(text, chosen, style, facts, images=images)
+                jobs.append(
+                    {
+                        "id": str(index),
+                        "style": style,
+                        "mode": mode,
+                        "aspect": wanted_aspect,
+                        "profile": template["profile"],
+                        "prompt": job_prompt,
+                        "provider": provider,
+                        "model": model,
+                        "quality": quality,
+                        "resolution": resolution,
+                        "images": list(images or []),
+                    }
+                )
+        else:
+            mode = "candidates"
+            suggested = 1 if (chosen == "edit" or images) else 2
+            job_prompt = build_job_prompt(text, chosen, "", facts, images=images)
+            for index in range(1, suggested + 1):
+                jobs.append(
+                    {
+                        "id": str(index),
+                        "style": "",
+                        "mode": mode,
+                        "aspect": wanted_aspect,
+                        "profile": template["profile"],
+                        "prompt": job_prompt,
+                        "provider": provider,
+                        "model": model,
+                        "quality": quality,
+                        "resolution": resolution,
+                        "images": list(images or []),
+                    }
+                )
+    suggested_candidates = len(jobs) if mode != "candidates" else len(jobs)
     return {
         "success": True,
         "template": chosen,
         "template_label": template["label"],
+        "mode": mode,
+        "suggested_candidates": suggested_candidates,
         "searched": bool(research.get("searched")),
         "search_error": research.get("error"),
         "facts": facts,

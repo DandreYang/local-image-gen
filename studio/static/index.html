@@ -24,10 +24,15 @@
       <button type="button" class="pill" id="log-pill">更新日志</button>
       <button type="button" class="pill" id="backdrop-toggle" title="纯色画布更适合评估白平衡">画布底</button>
       <button type="button" class="pill" id="mode-toggle" title="专业模式会显示贴图槽位和框选重绘">模式</button>
+      <button type="button" class="pill" id="library-open" title="打开素材库">素材库</button>
     </div>
   </header>
 
   <main>
+    <aside class="process" id="process" hidden>
+      <p class="kicker">工序</p>
+      <ol id="process-rail"></ol>
+    </aside>
     <aside class="round">
       <p class="kicker">本轮</p>
       <p class="round-empty" id="round-empty">还没有 take。<br>在相纸上写一句就开始。</p>
@@ -53,6 +58,13 @@
     </aside>
 
     <section class="stage">
+      <div id="candidates" hidden>
+        <p class="kicker" id="candidate-summary">候选</p>
+        <div id="candidate-grid" class="candidate-grid"></div>
+        <div class="candidate-dock">
+          <button type="button" id="more-candidates">再来 2 张</button>
+        </div>
+      </div>
       <div class="viewer" id="viewer">
         <span class="compare-badge" id="compare-badge" hidden>上一张</span>
         <div class="paper" id="empty-view">
@@ -84,7 +96,7 @@
       </div>
       <div class="follow" id="follow" hidden>
         <textarea id="director-text" rows="2" placeholder="接着改：例如 字再大一点，不要换脸"></textarea>
-        <div class="follow-route" title="这次改稿用哪个通路和模型">
+        <div class="follow-route pro-only" title="这次改稿用哪个通路和模型">
           <select id="follow-provider"></select>
           <select id="follow-model"></select>
         </div>
@@ -99,8 +111,9 @@
     </section>
 
     <div class="desk" id="desk">
+      <p class="project-badge" id="project-badge" hidden></p>
       <div class="stamps">
-        <label>通路
+        <label class="pro-only">通路
           <select id="provider" name="provider"></select>
         </label>
         <label>比例
@@ -120,9 +133,9 @@
       </div>
 
       <details class="more">
-        <summary>更多设置 · 模型 / 质量 / 清晰度 / 优化 / 模板</summary>
+        <summary>更多设置 · 质量 / 清晰度</summary>
         <div class="row">
-          <label>模型
+          <label class="pro-only">模型
             <select id="model" name="model"></select>
           </label>
           <label>质量
@@ -143,7 +156,7 @@
               <option>4k</option>
             </select>
           </label>
-          <label>优化
+          <label class="pro-only">优化
             <select id="optimize" name="optimize">
               <option value="off" selected>off · 原文</option>
               <option value="auto">auto · 短句或换家族</option>
@@ -152,7 +165,7 @@
           </label>
         </div>
         <div class="row">
-          <label>CLI 模板
+          <label class="pro-only">CLI 模板
             <select id="profile" name="profile">
               <option value="">无</option>
               <option>cover</option>
@@ -211,6 +224,43 @@
     </div>
   </main>
 
+  <div class="sheet-root" id="cmdk-root" hidden>
+    <div class="sheet-backdrop" data-cmdk-close></div>
+    <section class="sheet cmdk-sheet" role="dialog" aria-modal="true" aria-labelledby="cmdk-title">
+      <h2 id="cmdk-title" class="cmdk-title">命令</h2>
+      <input id="cmdk-input" type="search" placeholder="搜索命令" autocomplete="off">
+      <div id="cmdk-list" class="cmdk-list"></div>
+    </section>
+  </div>
+
+  <div class="sheet-root library-root" id="library-root" hidden>
+    <div class="sheet-backdrop" data-library-close></div>
+    <section class="sheet library-sheet" id="library-sheet" role="dialog" aria-modal="true" aria-labelledby="library-title">
+      <header class="overlay-head">
+        <h2 id="library-title">素材库</h2>
+        <button type="button" class="ghost" id="library-close" data-library-close>关闭</button>
+      </header>
+      <aside class="project-rail" id="project-rail"></aside>
+      <div class="library-toolbar">
+        <input id="library-search" type="search" placeholder="搜素材">
+        <div class="chips" id="library-filters"></div>
+      </div>
+      <div class="library-grid" id="library-grid"></div>
+    </section>
+  </div>
+
+  <div class="sheet-root" id="template-root" hidden>
+    <div class="sheet-backdrop" data-template-close></div>
+    <section class="sheet" id="template-sheet" role="dialog" aria-modal="true" aria-labelledby="template-title">
+      <header class="overlay-head">
+        <h2 id="template-title">换模板</h2>
+        <button type="button" class="ghost" id="template-close" data-template-close>关闭</button>
+      </header>
+      <input id="template-search" type="search" placeholder="搜我想要的画面">
+      <div id="template-groups" class="template-groups"></div>
+    </section>
+  </div>
+
   <div class="sheet-root" id="overlay-root" hidden>
     <div class="sheet-backdrop" data-overlay-close></div>
     <section class="sheet" id="overlay-sheet" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
@@ -257,6 +307,7 @@
       <p class="dialog-kicker">生图确认</p>
       <h2 id="confirm-title">会消耗这次选中后端的配额</h2>
       <p class="dialog-copy" id="confirm-copy">图会交给本仓 CLI。预览不花额度；点确认才会真正出图。</p>
+      <ul class="brand-constraints" id="brand-constraints" hidden></ul>
       <div class="dialog-actions">
         <button type="button" class="ghost" id="confirm-no" data-dialog-cancel>取消</button>
         <button type="button" id="confirm-yes">确认生图</button>

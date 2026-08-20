@@ -12,7 +12,16 @@ sys.path.insert(0, str(ROOT / "studio"))
 
 from director import parse_look_payload, parse_revise_payload  # noqa: E402
 from cases import list_cases, passes_engagement  # noqa: E402
-from job import build_job_prompt, extract_headlines, keep_search_fact, split_count, user_facts  # noqa: E402
+from job import (  # noqa: E402
+    brief,
+    build_job_prompt,
+    extract_headlines,
+    is_series_request,
+    keep_search_fact,
+    parse_beats,
+    split_count,
+    user_facts,
+)
 from templates import pick_template, split_count as template_split  # noqa: E402
 import server  # noqa: E402
 
@@ -66,6 +75,9 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(pick_template("天上宫阙，超尺度云海露台"), "environment")
         self.assertEqual(pick_template("冷白清透CCD生活照，办公材料室"), "ccd")
         self.assertEqual(pick_template("上摄下绘，上半部分保留原片"), "split")
+        self.assertEqual(pick_template("抖音封面首帧，标题原文入画"), "reel")
+        self.assertEqual(pick_template("抖音封面首帧，主标题「开营」"), "reel")
+        self.assertEqual(pick_template("参考图改成层叠剪纸拼贴"), "paper")
         self.assertEqual(pick_template("负空间剪影开口里是宫殿"), "void")
         self.assertEqual(pick_template("褶皱地形上一条人居路线"), "habitat")
         self.assertEqual(pick_template("等值线画形体，颜色有材料主人"), "graphic")
@@ -78,6 +90,64 @@ class TemplateTests(unittest.TestCase):
     def test_split_styles(self) -> None:
         self.assertEqual(template_split("三种风格的课历"), 3)
         self.assertEqual(split_count("一张封面"), 1)
+        self.assertEqual(template_split("一套商务形象照"), 1)
+
+    def test_series_beats(self) -> None:
+        self.assertTrue(is_series_request("帮她生成一套商务形象照", "portrait"))
+        self.assertFalse(is_series_request("夏季课程日历，三种风格", "calendar-poster"))
+        self.assertEqual(
+            parse_beats("三视图全身", "portrait"),
+            ["正面全身", "侧面全身", "背面全身"],
+        )
+        self.assertEqual(parse_beats("小视频配图三张", "reel")[0], "开场静帧")
+
+    @patch("job.research_facts", return_value={"searched": False, "facts": [], "error": None})
+    def test_brief_series_and_parallel(self, _research) -> None:
+        series = brief("帮她生成一套商务形象照", provider="grok")
+        self.assertEqual(series["mode"], "series")
+        self.assertEqual(len(series["jobs"]), 3)
+        self.assertTrue(series["jobs"][1]["chain_prev"])
+        self.assertIn("套图第 2/3", series["jobs"][1]["prompt"])
+        parallel = brief("课历三种风格", provider="grok")
+        self.assertEqual(parallel["mode"], "variants")
+        self.assertEqual(len(parallel["jobs"]), 3)
+        self.assertFalse(parallel["jobs"][1].get("chain_prev"))
+        self.assertEqual(parallel["template"], "calendar-poster")
+        self.assertEqual(parallel["suggested_candidates"], 3)
+
+    @patch("job.research_facts", return_value={"searched": False, "facts": [], "error": None})
+    def test_brief_candidates_are_identical_samples(self, _research) -> None:
+        card = brief("一张封面", provider="grok")
+        self.assertEqual(card["mode"], "candidates")
+        self.assertEqual(card["suggested_candidates"], 2)
+        self.assertEqual(len(card["jobs"]), 2)
+        self.assertEqual(card["jobs"][0]["prompt"], card["jobs"][1]["prompt"])
+        self.assertEqual(card["jobs"][0]["style"], "")
+        self.assertNotIn("风格：", card["jobs"][0]["prompt"])
+
+    def test_series_chains_previous_image(self) -> None:
+        seen: list = []
+
+        def fake_job(job: dict) -> dict:
+            seen.append(dict(job))
+            return {"success": True, "image": f"{job['id']}.png"}
+
+        with patch.object(server, "_run_one_job", side_effect=fake_job), patch.object(
+            server, "saved_image_path", return_value="/abs/one.png"
+        ):
+            payload = server.run_confirm_generate(
+                {
+                    "mode": "series",
+                    "jobs": [
+                        {"id": "1", "draft": "a", "chain_prev": False},
+                        {"id": "2", "draft": "b", "chain_prev": True},
+                    ],
+                }
+            )
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["mode"], "series")
+        self.assertEqual(len(payload["results"]), 2)
+        self.assertEqual(seen[1]["images"][0], "/abs/one.png")
 
 
 class JobPromptTests(unittest.TestCase):

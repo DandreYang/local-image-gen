@@ -53,8 +53,10 @@ HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 LAN_WARNING = "warning: LAN bind shares this machine's image backends with the network."
 MAX_PARALLEL = 2
+BATCH_DIR = OUTPUTS / ".batches"
 _BATCHES: Dict[str, Dict[str, Any]] = {}
 _BATCH_LOCK = threading.Lock()
+_BATCHES_LOADED = False
 
 
 def public_studio_url(host: str, port: int) -> str:
@@ -312,6 +314,13 @@ def write_media_receipt(path: Path, payload: Dict[str, Any]) -> None:
             "version": getattr(cli, "__version__", None),
             "composed_from": payload.get("composed_from"),
             "overlays": payload.get("overlays"),
+            "session_id": payload.get("session_id"),
+            "parent": payload.get("parent"),
+            "batch_id": payload.get("batch_id"),
+            "mode": payload.get("mode"),
+            "template": payload.get("template"),
+            "starred": payload.get("starred"),
+            "project_id": payload.get("project_id"),
         },
     )
 
@@ -520,6 +529,13 @@ def media_item(path: Path) -> Dict[str, Any]:
         "receipt": receipt,
         "composed_from": (receipt or {}).get("composed_from"),
         "overlays": (receipt or {}).get("overlays"),
+        "session_id": (receipt or {}).get("session_id"),
+        "parent": (receipt or {}).get("parent"),
+        "batch_id": (receipt or {}).get("batch_id"),
+        "mode": (receipt or {}).get("mode"),
+        "template": (receipt or {}).get("template"),
+        "starred": (receipt or {}).get("starred"),
+        "project_id": (receipt or {}).get("project_id"),
     }
 
 
@@ -682,7 +698,60 @@ def generate_compiled(job: Dict[str, Any], used: str) -> Dict[str, Any]:
 def _run_one_job(job: Dict[str, Any]) -> Dict[str, Any]:
     used = str(job.get("draft") or job.get("prompt") or "").strip()
     generated = generate_compiled(job, used)
+    for key in ("session_id", "parent", "batch_id", "mode", "template", "starred", "project_id"):
+        if job.get(key) not in (None, ""):
+            generated[key] = job[key]
     return finalize_generated(generated, job, used)
+
+
+def persist_batch(rec: Dict[str, Any]) -> None:
+    batch_id = str(rec.get("id") or "").strip()
+    if not batch_id:
+        return
+    BATCH_DIR.mkdir(parents=True, exist_ok=True)
+    snapshot = {
+        "id": rec.get("id"),
+        "mode": rec.get("mode"),
+        "status": rec.get("status"),
+        "started": rec.get("started"),
+        "finished": rec.get("finished"),
+        "error": rec.get("error"),
+        "session_id": rec.get("session_id"),
+        "parent": rec.get("parent"),
+        "template": rec.get("template"),
+        "jobs": [
+            {
+                "id": item.get("id"),
+                "style": item.get("style"),
+                "beat": item.get("beat"),
+                "status": item.get("status"),
+                "result": item.get("result") if isinstance(item.get("result"), dict) else None,
+            }
+            for item in rec.get("jobs") or []
+        ],
+    }
+    atomic_write_text(BATCH_DIR / f"{batch_id}.json", json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n")
+
+
+def ensure_batches_loaded() -> None:
+    global _BATCHES_LOADED
+    if _BATCHES_LOADED:
+        return
+    _BATCHES_LOADED = True
+    if not BATCH_DIR.is_dir():
+        return
+    for path in BATCH_DIR.glob("*.json"):
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(rec, dict) or not rec.get("id"):
+            continue
+        if rec.get("status") == "running":
+            rec["status"] = "interrupted"
+            persist_batch(rec)
+        with _BATCH_LOCK:
+            _BATCHES.setdefault(str(rec["id"]), rec)
 
 
 def _set_job(batch_id: str, index: int, **fields: Any) -> None:
@@ -691,6 +760,7 @@ def _set_job(batch_id: str, index: int, **fields: Any) -> None:
         if not rec or index >= len(rec["jobs"]):
             return
         rec["jobs"][index].update(fields)
+        persist_batch(rec)
 
 
 def _finish_batch(batch_id: str, status: str) -> None:
@@ -699,6 +769,7 @@ def _finish_batch(batch_id: str, status: str) -> None:
         if rec:
             rec["status"] = status
             rec["finished"] = time.time()
+            persist_batch(rec)
 
 
 def execute_series(batch_id: str, jobs: List[Dict[str, Any]]) -> None:
@@ -769,51 +840,93 @@ def batch_public(rec: Dict[str, Any]) -> Dict[str, Any]:
             results.append(result)
         jobs.append(row)
     status = str(rec.get("status") or "running")
+    done = sum(1 for item in rec.get("jobs") or [] if item.get("status") == "done")
     return {
-        "success": status != "failed",
+        "success": status not in {"failed", "interrupted"},
         "batch_id": rec.get("id"),
         "mode": rec.get("mode"),
         "status": status,
         "error": rec.get("error"),
+        "done": done,
+        "session_id": rec.get("session_id"),
         "jobs": jobs,
         "results": results,
     }
 
 
+def _normalize_batch_mode(mode: str, jobs: List[Dict[str, Any]]) -> str:
+    if mode in {"series", "candidates", "variants", "parallel", "single"}:
+        return mode
+    return "series" if any(job.get("chain_prev") for job in jobs) else ("parallel" if len(jobs) > 1 else "single")
+
+
 def start_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_batches_loaded()
     raw_jobs = body.get("jobs")
     if not isinstance(raw_jobs, list) or not raw_jobs:
         raise ValueError("jobs required")
     jobs = [dict(item) for item in raw_jobs if isinstance(item, dict)]
     if not jobs:
         raise ValueError("jobs required")
-    mode = str(body.get("mode") or jobs[0].get("mode") or "single")
-    if mode not in {"series", "parallel", "single"}:
-        mode = "single"
+    mode = _normalize_batch_mode(str(body.get("mode") or jobs[0].get("mode") or "single"), jobs)
     batch_id = uuid.uuid4().hex[:12]
+    session_id = str(body.get("session_id") or jobs[0].get("session_id") or uuid.uuid4().hex[:12])
+    parent = str(body.get("parent") or jobs[0].get("parent") or "").strip() or None
+    template = str(body.get("template") or jobs[0].get("template") or "").strip() or None
+    stamped = []
+    for job in jobs:
+        row = dict(job)
+        row["session_id"] = session_id
+        row["batch_id"] = batch_id
+        row["mode"] = mode
+        if parent:
+            row["parent"] = parent
+        if template:
+            row["template"] = template
+        stamped.append(row)
     record = {
         "id": batch_id,
         "mode": mode,
         "status": "running",
         "started": time.time(),
-        "jobs": [{**job, "status": "queued", "result": None} for job in jobs],
+        "session_id": session_id,
+        "parent": parent,
+        "template": template,
+        "jobs": [{**job, "status": "queued", "result": None} for job in stamped],
     }
     with _BATCH_LOCK:
         _BATCHES[batch_id] = record
+        persist_batch(record)
         stale = [key for key, item in _BATCHES.items() if time.time() - float(item.get("started") or 0) > 86400]
         for key in stale:
             _BATCHES.pop(key, None)
-    thread = threading.Thread(target=_worker, args=(batch_id, mode, jobs), daemon=True)
+    exec_mode = "series" if mode == "series" else "parallel"
+    thread = threading.Thread(target=_worker, args=(batch_id, exec_mode, stamped), daemon=True)
     thread.start()
     return batch_public(record)
 
 
 def get_batch(batch_id: str) -> Optional[Dict[str, Any]]:
+    ensure_batches_loaded()
     with _BATCH_LOCK:
         rec = _BATCHES.get(batch_id)
-        if not rec:
-            return None
-        return batch_public(rec)
+        if rec:
+            return batch_public(rec)
+    path = BATCH_DIR / f"{batch_id}.json"
+    if not path.is_file():
+        return None
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(rec, dict):
+        return None
+    if rec.get("status") == "running":
+        rec["status"] = "interrupted"
+        persist_batch(rec)
+    with _BATCH_LOCK:
+        _BATCHES[str(rec.get("id") or batch_id)] = rec
+    return batch_public(rec)
 
 
 def run_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
@@ -824,7 +937,7 @@ def run_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
     results: List[Dict[str, Any]] = []
     prev: Optional[str] = None
     mode = str(body.get("mode") or (jobs[0] or {}).get("mode") or "single")
-    if mode == "parallel" and len(jobs) > 1:
+    if mode in {"parallel", "candidates", "variants"} and len(jobs) > 1:
         workers = min(MAX_PARALLEL, len(jobs))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futs = [pool.submit(_run_one_job, dict(job)) for job in jobs if isinstance(job, dict)]
