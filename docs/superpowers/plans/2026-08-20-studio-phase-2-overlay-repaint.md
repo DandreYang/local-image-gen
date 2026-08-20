@@ -28,25 +28,33 @@
 - `POST /api/composite` 不解码像素、不混合、不缩放；只校验、写字节、写 sidecar。
 - 落盘文件名一律服务端生成：`uuid4().hex[:10]` + 白名单后缀。合成图上限 40MB，贴图资产上限 20MB。PNG/JPEG 魔数校验后再写盘。
 - CSRF 用 **方案 A**：`Sec-Fetch-Site: same-origin`；该头缺失时 `Origin` 的 host 必须等于本服务 `Host`；两个头都没有则放行（CLI）。在 `csrf_allows` 上方用注释写明选了方案 A。
-- 现有测试 `tests/test_studio_job.py`、`tests/test_studio_frontend.py`、`tests/test_prompt_compile.py` 必须全程通过。
+- 现有测试 `tests/test_studio_job.py`、`tests/test_studio_frontend.py`、`tests/test_prompt_compile.py`、`tests/test_studio_server.py`、`tests/test_studio_snippets.py` 必须全程通过。
 - 每个任务结束时提交一次。提交信息用英文。
 - 前端契约测试继续做静态分析；本期新后端测试用 `unittest`，不跑浏览器。
+- **路径 A 的整图重绘不得进胶片条。** `parse_generate` 在 `body["scratch"]` 为真时把 `--out-dir` 设为 `OUTPUTS / ".repaint"`。`list_library` 已跳过相对路径任一段以 `.` 开头的文件，所以这张中间图不可见。合成成功后这张文件可以留在 `.repaint/`（点目录，下期可清）。
+- **烧配额必须在 overlay sheet 内确认。** 路径 A/B 在调用 `/api/generate` 之前显示 `quoteCopy(1, provider)`，并提供「确认重绘 / 取消」。取消不发请求。从 `lib/busy.js` 导入 `quoteCopy`（叶子，合法）。**禁止** import `views/brief.js` / `askConfirm`。
+- **禁止改 `studio/server.py` 的进程入口。** 不要碰 `main()`、`--no-open`、`webbrowser`、`public_studio_url`、`maybe_open_browser`、`print_studio_banner`、`LAN_WARNING`。那些属于 CLI 启动任务，已提交。
+- **禁止改 `studio/templates.py`。** 槽位只写 `lib/constants.js` 的 `OVERLAY_SLOTS`（`calendar-poster` 与 `invite` 两键，与 spec §7.3 字段一致）。`overlay_slot` 进 Python 模板表留到 reel/paper/series WIP 进主线之后。
+- **禁止改 `tests/test_studio_server.py`。** 它已跟踪并在 CI 的「Studio server launch」一步。新 CI 步骤插在那一步**后面**，不要改、不要删那一步。
+- 几何测试必须钉 `canvas.js` **源码**里的公式。禁止在测试文件里定义 `pct_to_pixels` / `inward_alpha` 再测这些测试函数。`assertEqual(base, 10)` 这种恒真断言不准出现。
+
+### 计划修订（2026-08-20 会审）
+
+会审收口五条，执行者按本修订而不是按被划掉的旧句：路径 A 中间图进 `.repaint/`；几何测试钉 JS 源码；工作区事实已过期（`server.py` 含 CLI 启动代码、`test_studio_server.py` 已跟踪）；overlay 内报价+确认；本期不改 `templates.py`。
 
 ### 工作区脏文件（执行者必读）
 
-执行时下列文件已有**与本期无关**的本地 WIP，禁止还原、重写或「顺便整理」：
+执行时下列文件已有**与本期无关**的本地 WIP，禁止还原、重写、`git add` 或「顺便整理」：
 
 | 文件 | 已有 WIP（不要动） | 本期是否改 |
 |---|---|---|
-| `studio/templates.py` | `reel` / `paper` 模板、`KEYWORD_TO_TEMPLATE`、`split_count` | **只追加** `calendar-poster` 与 `invite` 的 `overlay_slot` |
-| `studio/job.py` | 套图 `is_series_request` / `parse_beats` / `brief()` 的 `series` 模式 | **不改**。原子 sidecar 在 `server.py`，不在 `job.py` |
-| `tests/test_studio_job.py` | 套图 / reel / paper 断言 | **不改**。本期断言写进新测试文件 |
+| `studio/templates.py` | `reel` / `paper` 模板、`KEYWORD_TO_TEMPLATE`、`split_count` | **不改、不提交** |
+| `studio/job.py` | 套图 `is_series_request` / `parse_beats` / `brief()` 的 `series` 模式 | **不改** |
+| `tests/test_studio_job.py` | 套图 / reel / paper 断言 | **不改** |
 | `scripts/prompt_compile.py`、`studio/cases.md`、`studio/cases.py`、`tests/test_prompt_compile.py` | 编译器与案例目录 | **不改** |
-| `tests/test_studio_server.py`（未跟踪） | CLI 启动 / `--no-open` | **不改、不纳入本期 commit** |
+| `tests/test_studio_server.py` | CLI 启动 / `--no-open`（**已提交**） | **不改、不纳入本期 commit** |
 
-`git add studio/templates.py` 会把 reel/paper WIP 一并纳入。禁止 `git add -i` / `git add -p`。提交信息必须写明「keeps existing reel/paper/series WIP already in the working tree」。若用户当时尚未接受提交那份 WIP，把 `templates.py` 留在工作区、只提交新测试文件与 `constants.js`，并在该 Task 的提交说明里写清。
-
-`server.py` 工作区是干净的，原子写入、CSRF、新路由都改它。
+`studio/server.py` **不是**干净工作区：顶部已有 `webbrowser` 与 `public_studio_url` / `maybe_open_browser`。只在 `read_sidecar` / `merge_sidecar` / `do_GET` / `do_POST` / `parse_generate` / `list_library` / `write_media_receipt` / `media_item` 上追加本期符号。禁止 `git add -i` / `git add -p`。禁止 `git add studio/templates.py`。
 
 ## 本期验收标准（spec §11）
 
@@ -73,8 +81,8 @@
 |---|---|
 | `tests/test_studio_sidecar.py` | 原子写入、按路径锁、损坏 sidecar 改名、`composed_from` / `overlays` 读写 |
 | `tests/test_studio_security.py` | CSRF 方案 A；R1 文件名；R4 大小；R5 魔数 |
-| `tests/test_studio_composite.py` | `overlay_slot` 仅两模板、overlays 列表/上传、composite 写盘、mask、`parse_generate` |
-| `tests/test_studio_overlay_geom.py` | 整数像素、向内羽化、可扫性阈值的 Python 对照（JS 不能在 CI 执行） |
+| `tests/test_studio_composite.py` | JS `OVERLAY_SLOTS` 仅两模板、overlays 列表/上传、composite 写盘、mask、`scratch` → `.repaint/`、`list_library` 跳过点目录 |
+| `tests/test_studio_overlay_geom.py` | 钉 `canvas.js` 源码公式（`Math.round`、向内羽化、220px / 10% / L*）；不在测试文件里重实现算法 |
 | `studio/static/js/views/overlay.js` | 贴图 / 重绘 sheet。只读 `state.overlay`，不 import 其它 views |
 | `studio/static/css` 不新建文件 | sheet 规则进 `components.css`，工作台布局进 `views.css` |
 
@@ -82,10 +90,9 @@
 
 | 文件 | 改动 |
 |---|---|
-| `studio/server.py` | `atomic_write_text`、sidecar 锁、损坏改名、`csrf_allows`、魔数落盘、`/api/overlays`、`/api/composite`、`/api/upload?kind=mask`、`parse_generate` 的 `mask`、`write_media_receipt` 新字段、`media_item` 输出、`list_library` 跳过 `overlays/` 与点目录 |
-| `studio/templates.py` | **只**给 `calendar-poster` 与 `invite` 加 `overlay_slot` |
-| `studio/static/js/lib/canvas.js` | 百分比↔整数像素、槽位矩形、可扫性、留白检测、合成、向内羽化回贴、遮罩 PNG |
-| `studio/static/js/lib/constants.js` | `OVERLAY_SLOTS`（与 templates.py 两槽逐字段一致） |
+| `studio/server.py` | `atomic_write_text`、sidecar 锁、损坏改名、`csrf_allows`、魔数落盘、`/api/overlays`、`/api/composite`、`/api/upload?kind=mask`、`parse_generate` 的 `mask` 与 `scratch`、`write_media_receipt` 新字段、`media_item` 输出、`list_library` 跳过 `overlays/` 与点目录。**不改 `main()`** |
+| `studio/static/js/lib/constants.js` | `OVERLAY_SLOTS`（仅 `calendar-poster` 与 `invite`，字段同 spec §7.3） |
+| `studio/static/js/lib/canvas.js` | 百分比↔整数像素、槽位矩形、可扫性、留白检测、合成、向内羽化回贴、遮罩 PNG；保留 `exportSelected` |
 | `studio/static/js/api.js` | `postForm(url, formData)` |
 | `studio/static/js/state.js` | `overlay: null` |
 | `studio/static/js/main.js` | 接线：打开 sheet、模式切换、Escape |
@@ -93,21 +100,21 @@
 | `studio/static/css/components.css` | `.sheet-root` / `.sheet` |
 | `studio/static/css/views.css` | `.overlay-*` 与 `[data-mode="simple"] .pro-only` |
 | `tests/test_studio_frontend.py` | overlay 模块契约、sheet 自包含、simple/pro 入口 |
-| `.github/workflows/test.yml` | 跑新的三个后端测试文件 |
+| `.github/workflows/test.yml` | 在现有「Studio server launch」**之后**追加四个新测试步骤（sidecar / security / composite / overlay_geom） |
 
-**不改：** `scripts/local_image_gen.py`、`studio/job.py`、`studio/cases.py`、`studio/cases.md`、`scripts/prompt_compile.py`、`tests/test_prompt_compile.py`、`tests/test_studio_job.py`、`tests/test_studio_server.py`。
+**不改：** `scripts/local_image_gen.py`、`studio/templates.py`、`studio/job.py`、`studio/cases.py`、`studio/cases.md`、`scripts/prompt_compile.py`、`tests/test_prompt_compile.py`、`tests/test_studio_job.py`、`tests/test_studio_server.py`。
 
 **依赖方向（第 1 期硬规则，本期不得打破）：**
 
 ```
 main.js ──> views/overlay.js ──> lib/canvas.js
    │              │               lib/status.js
-   │              └──> state.js   lib/busy.js
+   │              └──> state.js   lib/busy.js   ← quoteCopy，禁止 import brief.js
    │                   api.js     lib/format.js
    └──> views/stage.js / library.js / director.js / brief.js / desk.js
 ```
 
-`views/overlay.js` 不得 import `views/stage.js` 或 `views/brief.js`。确认配额与路径说明做在 overlay sheet **内部**，不复用 `askConfirm`。
+`views/overlay.js` 不得 import `views/stage.js` 或 `views/brief.js`。确认配额与路径说明做在 overlay sheet **内部**：路径文案 + `quoteCopy` + 确认/取消。不复用 `askConfirm`。
 
 ---
 
@@ -533,23 +540,21 @@ triggered from a random site; headerless CLI calls still work."
 
 ---
 
-### Task 3: `overlay_slot` 与 receipt 的 `composed_from` / `overlays`
+### Task 3: receipt 的 `composed_from` / `overlays` 与前端槽位表
 
-spec §7.2、§7.3：槽位只给 `calendar-poster` 与 `invite`。receipt 增加 `composed_from` 与 `overlays`。旧 receipt 缺字段当 `null`。
+spec §7.2、§7.3：槽位语义只给 `calendar-poster` 与 `invite`。本期把槽位写在 `OVERLAY_SLOTS`（JS），**不改** `studio/templates.py`（工作区有无关 WIP）。receipt 增加 `composed_from` 与 `overlays`。旧 receipt 缺字段当 `null`。
 
 **Files:**
 - Create: `tests/test_studio_composite.py`（本任务只写槽位与 receipt；路由在 Task 5–7 追加）
-- Modify: `studio/templates.py`（两处字典**追加一行**）、`studio/server.py`（`write_media_receipt`、`media_item`）、`studio/static/js/lib/constants.js`
+- Modify: `studio/server.py`（`write_media_receipt`、`media_item`）、`studio/static/js/lib/constants.js`
 
 **Interfaces:**
-- Consumes: `TEMPLATES` dict；`write_media_receipt(path, payload)`；`media_item(path)`
+- Consumes: `write_media_receipt(path, payload)`；`media_item(path)`
 - Produces:
-  - `TEMPLATES["calendar-poster"]["overlay_slot"] == {"anchor": "bottom-right", "width_pct": 16, "margin_pct": 5}`
-  - `TEMPLATES["invite"]["overlay_slot"]` 同上
-  - 其余模板没有 `overlay_slot` 键
+  - `OVERLAY_SLOTS` 仅两键：`calendar-poster`、`invite`，值均为 `{"anchor": "bottom-right", "width_pct": 16, "margin_pct": 5}`
   - `write_media_receipt` 把 `payload["composed_from"]` 与 `payload["overlays"]` 写入 sidecar
   - `media_item` 返回这两个字段（缺失为 `None` / `None`）
-  - `OVERLAY_SLOTS` 在 `lib/constants.js`，键与字段与上面两槽一致
+  - 不 import、不修改 `templates.TEMPLATES`
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -569,20 +574,13 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "studio"))
 
-from templates import TEMPLATES  # noqa: E402
 import server  # noqa: E402
 
 SLOT = {"anchor": "bottom-right", "width_pct": 16, "margin_pct": 5}
 
 
 class TestOverlaySlot(unittest.TestCase):
-    def test_only_calendar_and_invite_define_slot(self):
-        slotted = {key for key, row in TEMPLATES.items() if isinstance(row, dict) and row.get("overlay_slot")}
-        self.assertEqual(slotted, {"calendar-poster", "invite"})
-        for key in slotted:
-            self.assertEqual(TEMPLATES[key]["overlay_slot"], SLOT)
-
-    def test_frontend_slots_match_templates(self):
+    def test_frontend_slots_only_calendar_and_invite(self):
         text = (ROOT / "studio" / "static" / "js" / "lib" / "constants.js").read_text(encoding="utf-8")
         self.assertIn("OVERLAY_SLOTS", text)
         self.assertIn("calendar-poster", text)
@@ -644,21 +642,15 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
+不要 `from templates import TEMPLATES`。
+
 - [ ] **Step 2: 运行测试确认失败**
 
 Run: `python3 tests/test_studio_composite.py -v`
 
-Expected: `test_only_calendar_and_invite_define_slot` FAIL —— 槽位集合是空的。`test_frontend_slots_match_templates` FAIL —— `constants.js` 没有 `OVERLAY_SLOTS`。`test_write_and_read_composed_fields` FAIL —— sidecar 没有 `composed_from`。
+Expected: `test_frontend_slots_only_calendar_and_invite` FAIL —— `constants.js` 没有 `OVERLAY_SLOTS`。`test_write_and_read_composed_fields` FAIL —— sidecar 没有 `composed_from`。
 
 - [ ] **Step 3: 写最小实现**
-
-`studio/templates.py` 的 `"calendar-poster"` 字典在 `"ban"` 之后加一行（不要改 `ban` 文本，不要动 `reel` / `paper`）：
-
-```python
-        "overlay_slot": {"anchor": "bottom-right", "width_pct": 16, "margin_pct": 5},
-```
-
-`"invite"` 字典同样在 `"ban"` 之后加**同一行**。其它 29 个模板一个键都不要加。
 
 `studio/static/js/lib/constants.js` 在 `TEMPLATES` 数组之后追加：
 
@@ -683,7 +675,7 @@ export const OVERLAY_SLOTS = {
         "overlays": (receipt or {}).get("overlays"),
 ```
 
-不要删现有键，不要改 `cropped_from` 推断。
+不要删现有键，不要改 `cropped_from` 推断。不要打开 `studio/templates.py`。
 
 - [ ] **Step 4: 运行测试确认通过**
 
@@ -691,21 +683,19 @@ Run: `python3 tests/test_studio_composite.py -v`
 
 Expected: 全部 PASS
 
-Run: `python3 tests/test_studio_job.py && python3 tests/test_studio_frontend.py`
+Run: `python3 tests/test_studio_job.py && python3 tests/test_studio_frontend.py && python3 tests/test_studio_server.py`
 
-Expected: 两个都 OK。`constants.js` 新增导出不会破坏现有 `EXPECTED` 表（那张表只要求列出的名字存在，不禁止多导出）。
+Expected: 三个都 OK。`constants.js` 新增导出不会破坏现有 `EXPECTED` 表。
 
 - [ ] **Step 5: 提交**
 
-若 `git diff studio/templates.py` 除两行 `overlay_slot` 外还有 reel/paper WIP，提交信息必须承认这件事：
-
 ```bash
-git add tests/test_studio_composite.py studio/templates.py studio/server.py studio/static/js/lib/constants.js
-git commit -m "Record overlay slots and composed receipt fields.
+git add tests/test_studio_composite.py studio/server.py studio/static/js/lib/constants.js
+git commit -m "Record overlay slots in the frontend and composed receipt fields.
 
 Calendar-poster and invite already ask the model for a clean code
-area; the slot is that area as data. Keeps existing reel/paper/series
-WIP already in the working tree."
+area; OVERLAY_SLOTS is that area as data. Leave templates.py alone
+so unrelated reel/paper/series WIP stays unstaged."
 ```
 
 ---
@@ -892,7 +882,7 @@ suffix. One helper sniffs PNG/JPEG and writes uuid names inside OUTPUTS."
   - `save_overlay(data: bytes) -> Dict[str, Any]` — 调 `save_image_bytes(..., allowed=(".png", ".jpg"))`，返回 `media_item` 形状里 overlay 用得上的字段
   - `GET /api/overlays` → `{"success": True, "items": ...}`
   - `POST /api/overlays` multipart，字段名 `file`；成功 `{"success": True, "item": {...}, "items": list_overlays()}`
-  - `list_library()` 跳过相对路径任一段以 `.` 开头或等于 `overlays` 的文件
+  - `list_library()` 跳过相对路径任一段以 `.` 开头或等于 `overlays` 的文件（含 `outputs/.repaint/foo.png`）
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -920,6 +910,21 @@ class TestOverlaysApi(unittest.TestCase):
                 ids = [item["id"] for item in library]
                 self.assertNotIn("overlays/keep-out.png", ids)
                 self.assertFalse(any(row.startswith("overlays/") for row in ids))
+
+    def test_list_library_skips_repaint_scratch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            scratch = root / ".repaint"
+            images.mkdir()
+            scratch.mkdir()
+            (images / "keep.png").write_bytes(_png_bytes())
+            (scratch / "foo.png").write_bytes(_png_bytes())
+            with patch.object(server, "OUTPUTS", root), patch.object(server, "IMAGE_DIR", images):
+                ids = [item["id"] for item in server.list_library()]
+            self.assertIn("images/keep.png", ids)
+            self.assertNotIn(".repaint/foo.png", ids)
+            self.assertFalse(any(".repaint" in row for row in ids))
 
     def test_routes_are_wired(self):
         source = (ROOT / "studio" / "server.py").read_text(encoding="utf-8")
@@ -1264,9 +1269,9 @@ to the original and records composed_from plus overlay percents."
 
 ---
 
-### Task 7: `upload?kind=mask` 与 `parse_generate` 的 `mask`
+### Task 7: `upload?kind=mask` 与 `parse_generate` 的 `mask` / `scratch`
 
-路径 B 的遮罩 PNG 落到 `outputs/.masks/`，再作为 `mask` 传给 `/api/generate`。非 `openai` 在服务端拒绝，不把错误留给 CLI。
+路径 B 的遮罩 PNG 落到 `outputs/.masks/`，再作为 `mask` 传给 `/api/generate`。非 `openai` 在服务端拒绝，不把错误留给 CLI。路径 A 的整图重绘带 `scratch: true`，写到 `outputs/.repaint/`，不得进胶片条。
 
 **Files:**
 - Modify: `tests/test_studio_composite.py`、`studio/server.py`（`parse_generate`、`_save_upload`、`/api/generate` 把 `composed_from` / `overlays` 传入 receipt）
@@ -1276,6 +1281,7 @@ to the original and records composed_from plus overlay percents."
 - Produces:
   - `_save_upload("mask")` → 写入 `MASK_DIR`，只许 PNG，返回 `{"success": True, "items": ["<rel>"]}`
   - `parse_generate`：若 `body["mask"]` 非空，先 `resolve_library_image`；`provider != "openai"` 时 `raise ValueError("mask requires provider openai")`；否则 `args.extend(["--mask", str(path)])`
+  - `parse_generate`：若 `body.get("scratch")` 为真，`--out-dir` 设为 `OUTPUTS / ".repaint"`（`mkdir`）；否则仍用 `IMAGE_DIR`
   - `/api/generate`：若 body 带 `composed_from` / `overlays`，在 `finalize_generated` 之前写进 payload，这样路径 B 的 CLI 新图也有谱系
 
 - [ ] **Step 1: 写失败的测试**
@@ -1327,6 +1333,35 @@ class TestMaskAndParseGenerate(unittest.TestCase):
                     )
             self.assertIn("openai", str(caught.exception).lower())
 
+    def test_parse_generate_scratch_uses_repaint_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            (images / "face.png").write_bytes(_png_bytes())
+            with patch.object(server, "OUTPUTS", root), patch.object(server, "IMAGE_DIR", images):
+                args = server.parse_generate(
+                    {
+                        "prompt": "clean wall",
+                        "provider": "auto",
+                        "images": ["images/face.png"],
+                        "scratch": True,
+                        "dry_run": True,
+                    }
+                )
+                self.assertIn("--out-dir", args)
+                self.assertEqual(Path(args[args.index("--out-dir") + 1]).resolve(), (root / ".repaint").resolve())
+                self.assertTrue((root / ".repaint").is_dir())
+                normal = server.parse_generate(
+                    {
+                        "prompt": "clean wall",
+                        "provider": "auto",
+                        "images": ["images/face.png"],
+                        "dry_run": True,
+                    }
+                )
+                self.assertEqual(Path(normal[normal.index("--out-dir") + 1]).resolve(), images.resolve())
+
     def test_mask_must_stay_inside_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1375,11 +1410,30 @@ class TestMaskAndParseGenerate(unittest.TestCase):
 
 Run: `python3 tests/test_studio_composite.py -v`
 
-Expected: `test_parse_generate_appends_mask_for_openai` FAIL —— 生成的 argv 没有 `--mask`。
+Expected: `test_parse_generate_appends_mask_for_openai` FAIL —— 生成的 argv 没有 `--mask`。`test_parse_generate_scratch_uses_repaint_dir` FAIL —— `--out-dir` 仍是 `IMAGE_DIR`。
 
 - [ ] **Step 3: 写最小实现**
 
-`parse_generate` 在 `for raw in body.get("images")` 循环之后、`dry_run` 之前插入：
+把 `parse_generate` 里现有的
+
+```python
+    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    args.extend(["--out-dir", str(IMAGE_DIR)])
+```
+
+换成：
+
+```python
+    if body.get("scratch"):
+        scratch_dir = OUTPUTS / ".repaint"
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        args.extend(["--out-dir", str(scratch_dir)])
+    else:
+        IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        args.extend(["--out-dir", str(IMAGE_DIR)])
+```
+
+然后在 `for raw in body.get("images")` 循环之后、`dry_run` 之前插入：
 
 ```python
     mask_raw = str(body.get("mask") or "").strip()
@@ -1455,7 +1509,7 @@ is rejected in parse_generate so the CLI never sees an illegal --mask."
 
 ### Task 8: `lib/canvas.js` 几何、可扫性、检测、回贴
 
-浏览器才做像素。CI 不能执行 JS，所以几何合同用 Python 对照测试钉死；前端测试只做静态分析：导出名、`Math.round`、阈值字面量、禁止视图反向依赖。
+浏览器才做像素。CI 不能执行 JS，所以几何合同钉 **`canvas.js` 源码**里的公式（`Math.round((Number(pct) / 100) * size)`、向内 `min(local, size-1-local)`、字面量 `220` / `0.02`）。禁止在测试文件里重实现 `pct_to_pixels` / `inward_alpha`，禁止 `assertEqual(base, 10)` 这种恒真断言。验收 #7 的逐字节承诺仍靠源码合同 + Task 11 手工 Chromium 探针。
 
 **Files:**
 - Create: `tests/test_studio_overlay_geom.py`
@@ -1494,79 +1548,52 @@ is rejected in parse_generate so the CLI never sees an illegal --mask."
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+CANVAS = ROOT / "studio" / "static" / "js" / "lib" / "canvas.js"
 
 
-def pct_to_pixels(pct: float, size: int) -> int:
-    return int(round((pct / 100.0) * size))
+class TestCanvasSourceContracts(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.text = CANVAS.read_text(encoding="utf-8")
 
+    def test_pct_to_pixels_rounds_not_truncates(self):
+        """31.96% of 2816 must go through Math.round (900), not int() (899)."""
+        self.assertRegex(self.text, r"export\s+function\s+pctToPixels")
+        self.assertRegex(
+            self.text,
+            r"Math\.round\(\(Number\(pct\)\s*/\s*100\)\s*\*\s*size\)",
+        )
+        self.assertNotRegex(self.text, r"Math\.floor\(\s*\(Number\(pct\)")
 
-def inward_alpha(local_x: int, local_y: int, box_w: int, box_h: int, feather: int) -> float:
-    dist = min(local_x, box_w - 1 - local_x, local_y, box_h - 1 - local_y)
-    if dist >= feather:
-        return 1.0
-    return dist / feather
+    def test_inward_alpha_clamps_to_box_interior(self):
+        self.assertRegex(self.text, r"export\s+function\s+inwardAlpha")
+        self.assertRegex(
+            self.text,
+            r"Math\.min\(\s*localX\s*,\s*boxW\s*-\s*1\s*-\s*localX",
+        )
+        self.assertRegex(self.text, r"boxH\s*-\s*1\s*-\s*localY")
 
+    def test_feather_and_scan_literals(self):
+        self.assertIn("0.02", self.text)
+        self.assertIn("220", self.text)
+        self.assertIn("印刷件可能扫不出", self.text)
+        self.assertIn("路径 A", self.text)
+        self.assertIn("路径 B", self.text)
 
-def mix(base: int, regen: int, alpha: float) -> int:
-    return int(round(base * (1 - alpha) + regen * alpha))
+    def test_paste_region_uses_inward_alpha(self):
+        self.assertRegex(self.text, r"export\s+function\s+pasteRegion")
+        self.assertIn("inwardAlpha", self.text)
+        self.assertIn("drawImage", self.text)
 
-
-def srgb_to_lstar(r: int, g: int, b: int) -> float:
-    def lin(channel: int) -> float:
-        x = channel / 255
-        return x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4
-
-    y = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
-    f = y ** (1 / 3) if y > 0.008856 else (7.787 * y + 16 / 116)
-    return 116 * f - 16
-
-
-class TestIntegerPixels(unittest.TestCase):
-    def test_stored_percent_must_round_not_truncate(self):
-        """900px on a 2816px canvas stores as 31.96%. Truncation moves the box."""
-        self.assertEqual(pct_to_pixels(31.96, 2816), 900)
-        self.assertEqual(int(31.96 / 100 * 2816), 899)
-
-    def test_slot_bottom_right_is_integers(self):
-        width, height = 1000, 1400
-        w = pct_to_pixels(16, width)
-        margin = pct_to_pixels(5, width)
-        x = width - margin - w
-        y = height - margin - w
-        self.assertEqual((x, y, w, w), (790, 1190, 160, 160))
-        self.assertTrue(all(isinstance(v, int) for v in (x, y, w)))
-
-
-class TestInwardFeather(unittest.TestCase):
-    def test_edge_alpha_is_zero_so_outside_cannot_change(self):
-        self.assertEqual(inward_alpha(0, 3, 10, 10, 2), 0.0)
-        self.assertEqual(inward_alpha(3, 0, 10, 10, 2), 0.0)
-        self.assertEqual(inward_alpha(5, 5, 10, 10, 2), 1.0)
-
-    def test_path_a_outside_box_stays_base_bytes(self):
-        width, height = 8, 8
-        box = (2, 2, 4, 4)
-        feather = 2
-        base = 10
-        regen = 200
-        for y in range(height):
-            for x in range(width):
-                if x < box[0] or y < box[1] or x >= box[0] + box[2] or y >= box[1] + box[3]:
-                    self.assertEqual(base, 10)
-                    continue
-                alpha = inward_alpha(x - box[0], y - box[1], box[2], box[3], feather)
-                pixel = mix(base, regen, alpha)
-                if alpha == 0:
-                    self.assertEqual(pixel, base)
-
-
-class TestScanability(unittest.TestCase):
-    def test_thresholds_match_spec(self):
-        self.assertGreaterEqual(srgb_to_lstar(220, 220, 220), 85)
-        self.assertLess(srgb_to_lstar(200, 200, 200), 85)
-        self.assertLess(219, 220)
-        self.assertLess(9, 10)
-        self.assertGreaterEqual(srgb_to_lstar(255, 255, 255), 85)
+    def test_this_file_does_not_reimplement_geometry(self):
+        here = Path(__file__).read_text(encoding="utf-8")
+        self.assertNotIn("def pct_to_pixels", here)
+        self.assertNotIn("def inward_alpha", here)
+        tautology = "assertEqual(" + "base, 10)"
+        self.assertNotIn(tautology, here)
 
 
 if __name__ == "__main__":
@@ -1620,7 +1647,7 @@ class TestCanvasContracts(unittest.TestCase):
 
 Run: `python3 tests/test_studio_overlay_geom.py -v`
 
-Expected: PASS（这份文件是 Python 对照，不依赖 JS）。它现在就能绿——这是合同，不是失败测试。真正该红的是前端契约：
+Expected: `test_pct_to_pixels_rounds_not_truncates` FAIL —— 现有 `canvas.js` 只有 `exportSelected`，没有 `pctToPixels` / 那条 `Math.round` 公式。
 
 Run: `python3 tests/test_studio_frontend.py -v`
 
@@ -2582,14 +2609,16 @@ on disk; only a new composed file is added to the library."
 - Modify: `studio/static/js/views/overlay.js`、`studio/static/index.html`、`tests/test_studio_frontend.py`
 
 **Interfaces:**
-- Consumes: `chooseRepaintPath`、`repaintPathCopy`、`pasteRegion`、`inwardFeatherPx`、`buildMaskCanvas`、`postJson("/api/generate")`、`postForm("/api/upload?kind=mask")`、`save_composite` 字段
+- Consumes: `chooseRepaintPath`、`repaintPathCopy`、`pasteRegion`、`inwardFeatherPx`、`buildMaskCanvas`、`quoteCopy`（`lib/busy.js`）、`postJson("/api/generate")`、`postForm("/api/upload?kind=mask")`、`save_composite` 字段
 - Produces:
-  - `runRepaint()` 导出
+  - `askRepaintQuote()` / `cancelRepaintQuote()` / `runRepaint()` 导出（或 `runRepaint` 加前两个未导出辅助函数）
   - 框用百分比存在 `state.overlay.box = {x_pct, y_pct, w_pct, h_pct}`
   - 确认条 `#overlay-path` 文本 = `repaintPathCopy(state.overlay.path)`，必须能被静态测试搜到调用
-  - 路径 A：`/api/generate` **不带** `mask`；返回图与原图做 `pasteRegion`；再 `POST /api/composite`，`overlays` 记 `{src: "repaint", x_pct, y_pct, w_pct, h_pct, path: "A"}`
-  - 路径 B：先上传遮罩，再 `provider: "openai"` + `mask` + `composed_from`；若 `parse_generate` 拒了（没有 Key 的误判），改走 A 且更新确认条
+  - 第一次点「重绘这一块」只渲染 `#overlay-quote`（`quoteCopy(1, provider)`）+ `#overlay-repaint-ok` / `#overlay-repaint-cancel`。取消不调用 `postJson`。只有确认才发 `/api/generate`
+  - 路径 A：`/api/generate` **不带** `mask`，**带** `scratch: true`；返回图与原图做 `pasteRegion`；再 `POST /api/composite`，`overlays` 记 `{src: "repaint", x_pct, y_pct, w_pct, h_pct, path: "A"}`
+  - 路径 B：先上传遮罩，再 `provider: "openai"` + `mask` + `composed_from`；若 `parse_generate` 拒了（没有 Key 的误判），改走 A 且更新确认条。路径 B **不**带 `scratch`
   - simple 模式不出现框选入口（CSS `.pro-only` + 按钮带这个 class）
+  - **禁止** `import` `views/brief.js` / `askConfirm`
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -2613,6 +2642,20 @@ class TestRepaintPaths(unittest.TestCase):
         self.assertIn("/api/upload?kind=mask", text)
         self.assertIn('provider: "openai"', text.replace("'", '"'))
         self.assertIn("kind=mask", text)
+        self.assertIn("quoteCopy", text)
+        self.assertRegex(text, r"scratch\s*:\s*true")
+        self.assertIn("overlay-repaint-ok", text)
+        self.assertIn("overlay-repaint-cancel", text)
+        self.assertNotIn("views/brief.js", text)
+        self.assertNotIn("askConfirm", text)
+
+    def test_cancel_does_not_call_generate(self):
+        text = (STATIC / "js" / "views" / "overlay.js").read_text(encoding="utf-8")
+        self.assertRegex(text, r"function\s+cancelRepaintQuote")
+        start = text.index("function cancelRepaintQuote")
+        chunk = text[start : start + 280]
+        self.assertNotIn("postJson", chunk)
+        self.assertNotIn("/api/generate", chunk)
 
     def test_path_a_does_not_require_a_key(self):
         text = (STATIC / "js" / "lib" / "canvas.js").read_text(encoding="utf-8")
@@ -2641,12 +2684,30 @@ Expected: `test_repaint_entry_is_pro_only` FAIL —— 还没有 `#overlay-repai
             <button type="button" id="overlay-repaint" class="pro-only" data-overlay="repaint">框选重绘</button>
 ```
 
-在 `overlay.js` 的 import 列表补上 `pasteRegion, inwardFeatherPx, buildMaskCanvas, repaintPathCopy, pctToPixels, mediaUrlFromGenerate, boxPctFromPointer`。
+在 `overlay.js` 的 import 列表补上 `pasteRegion, inwardFeatherPx, buildMaskCanvas, repaintPathCopy, pctToPixels, mediaUrlFromGenerate, boxPctFromPointer`，并增加：
+
+```js
+import { quoteCopy } from "../lib/busy.js";
+```
+
+`quoteCopy` 读已有的 `#resolution`（三栏表单，sheet 打开时仍在 DOM）。不要再包一层、不要 import `brief.js`。
 
 在 `renderDock` 开头的 `intent === "repaint"` 分支写成：
 
 ```js
   if (session.intent === "repaint") {
+    const provider = session.path === "B"
+      ? "openai"
+      : ((document.getElementById("follow-provider") || {}).value || "auto");
+    if (session.awaitingConfirm) {
+      dock.innerHTML = `
+        <p id="overlay-path">${repaintPathCopy(session.path)}</p>
+        <p id="overlay-quote">${quoteCopy(1, provider)}</p>
+        <button type="button" id="overlay-repaint-ok">确认重绘</button>
+        <button type="button" id="overlay-repaint-cancel">取消</button>
+      `;
+      return;
+    }
     dock.innerHTML = `
       <p id="overlay-path">${repaintPathCopy(session.path)}</p>
       <textarea id="overlay-repaint-text" rows="2" placeholder="只改框里：例如 把这行字改成夏季营">${session.prompt || ""}</textarea>
@@ -2659,7 +2720,9 @@ Expected: `test_repaint_entry_is_pro_only` FAIL —— 还没有 `#overlay-repai
 在 `initOverlay` 的 click 里加：
 
 ```js
-    if (event.target.closest("#overlay-repaint-run")) runRepaint();
+    if (event.target.closest("#overlay-repaint-run")) askRepaintQuote();
+    if (event.target.closest("#overlay-repaint-ok")) runRepaint();
+    if (event.target.closest("#overlay-repaint-cancel")) cancelRepaintQuote();
 ```
 
 change 里给 textarea：
@@ -2704,12 +2767,34 @@ function bindRepaintBox() {
 
 在 `renderOverlay` 末尾调用 `bindRepaintBox()`。
 
-追加 `runRepaint`：
+追加 `askRepaintQuote` / `cancelRepaintQuote` / `runRepaint`：
 
 ```js
-export async function runRepaint() {
+function askRepaintQuote() {
   const session = state.overlay;
   if (!session || !session.box || session.box.w_pct < 1 || session.box.h_pct < 1) {
+    showStatus({ ok: false, message: "先在图上拖出一个框。" });
+    return;
+  }
+  if (!(session.prompt || "").trim()) {
+    showStatus({ ok: false, message: "写一句只要改框里的什么。" });
+    return;
+  }
+  session.awaitingConfirm = true;
+  notify();
+}
+
+function cancelRepaintQuote() {
+  if (!state.overlay) return;
+  state.overlay.awaitingConfirm = false;
+  notify();
+}
+
+export async function runRepaint() {
+  const session = state.overlay;
+  if (!session || !session.awaitingConfirm) return;
+  session.awaitingConfirm = false;
+  if (!session.box || session.box.w_pct < 1 || session.box.h_pct < 1) {
     showStatus({ ok: false, message: "先在图上拖出一个框。" });
     return;
   }
@@ -2772,6 +2857,7 @@ export async function runRepaint() {
       images: [session.item.id],
       optimize: "off",
       raw: true,
+      scratch: true,
     });
     if (!generated || !generated.success) {
       showError(generated || {}, "这一块没能重绘。");
@@ -2807,9 +2893,7 @@ export async function runRepaint() {
 }
 ```
 
-`/api/generate` 的现有返回是 CLI JSON：`image` 为绝对路径，`finalize_generated` 之后没有 `item`。路径 A 用 Task 8 的 `mediaUrlFromGenerate` 拼 `/media/<rel>`。
-
-generate 响应没有自动进 `state.items`。路径 A 的中间整图会落在 `images/`，`fetchLibrary` 之后胶片条看得到——允许。用户要的成品是 composite 那张。
+`/api/generate` 的现有返回是 CLI JSON：`image` 为绝对路径，`finalize_generated` 之后没有 `item`。路径 A 用 Task 8 的 `mediaUrlFromGenerate` 拼 `/media/<rel>`。路径 A 带 `scratch: true`，中间整图落在 `outputs/.repaint/`；Task 5 的 `_skip_library_path` 让它不进胶片条。用户要的成品是 composite 那张。`cancelRepaintQuote` 只清 `awaitingConfirm` 并 `notify()`，不得调用 `postJson`。
 
 - [ ] **Step 4: 运行测试确认通过**
 
@@ -2880,6 +2964,8 @@ class TestOverlayWiring(unittest.TestCase):
         self.assertIn("tests/test_studio_security.py", workflow)
         self.assertIn("tests/test_studio_composite.py", workflow)
         self.assertIn("tests/test_studio_overlay_geom.py", workflow)
+        self.assertIn("tests/test_studio_server.py", workflow)
+        self.assertLess(workflow.index("Studio server launch"), workflow.index("Studio sidecar"))
 ```
 
 `ROOT` 在 `test_studio_frontend.py` 已经定义。
@@ -2939,7 +3025,7 @@ $("mode-toggle").textContent = state.mode === "pro" ? "专业" : "默认";
   }
 ```
 
-`.github/workflows/test.yml` 在 `Studio frontend contracts` 那一步后面加：
+`.github/workflows/test.yml` 在 `Studio server launch` 那一步**后面**加（不要改、不要删那一步；不要插在 `Studio frontend contracts` 后面）：
 
 ```yaml
       - name: Studio sidecar
@@ -2958,6 +3044,7 @@ Run:
 
 ```bash
 python3 tests/test_studio_frontend.py -v && \
+python3 tests/test_studio_server.py && \
 python3 tests/test_studio_sidecar.py && \
 python3 tests/test_studio_security.py && \
 python3 tests/test_studio_composite.py && \
@@ -2999,14 +3086,16 @@ workbench and boxed repaint in the same place, not a new layout."
 | §3 贴图：simple 仅「贴二维码 / 贴 logo」，pro 完整工作台 | Task 10、12 |
 | §3 框选重绘：simple 隐藏，pro 显示 A/B 说明 | Task 11、12 |
 | §6.4 浏览器 Canvas 合成、常用库存、三层定位、可扫性、非破坏 | Task 5、8、10 |
-| §6.4 / §7.3 `overlay_slot` 只给 calendar-poster 与 invite | Task 3 |
+| §6.4 / §7.3 槽位只给 calendar-poster 与 invite | Task 3（仅 JS `OVERLAY_SLOTS`，**不改** `templates.py`） |
 | §6.6 路径 A（全后端 + 回贴 + 向内羽化）/ 路径 B（`--mask`） | Task 7、8、11 |
-| §6.6 百分比存储、整数像素、框内羽化 | Task 8、`test_studio_overlay_geom.py` |
+| §6.6 路径 A 中间图进 `.repaint/`，不进胶片条 | Task 5 `_skip_library_path`、Task 7 `scratch`、Task 11 `scratch: true` |
+| §6.6 百分比存储、整数像素、框内羽化 | Task 8、`test_studio_overlay_geom.py`（钉 `canvas.js` 源码，不重实现） |
 | §6.6 无 Key 走 A，确认条写明路径 | Task 8 `repaintPathCopy`、Task 11 |
+| §6.6 烧配额前报价确认 | Task 11 `quoteCopy` + `#overlay-repaint-ok` / cancel |
 | §7.1 `POST /api/composite`、`GET\|POST /api/overlays` | Task 5、6 |
 | §7.1 CSRF 方案 A，复合端点之前 | Task 2 |
 | §7.1 R1 服务端文件名、R2 `is_under`、R4 40/20MB、R5 魔数 | Task 4、5、6、7 |
-| §7.1 `upload?kind=mask`、`parse_generate` mask、非 openai 拒绝 | Task 7 |
+| §7.1 `upload?kind=mask`、`parse_generate` mask / `scratch`、非 openai 拒绝 | Task 7 |
 | §7.2 `composed_from` / `overlays` | Task 3、6、11 |
 | §7.5 原子写入 + 按路径锁 + 损坏改名（**复合端点之前**） | Task 1 |
 | §10 第 2 期返工约束：自包含 sheet | Task 9、12 |
@@ -3025,23 +3114,28 @@ workbench and boxed repaint in the same place, not a new layout."
 |---|---|---|
 | `atomic_write_text` / `sidecar_lock_for` / `drain_sidecar_warnings` | Task 1 | `merge_sidecar`、`/api/library` |
 | `csrf_allows(headers, host)` | Task 2 | `Handler.do_POST` |
-| `OVERLAY_SLOTS` / `overlay_slot` | Task 3 | Task 9 `openOverlay`、Task 10 `applyTemplateSlot` |
+| `OVERLAY_SLOTS` | Task 3 `constants.js` | Task 9 `openOverlay`、Task 10 `applyTemplateSlot` |
 | `composed_from` / `overlays` | Task 3 `write_media_receipt` / `media_item` | Task 6 `save_composite`、Task 11 generate body |
 | `sniff_image_suffix` / `save_image_bytes` / `OVERLAY_MAX_BYTES` / `COMPOSITE_MAX_BYTES` | Task 4 | Task 5–7 |
-| `list_overlays` / `save_overlay` | Task 5 | GET/POST `/api/overlays` |
+| `list_overlays` / `save_overlay` / `_skip_library_path` | Task 5 | GET/POST `/api/overlays`；胶片条跳过 `overlays/` 与 `.repaint/` |
 | `save_composite(png, composed_from, overlays)` | Task 6 | POST `/api/composite`；字段名 `png_base64` |
-| `parse_generate` 的 `mask`；`MASK_DIR` | Task 7 | overlay 路径 B |
+| `parse_generate` 的 `mask` / `scratch`；`MASK_DIR` | Task 7 | overlay 路径 B；路径 A 中间图 |
 | `pctToPixels` / `pasteRegion` / `chooseRepaintPath` / `repaintPathCopy` / `measurePlacementScan` / `mediaUrlFromGenerate` / `boxPctFromPointer` | Task 8 | Task 10、11 |
 | `openOverlay(item, intent)` / `state.overlay` | Task 9 | Task 12 `main.js` |
 | `postForm` | Task 10 | 贴图上传、mask 上传 |
-| `runRepaint` | Task 11 | sheet 内按钮，不经 `brief.js` |
+| `quoteCopy` | 已有 `lib/busy.js` | Task 11 overlay 内确认条 |
+| `askRepaintQuote` / `cancelRepaintQuote` / `runRepaint` | Task 11 | sheet 内按钮，不经 `brief.js` |
 | `intent` 四值 `qr \| logo \| workbench \| repaint` | Task 9 | Task 10–12 同一组字符串 |
 
-`job.py` 没有任何新符号。`askConfirm` 没有被 overlay import。
+`job.py` 没有任何新符号。`askConfirm` 没有被 overlay import。`templates.py` 没有任何新符号。
 
 **4. 已知能力边界（与第 1 期相同）**
 
-前端测试不执行 JS。一份能通过 `test_studio_frontend.py` 的实现仍可能在浏览器里画错羽化。验收 #7 的逐字节承诺由 `test_studio_overlay_geom.py` 的算法合同 + Task 11 手工 Chromium 探针共同承担，不能只看 CI 绿。
+前端测试不执行 JS。一份能通过 `test_studio_frontend.py` 的实现仍可能在浏览器里画错羽化。验收 #7 的逐字节承诺由 `test_studio_overlay_geom.py` **钉 `canvas.js` 源码公式** + Task 11 手工 Chromium 探针共同承担，不能只看 CI 绿，也不能靠测试文件里的 Python 重实现。
+
+**5. 2026-08-20 会审修订**
+
+相对第一稿已改：路径 A 中间图进 `.repaint/`（`scratch`）；几何测试钉 JS 源码；overlay 内 `quoteCopy` + 确认/取消；本期不改 `templates.py`；CI 新步骤插在「Studio server launch」之后；不碰 `server.py` 的 `main()` / `--no-open`。执行者按 Global Constraints 的修订句，不按任何已删的旧句。
 
 ---
 
