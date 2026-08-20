@@ -293,7 +293,28 @@ class TestViewModules(unittest.TestCase):
             "insertIntoPrompt", "colorSentence",
         ],
         "lib/constants.js": ["TEMPLATES", "PROVIDER_NAMES", "PROVIDER_FAMILY", "AREA_LABELS", "AREA_INSTRUCTIONS"],
-        "lib/canvas.js": ["exportSelected", "EXPORT_PRESETS"],
+        "lib/canvas.js": [
+            "exportSelected",
+            "EXPORT_PRESETS",
+            "pctToPixels",
+            "pixelsToPct",
+            "slotRect",
+            "inwardFeatherPx",
+            "inwardAlpha",
+            "srgbToLstar",
+            "scanability",
+            "detectQuietRect",
+            "chooseRepaintPath",
+            "repaintPathCopy",
+            "loadImage",
+            "blobToBase64",
+            "measurePlacementScan",
+            "mediaUrlFromGenerate",
+            "boxPctFromPointer",
+            "composeOverlay",
+            "pasteRegion",
+            "buildMaskCanvas",
+        ],
         # setStatus/humanError（Task 5 直接搬运）在 Task 9 被 showStatus/
         # showError 取代——旧版把整个 payload 原样丢给用户读，新版只显示
         # 一句人话，原始返回收进可折叠的 detail。
@@ -537,6 +558,19 @@ class TestCopyAndErrors(unittest.TestCase):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
         self.assertIn('id="status-detail"', html)
         self.assertIn("<details", html)
+
+
+class TestCanvasContracts(unittest.TestCase):
+    def test_pct_to_pixels_uses_round(self):
+        text = (STATIC / "js" / "lib" / "canvas.js").read_text(encoding="utf-8")
+        self.assertRegex(text, r"export\s+function\s+pctToPixels")
+        self.assertIn("Math.round", text)
+        self.assertIn("0.02", text)
+        self.assertIn("220", text)
+        self.assertIn("印刷件可能扫不出", text)
+        self.assertIn("路径 A", text)
+        self.assertIn("路径 B", text)
+        self.assertNotIn("views/", text)
 
 
 if __name__ == "__main__":
