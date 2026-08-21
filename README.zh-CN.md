@@ -62,7 +62,7 @@ local-image-gen studio            # 打开本机 Studio（监听成功后打开�
 local-image-gen studio --lan --daemon   # 在 Linux 主机上脱离终端；停用 --stop
 ```
 
-Studio 是同一套 CLI 的本机网页界面。`local-image-gen studio` 默认绑 `127.0.0.1:8765`，服务开始监听后再打开浏览器。`--no-open` 跳过浏览器。`--lan` 绑 `0.0.0.0`，并打印警告：局域网绑定会把这台机器的生图后端分享给网段。机器有公网 IP 时，请用防火墙或安全组限制来源端口；本工具不加登录或 TLS。`--daemon` 脱离当前终端（隐含 `--no-open`）；`local-image-gen studio --stop` 是幂等的。关掉前台终端会停掉 Studio。没有 systemd unit。
+Studio 是同一套 CLI 的本机网页界面。`local-image-gen studio` 默认绑 `127.0.0.1:8765`，服务开始监听后再打开浏览器。`--no-open` 跳过浏览器。`--lan` 绑 `0.0.0.0`，打印本机 IPv4 地址，并警告：局域网绑定会把这台机器的生图后端分享给网段。机器有公网 IP 时，请用防火墙或安全组限制来源端口；本工具不加登录或 TLS。`--daemon` 脱离当前终端（隐含 `--no-open`）；`local-image-gen studio --stop` 是幂等的。关掉前台终端会停掉 Studio。没有 systemd unit。
 
 `update` 遇到脏工作区、读不了 git status、不是 git 仓库、origin 不是官方 GitHub、或不在 `main`/`master` 会拒绝。它只跑 `git pull --ff-only origin main`。不会再跑 `curl | bash`。生图命令不会去 GitHub 查新版本。`LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` 会跳过 doctor 的新鲜度 GET（Dyro 的 5 秒 spawn 应设置此项）。
 
@@ -70,7 +70,7 @@ Studio 是同一套 CLI 的本机网页界面。`local-image-gen studio` 默认�
 
 这个项目**不依赖** [Dyro](https://github.com/DandreYang/DyroEngineeringFlow)，仍然是独立的 CLI 和 skill。
 
-如果在 Dyro 工作区里运行（上级目录有 `dyro.toml`），又没传 `-o` / `--out-dir`，图片会写到 `<workspace>/outputs/images`，避免落到 `repositories/` 或任务 worktree 里。`-o` 始终优先。
+如果在 Dyro 工作区里运行（上级目录有 `dyro.toml`），又没传 `-o` / `--out-dir`，图片会写到 `<workspace>/outputs/images`。这个目录是指向 `~/.local-image-gen/` 的软链，blobs 放在用户级仓库里（和 Codex 的 `~/.codex/generated_images` 同一思路），而不是 `repositories/` 或任务 worktree。`-o` 始终优先。可用 `LOCAL_IMAGE_GEN_OUTPUTS` 覆盖仓库路径。
 
 `local-image-gen doctor` 会报告后端、是否检测到 Dyro CLI / 工作区，以及这份安装是否落后于 `main`。不会真正生图。`--doctor` 是别名。
 
@@ -165,4 +165,4 @@ python3 scripts/local_image_gen.py doctor
 
 ## 相关兄弟项目
 
-[`DyroEngineeringFlow`](https://github.com/DandreYang/DyroEngineeringFlow)（`dyro`）是可选的第一方交付控制面。同屋不是同一产品：本 CLI 不依赖它，装其中一个也不会装上另一个。如果已经在 Dyro 工作区里，省略 `-o` / `--out-dir`，图片会写到 `<workspace>/outputs/images`。
+[`DyroEngineeringFlow`](https://github.com/DandreYang/DyroEngineeringFlow)（`dyro`）是可选的第一方交付控制面。同屋不是同一产品：本 CLI 不依赖它，装其中一个也不会装上另一个。如果已经在 Dyro 工作区里，省略 `-o` / `--out-dir`，图片会写到 `<workspace>/outputs/images`（软链到 `~/.local-image-gen/`）。

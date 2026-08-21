@@ -297,6 +297,7 @@ class TestViewModules(unittest.TestCase):
             "insertIntoPrompt", "colorSentence",
         ],
         "lib/constants.js": ["TEMPLATES", "TEMPLATE_GROUPS", "PROVIDER_NAMES", "PROVIDER_FAMILY", "AREA_LABELS", "AREA_INSTRUCTIONS"],
+        "lib/shell.js": ["syncShell", "initShell"],
         "lib/canvas.js": [
             "exportSelected",
             "EXPORT_PRESETS",
@@ -335,6 +336,7 @@ class TestViewModules(unittest.TestCase):
         "lib/constants.js",
         "lib/canvas.js",
         "lib/cmdk.js",
+        "lib/shell.js",
         "state.js",
         "api.js",
     ]
@@ -527,7 +529,8 @@ class TestCopyAndErrors(unittest.TestCase):
         self.assertNotIn(
             "点确认才会真正出图", standing, "剥少了：确认卡文案仍在常驻区域内"
         )
-        self.assertIn("整理并出图", standing, "剥多了：主行动按钮被切掉")
+        self.assertIn('id="brief-btn"', standing, "剥多了：主行动按钮被切掉")
+        self.assertIn("出图", standing, "剥多了：主行动文案被切掉")
         self.assertIn('class="desk"', standing, "剥多了：参数区被切掉，禁用词将检查不到")
 
     def test_no_mechanism_explaining_copy_in_standing_ui(self):
@@ -728,6 +731,84 @@ class TestPhase3Flow(unittest.TestCase):
         self.assertIn("tests/test_studio_phase3.py", workflow)
 
 
+class TestComposeFirstRun(unittest.TestCase):
+    def test_empty_state_is_a_single_column(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        css = (STATIC / "css" / "views.css").read_text(encoding="utf-8")
+        self.assertIn('data-shell="compose"', html)
+        self.assertIn('id="library-empty"', html)
+        self.assertIn('id="library-upload"', html)
+        self.assertIn(">出图<", html)
+        self.assertIn('id="compose-upload"', html)
+        self.assertIn("加参考图", html)
+        self.assertRegex(
+            css,
+            r'body\[data-shell="compose"\]\s+\.round',
+            "compose 态必须收起空着的本轮栏",
+        )
+        self.assertRegex(
+            css,
+            r'body\[data-shell="compose"\]\s+\.desk',
+            "compose 态必须收起右栏设置",
+        )
+
+    def test_paper_does_not_fake_case_thumbnails(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        desk = (STATIC / "js" / "views" / "desk.js").read_text(encoding="utf-8")
+        css = (STATIC / "css" / "views.css").read_text(encoding="utf-8")
+        self.assertNotIn("template-case", desk)
+        self.assertNotIn("/static/templates/", desk)
+        self.assertNotIn("常用说法", html)
+        self.assertNotIn("先看终稿", html)
+        self.assertNotIn("按这句话选", desk)
+        self.assertIn('class="pill compose-hide" id="mode-toggle"', html)
+        self.assertRegex(
+            css,
+            r'body\[data-shell="compose"\]\s+\.viewer',
+            "compose 态必须露出舞台底，不能把相纸贴在死黑 viewer 上",
+        )
+        self.assertIn("if (!found) return", desk)
+
+    def test_confirm_card_does_not_leak_engine_copy(self):
+        brief = (STATIC / "js" / "views" / "brief.js").read_text(encoding="utf-8")
+        self.assertNotIn("Use case", brief)
+        self.assertNotIn("gpt-image-2", brief)
+        self.assertNotIn("应出现", brief)
+        self.assertIn("draft-shared", brief)
+        self.assertIn("quoteCopy", brief)
+        self.assertNotIn("askConfirm(", brief.split("export async function runBriefJobs", 1)[-1])
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("还没有 take", html)
+        self.assertIn('id="status"', html)
+        self.assertEqual(html.count('id="status"'), 1)
+        shell = (STATIC / "js" / "lib" / "shell.js").read_text(encoding="utf-8")
+        self.assertNotIn("state.batch", shell)
+        templates = (STATIC / "js" / "views" / "templates.js").read_text(encoding="utf-8")
+        self.assertNotIn("/static/templates/", templates)
+
+    def test_compose_can_attach_reference_images(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        main = (STATIC / "js" / "main.js").read_text(encoding="utf-8")
+        desk = (STATIC / "js" / "views" / "desk.js").read_text(encoding="utf-8")
+        brief = (STATIC / "js" / "views" / "brief.js").read_text(encoding="utf-8")
+        fmt = (STATIC / "js" / "lib" / "format.js").read_text(encoding="utf-8")
+        self.assertIn('id="compose-upload"', html)
+        self.assertIn("compose-refs", html)
+        self.assertIn("addReferenceFiles", main)
+        self.assertIn("MAX_REFS", main)
+        self.assertIn("/thumb/", desk)
+        self.assertIn("uniqueImages(state.refs)", brief)
+        self.assertIn("images: state.refs", fmt)
+        candidates = (STATIC / "js" / "views" / "candidates.js").read_text(encoding="utf-8")
+        self.assertIn("doneRows.length === 1", candidates)
+        self.assertNotIn("showError(snap", candidates)
+
+    def test_shell_module_is_a_leaf(self):
+        text = (STATIC / "js" / "lib" / "shell.js").read_text(encoding="utf-8")
+        self.assertIn("export function syncShell", text)
+        self.assertNotIn("views/", text)
+
+
 class TestPhase4Library(unittest.TestCase):
     def test_filmstrip_is_gone(self):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
@@ -740,6 +821,13 @@ class TestPhase4Library(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         self.assertIn("tests/test_studio_phase4.py", workflow)
         self.assertLess(workflow.index("Studio phase 3"), workflow.index("Studio phase 4"))
+
+
+class TestCandidatePick(unittest.TestCase):
+    def test_pick_does_not_reshow_grid(self) -> None:
+        source = (STATIC / "js" / "views" / "candidates.js").read_text(encoding="utf-8")
+        self.assertIn('state.phase !== "candidates"', source)
+        self.assertIn('state.phase = "stage"', source)
 
 
 if __name__ == "__main__":

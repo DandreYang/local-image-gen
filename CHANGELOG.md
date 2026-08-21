@@ -3,6 +3,10 @@
 ## Unreleased
 
 - Studio: `local-image-gen studio` starts the local UI, opens a browser after bind, and supports `--no-open`, `--lan`, `--daemon`, and `--stop`. Runtime state lives under the share home so git checkouts stay clean.
+- Studio `--lan` prints this machine's IPv4 URLs instead of `http://<this-machine-ip>:port`.
+- Studio look/revise: Grok first, then Codex login, OpenAI API key, Gemini API key.
+- Studio `--fixture` / `LOCAL_IMAGE_GEN_STUDIO_FIXTURE=1` returns canned images and looks without spending model quota.
+- Dyro workspaces: image blobs live in `~/.local-image-gen/`; `<workspace>/outputs` is a symlink to that store (same idea as Codex `~/.codex/generated_images`). `-o` / `--out-dir` still wins. Override with `LOCAL_IMAGE_GEN_OUTPUTS`.
 
 ## 0.1.5
 

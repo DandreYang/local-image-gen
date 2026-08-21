@@ -92,6 +92,26 @@ class RequestShapeTests(unittest.TestCase):
             self.assertNotIn("size", payload)
             self.assertEqual(payload["resolution"], "2k")
             self.assertTrue(payload["image"]["url"].startswith("data:image/"))
+            self.assertNotIn("images", payload)
+
+    def test_grok_two_refs_use_images_field_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            one = Path(tmp) / "a.png"
+            two = Path(tmp) / "b.png"
+            one.write_bytes(b"\x89PNG\r\n\x1a\n")
+            two.write_bytes(b"\x89PNG\r\n\x1a\n")
+            payload = image_gen.grok_image_payload(
+                "lock face",
+                "grok-imagine-image-2.0",
+                "3:4",
+                "high",
+                "2k",
+                1,
+                [str(one), str(two)],
+            )
+            self.assertNotIn("image", payload)
+            self.assertEqual(len(payload["images"]), 2)
+            self.assertTrue(payload["images"][0]["url"].startswith("data:image/"))
 
     def test_portrait_payload_keeps_aspect_without_pixel_size(self) -> None:
         payload = image_gen.grok_image_payload(
@@ -1251,9 +1271,99 @@ class DyroOptionalTests(unittest.TestCase):
             found = image_gen.find_dyro_workspace(nested)
             self.assertEqual(found, root.resolve())
             self.assertEqual(image_gen.dyro_workspace_name(root), "demo")
-            out_dir, workspace = image_gen.default_image_dir(None, nested)
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(root / "blobs")}):
+                out_dir, workspace = image_gen.default_image_dir(None, nested)
             self.assertEqual(workspace, root.resolve())
             self.assertEqual(out_dir, root.resolve() / "outputs" / "images")
+            self.assertTrue((root / "outputs").is_symlink())
+
+    def test_dyro_outputs_symlink_into_share_home(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "share"
+            root = Path(tmp) / "ws"
+            nested = root / "repositories" / "app"
+            nested.mkdir(parents=True)
+            (root / "dyro.toml").write_text('[workspace]\nname = "demo"\n', encoding="utf-8")
+            existing = root / "outputs" / "images"
+            existing.mkdir(parents=True)
+            kept = existing / "kept.png"
+            kept.write_bytes(b"\x89PNG\r\n\x1a\n")
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(home)}):
+                out_dir, workspace = image_gen.default_image_dir(None, nested)
+            link = root / "outputs"
+            store = home
+            self.assertEqual(workspace, root.resolve())
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(link.resolve(), store.resolve())
+            self.assertEqual(out_dir.resolve(), (store / "images").resolve())
+            self.assertTrue((store / "images" / "kept.png").is_file())
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(home)}):
+                again, _ = image_gen.default_image_dir(None, nested)
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(again.resolve(), (store / "images").resolve())
+
+    def test_dyro_outputs_symlink_clears_leftover_ds_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "share"
+            root = Path(tmp) / "ws"
+            nested = root / "repositories" / "app"
+            nested.mkdir(parents=True)
+            (root / "dyro.toml").write_text('[workspace]\nname = "demo"\n', encoding="utf-8")
+            existing = root / "outputs"
+            existing.mkdir()
+            (existing / ".DS_Store").write_bytes(b"junk")
+            (existing / "images").mkdir()
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(home)}):
+                image_gen.default_image_dir(None, nested)
+            link = root / "outputs"
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(link.resolve(), home.resolve())
+
+    def test_migrates_legacy_share_generated_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            share = Path(tmp) / "share"
+            blobs = Path(tmp) / "blobs"
+            root = Path(tmp) / "ws"
+            nested = root / "repositories" / "app"
+            nested.mkdir(parents=True)
+            (root / "dyro.toml").write_text('[workspace]\nname = "demo"\n', encoding="utf-8")
+            legacy = share / "generated_images" / "demo" / "images"
+            legacy.mkdir(parents=True)
+            kept = legacy / "old.png"
+            kept.write_bytes(b"\x89PNG\r\n\x1a\n")
+            with patch.dict(
+                os.environ,
+                {
+                    "LOCAL_IMAGE_GEN_HOME": str(share),
+                    "LOCAL_IMAGE_GEN_OUTPUTS": str(blobs),
+                },
+            ):
+                out_dir, workspace = image_gen.default_image_dir(None, nested)
+            store = blobs
+            self.assertEqual(workspace, root.resolve())
+            self.assertTrue((root / "outputs").is_symlink())
+            self.assertEqual((root / "outputs").resolve(), store.resolve())
+            self.assertEqual(out_dir.resolve(), (store / "images").resolve())
+            self.assertTrue((store / "images" / "old.png").is_file())
+            self.assertFalse((share / "generated_images" / "demo").exists())
+            self.assertFalse((blobs / "demo").exists())
+
+    def test_flattens_nested_workspace_bucket(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "blobs"
+            root = Path(tmp) / "ws"
+            nested = root / "repositories" / "app"
+            nested.mkdir(parents=True)
+            (root / "dyro.toml").write_text('[workspace]\nname = "demo"\n', encoding="utf-8")
+            bucket = home / "demo" / "images"
+            bucket.mkdir(parents=True)
+            (bucket / "old.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(home)}):
+                out_dir, _ = image_gen.default_image_dir(None, nested)
+            self.assertTrue((home / "images" / "old.png").is_file())
+            self.assertFalse((home / "demo").exists())
+            self.assertEqual((root / "outputs").resolve(), home.resolve())
+            self.assertEqual(out_dir.resolve(), (home / "images").resolve())
 
     def test_no_workspace_keeps_cwd_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1313,6 +1423,8 @@ class DyroOptionalTests(unittest.TestCase):
         self.assertTrue(payload["success"])
         self.assertEqual(payload["command"], "doctor")
         self.assertTrue(payload["dyro"]["optional"])
+        self.assertIn("output_dir", payload["dyro"])
+        self.assertIn("output_store", payload["dyro"])
         self.assertEqual(payload["version"], "0.1.5")
         self.assertEqual(payload["cli"], "local-image-gen")
         self.assertEqual(payload["install"]["version"], "0.1.5")
@@ -1340,6 +1452,34 @@ class DyroOptionalTests(unittest.TestCase):
         self.assertEqual(payload["install"]["check_error"], "skipped")
         self.assertIsNone(payload["install"]["latest"])
         self.assertIsNone(payload["install"]["update_available"])
+
+
+class LanAddressTests(unittest.TestCase):
+    def test_rejects_loopback_and_link_local(self) -> None:
+        self.assertFalse(image_gen.is_usable_lan_ipv4("127.0.0.1"))
+        self.assertFalse(image_gen.is_usable_lan_ipv4("169.254.1.1"))
+        self.assertFalse(image_gen.is_usable_lan_ipv4("0.0.0.0"))
+        self.assertFalse(image_gen.is_usable_lan_ipv4("198.18.0.1"))
+        self.assertTrue(image_gen.is_usable_lan_ipv4("192.168.1.12"))
+        self.assertTrue(image_gen.is_usable_lan_ipv4("10.0.0.4"))
+
+    def test_lan_studio_urls_use_detected_ip(self) -> None:
+        with patch.object(image_gen, "lan_ipv4_addresses", return_value=["192.168.1.12"]):
+            self.assertEqual(image_gen.lan_studio_urls(8765), ["http://192.168.1.12:8765"])
+
+    def test_lan_studio_urls_placeholder_when_empty(self) -> None:
+        with patch.object(image_gen, "lan_ipv4_addresses", return_value=[]):
+            self.assertEqual(image_gen.lan_studio_urls(9000), ["http://<this-machine-ip>:9000"])
+
+    def test_cli_lan_banner_prints_ipv4(self) -> None:
+        buf = io.StringIO()
+        with patch.object(image_gen, "lan_ipv4_addresses", return_value=["10.0.0.8"]), patch(
+            "sys.stdout", buf
+        ):
+            image_gen.print_studio_banner("0.0.0.0", 8765)
+        text = buf.getvalue()
+        self.assertIn("http://10.0.0.8:8765", text)
+        self.assertNotIn("<this-machine-ip>", text)
 
 
 def _official_git_fake(status_out: str = "", on_pull=None):

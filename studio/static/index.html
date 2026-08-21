@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="/static/css/components.css">
   <link rel="stylesheet" href="/static/css/views.css">
 </head>
-<body>
+<body data-shell="compose">
   <header class="top">
     <div class="brand">
       <span class="mark"></span>
@@ -19,11 +19,11 @@
       </div>
     </div>
     <div class="meta">
-      <span id="workspace-pill">Dyro 工作区</span>
-      <button type="button" class="pill" id="version-pill">…</button>
-      <button type="button" class="pill" id="log-pill">更新日志</button>
-      <button type="button" class="pill" id="backdrop-toggle" title="纯色画布更适合评估白平衡">画布底</button>
-      <button type="button" class="pill" id="mode-toggle" title="专业模式会显示贴图槽位和框选重绘">模式</button>
+      <span id="workspace-pill" class="compose-hide">Dyro 工作区</span>
+      <button type="button" class="pill compose-hide" id="version-pill">…</button>
+      <button type="button" class="pill compose-hide" id="log-pill">更新日志</button>
+      <button type="button" class="pill compose-hide" id="backdrop-toggle" title="纯色画布更适合评估白平衡">画布底</button>
+      <button type="button" class="pill compose-hide" id="mode-toggle" title="专业模式会显示贴图槽位和框选重绘">模式</button>
       <button type="button" class="pill" id="library-open" title="打开素材库">素材库</button>
     </div>
   </header>
@@ -35,9 +35,9 @@
     </aside>
     <aside class="round">
       <p class="kicker">本轮</p>
-      <p class="round-empty" id="round-empty">还没有 take。<br>在相纸上写一句就开始。</p>
+      <p class="round-empty" id="round-empty">还没有图。<br>写一句就开始。</p>
       <div class="director" id="director" hidden>
-        <p class="director-status" id="director-status">可以看这张，或直接说一句接着改。默认改上一张，不从零再赌。按住空格对比上一张。</p>
+        <p class="director-status" id="director-status">说一句接着改。按住空格看上一张。</p>
         <div class="director-issues" id="director-issues"></div>
         <div class="director-turns" id="director-turns"></div>
         <div class="export" id="export">
@@ -59,7 +59,7 @@
 
     <section class="stage">
       <div id="candidates" hidden>
-        <p class="kicker" id="candidate-summary">候选</p>
+        <p class="kicker" id="candidate-summary">挑一张</p>
         <div id="candidate-grid" class="candidate-grid"></div>
         <div class="candidate-dock">
           <button type="button" id="more-candidates">再来 2 张</button>
@@ -68,19 +68,16 @@
       <div class="viewer" id="viewer">
         <span class="compare-badge" id="compare-badge" hidden>上一张</span>
         <div class="paper" id="empty-view">
-          <p class="paper-kicker">本机暗房 · LOCAL STUDIO</p>
           <h1>这一张要什么</h1>
-          <textarea id="prompt" rows="5" required placeholder="一句就行。例如：小红书封面，人物出镜，主标题「夏季训练营」原文入画。"></textarea>
-          <div class="chips" id="templates"></div>
-          <div class="snippet-row">
-            <div class="chips snippets" id="snippets"></div>
-            <label class="color-chip" title="插入主色，不要改成别的色">
-              色
-              <input id="snippet-color" type="color" value="#c45c26">
+          <textarea id="prompt" rows="3" required placeholder="一句就行。例如：小红书封面，人物出镜，主标题原文入画。"></textarea>
+          <div id="templates" class="template-picker"></div>
+          <div class="compose-refs-row">
+            <div id="compose-refs" class="ref-list"></div>
+            <label class="compose-ref-add">加参考图
+              <input id="compose-upload" type="file" accept="image/png,image/jpeg" multiple>
             </label>
-            <button type="button" class="ghost snippet-save" id="snippet-save" title="把相纸上选中的那句收到常用">收这句话</button>
           </div>
-          <button type="button" class="go" id="brief-btn">整理并出图</button>
+          <button type="button" class="go" id="brief-btn">出图</button>
         </div>
         <span class="aspect-badge" id="aspect-badge" hidden></span>
         <img id="hero" alt="" hidden>
@@ -104,6 +101,13 @@
         <button type="button" id="director-revise">按这句改</button>
       </div>
       <dl class="facts" id="facts" hidden></dl>
+      <div class="status" id="status" hidden>
+        <p class="status-line" id="status-line"></p>
+        <details class="status-detail" id="status-detail-wrap" hidden>
+          <summary>查看原始返回</summary>
+          <pre id="status-detail"></pre>
+        </details>
+      </div>
     </section>
 
     <div class="desk" id="desk">
@@ -201,21 +205,22 @@
       <div class="refs">
         <span>参考图</span>
         <div id="refs" class="ref-list"></div>
-        <label class="upload">上传到素材库
-          <input id="upload" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+        <label class="upload">加参考图
+          <input id="upload" type="file" accept="image/png,image/jpeg" multiple>
         </label>
+      </div>
+      <div class="snippet-row">
+        <div class="chips snippets" id="snippets"></div>
+        <label class="color-chip" title="插入主色，不要改成别的色">
+          色
+          <input id="snippet-color" type="color" value="#c45c26">
+        </label>
+        <button type="button" class="ghost snippet-save" id="snippet-save" title="把相纸上选中的那句收到常用">收这句话</button>
       </div>
 
       <div class="actions">
         <button type="button" id="new-take" class="ghost">新画一张</button>
         <button type="button" id="preview-btn" class="ghost">只预览一稿</button>
-      </div>
-      <div class="status" id="status" hidden>
-        <p class="status-line" id="status-line"></p>
-        <details class="status-detail" id="status-detail-wrap" hidden>
-          <summary>查看原始返回</summary>
-          <pre id="status-detail"></pre>
-        </details>
       </div>
     </div>
   </main>
@@ -240,6 +245,13 @@
       <div class="library-toolbar">
         <input id="library-search" type="search" placeholder="搜素材">
         <div class="chips" id="library-filters"></div>
+      </div>
+      <div class="library-empty" id="library-empty" hidden>
+        <p>还没有素材。</p>
+        <p>出过的图会落在这里。也可以先上传一张参考图。</p>
+        <label class="upload">上传图片
+          <input id="library-upload" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+        </label>
       </div>
       <div class="library-grid" id="library-grid"></div>
     </section>
@@ -302,7 +314,7 @@
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <p class="dialog-kicker">生图确认</p>
       <h2 id="confirm-title">会消耗这次选中后端的配额</h2>
-      <p class="dialog-copy" id="confirm-copy">图会交给本仓 CLI。预览不花额度；点确认才会真正出图。</p>
+      <p class="dialog-copy" id="confirm-copy">预览不花额度。确认后才会真正出图，取消不花额度。</p>
       <ul class="brand-constraints" id="brand-constraints" hidden></ul>
       <div class="dialog-actions">
         <button type="button" class="ghost" id="confirm-no" data-dialog-cancel>取消</button>

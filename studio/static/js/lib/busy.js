@@ -64,7 +64,7 @@ export function startBusy(title, detail, opts) {
     const seconds = Math.floor((Date.now() - state.busyStarted) / 1000);
     let text = develop
       ? `显影 ${seconds}s${providerName ? " · " + providerName : ""}`
-      : `已等 ${seconds} 秒 · 仍在等后端`;
+      : `已等 ${seconds} 秒`;
     if (develop && state.expectSeconds && seconds > state.expectSeconds) {
       text += " · 比平时久";
     }
@@ -98,7 +98,7 @@ export function waitingCopy(provider, aspect) {
     return (
       "Codex 订阅出图通常 1–3 分钟，请不要关闭或连点。" +
       `你选了 ${aspect || "默认"}，它只能按方/横/竖三档去要，结果仍可能被改画幅。` +
-      "这一步也不会按「优化」改写提示词。"
+      "这一步按你写下的画面说明出图。"
     );
   }
   if (provider === "grok" || provider === "xai") {
@@ -112,8 +112,9 @@ export function waitingCopy(provider, aspect) {
 
 // 每步报价：把历史均时变成知情同意。
 export function quoteCopy(count, provider) {
-  const name = PROVIDER_NAMES[provider] || "所选后端";
+  const name =
+    !provider || provider === "auto" ? "本机" : PROVIDER_NAMES[provider] || "所选后端";
   const expect = expectCopy(provider, $("resolution").value);
   const pace = expect.average ? `按近期速度每张约 ${formatDuration(expect.average)}` : "每张几十秒到几分钟";
-  return `出图 ×${count}（${name} 订阅配额）+ 看图 ×${count}（文本额度）。${pace}。取消不花额度。`;
+  return `出图 ×${count}（${name}订阅配额）+ 看图 ×${count}（文本额度）。${pace}。取消不花额度。`;
 }

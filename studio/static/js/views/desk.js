@@ -118,31 +118,56 @@ export function renderTemplates() {
   root.innerHTML = "";
   const current = $("template").value;
   const found = TEMPLATES.find((row) => row[0] === current);
+  if (!found) return;
+  const meta = document.createElement("div");
+  meta.className = "template-meta";
   const badge = document.createElement("button");
   badge.type = "button";
   badge.id = "template-badge";
-  badge.textContent = (found ? found[1] : "按这句话推断") + " [换]";
+  badge.textContent = found[1];
   badge.addEventListener("click", () => {
     state.templateSheet = true;
     notify();
   });
-  root.appendChild(badge);
+  const more = document.createElement("button");
+  more.type = "button";
+  more.id = "template-more";
+  more.textContent = "换";
+  more.addEventListener("click", () => {
+    state.templateSheet = true;
+    notify();
+  });
+  meta.appendChild(badge);
+  meta.appendChild(more);
+  root.appendChild(meta);
 }
 
-export function renderRefs() {
-  const root = $("refs");
+function fillRefList(root) {
+  if (!root) return;
   root.innerHTML = "";
   for (const ref of state.refs) {
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.className = "chip";
-    chip.textContent = "× " + ref;
+    chip.className = "ref-thumb";
+    chip.title = "去掉这张参考图";
+    const img = document.createElement("img");
+    img.src = "/thumb/" + ref;
+    img.alt = "";
+    img.addEventListener("error", () => {
+      img.src = "/media/" + ref;
+    });
+    chip.appendChild(img);
     chip.addEventListener("click", () => {
       state.refs = state.refs.filter((item) => item !== ref);
       notify();
     });
     root.appendChild(chip);
   }
+}
+
+export function renderRefs() {
+  fillRefList($("refs"));
+  fillRefList($("compose-refs"));
 }
 
 export function insertIntoPrompt(text) {
@@ -228,5 +253,6 @@ export async function saveSnippetFromSelection() {
 
 subscribe(() => {
   renderRefs();
+  renderTemplates();
   syncFollowRoute(state.selected);
 });

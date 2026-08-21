@@ -130,7 +130,7 @@ python3 scripts/local_image_gen.py update
 - Cursor: local `cursor-agent` (Nano Banana Pro). Used when Nano Banana is requested and Antigravity is unavailable, or with `--provider cursor`.
 - API keys: `XAI_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `NANOBANANA_API_KEY`, plus `--api-key-file` and `~/.local-image-gen.env`. Gemini keys are only a fallback if `agy` is missing.
 - API bases (API-key path only): official defaults are `https://api.x.ai/v1`, `https://api.openai.com/v1`, and `https://generativelanguage.googleapis.com/v1beta`. Override with `--base-url` or `XAI_BASE_URL` / `OPENAI_BASE_URL` / `GEMINI_BASE_URL`. Unofficial routers are never the default. Subscriptions keep their official endpoints and ignore a custom base.
-- Dyro is optional. If the current directory is inside a Dyro workspace (`dyro.toml`) and the user did not pass `-o` / `--out-dir`, write images to `<workspace>/outputs/images`. Never require the `dyro` CLI.
+- Dyro is optional. If the current directory is inside a Dyro workspace (`dyro.toml`) and the user did not pass `-o` / `--out-dir`, write images to `<workspace>/outputs/images`, a symlink to `~/.local-image-gen/`. Never require the `dyro` CLI.
 
 Never print tokens or keys. If a subscription file is missing, tell the user the matching login command instead of asking for a key first.
 

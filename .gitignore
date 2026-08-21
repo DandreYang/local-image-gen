@@ -9,6 +9,7 @@ venv/
 !.env.example
 .local-image-gen.env
 outputs/
+generated_images/
 *.png
 *.jpg
 *.jpeg
@@ -27,3 +28,4 @@ studio/__pycache__/
 .superpowers/
 .loopx/
 .codex/goals/
+.gstack/

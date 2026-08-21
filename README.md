@@ -62,7 +62,7 @@ local-image-gen studio            # open the local Studio UI (opens a browser)
 local-image-gen studio --lan --daemon   # detach on a Linux host; then --stop
 ```
 
-Studio is a local web UI for the same CLI. `local-image-gen studio` binds `127.0.0.1:8765` by default and opens a browser after the server is listening. `--no-open` skips the browser. `--lan` binds `0.0.0.0` and prints a warning: LAN bind shares this machine's image backends with the network. On a host with a public IP, restrict the port with a firewall or security group; this tool does not add login or TLS. `--daemon` detaches from the terminal (implies `--no-open`); `local-image-gen studio --stop` is idempotent. Closing a foreground terminal stops Studio. There is no systemd unit.
+Studio is a local web UI for the same CLI. `local-image-gen studio` binds `127.0.0.1:8765` by default and opens a browser after the server is listening. `--no-open` skips the browser. `--lan` binds `0.0.0.0`, prints this machine's IPv4 URL(s), and warns that LAN bind shares this machine's image backends with the network. On a host with a public IP, restrict the port with a firewall or security group; this tool does not add login or TLS. `--daemon` detaches from the terminal (implies `--no-open`); `local-image-gen studio --stop` is idempotent. Closing a foreground terminal stops Studio. There is no systemd unit.
 
 `update` refuses a dirty checkout, a tree whose git status cannot be read, a non-git copy, a non-official `origin`, and any branch other than `main`/`master`. It only runs `git pull --ff-only origin main`. It does not run `curl | bash`. Generate commands never check GitHub for a new version. `LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` skips the doctor freshness GET (Dyro's 5s spawn should set this).
 
@@ -70,7 +70,7 @@ Studio is a local web UI for the same CLI. `local-image-gen studio` binds `127.0
 
 This project does **not** require [Dyro](https://github.com/DandreYang/DyroEngineeringFlow). It stays a standalone CLI and skill.
 
-If you run it inside a Dyro workspace (an ancestor `dyro.toml`) and omit `-o` / `--out-dir`, images go to `<workspace>/outputs/images` so they stay out of `repositories/` and task worktrees. `-o` always wins.
+If you run it inside a Dyro workspace (an ancestor `dyro.toml`) and omit `-o` / `--out-dir`, images go to `<workspace>/outputs/images`. That path is a symlink to `~/.local-image-gen/`, so blobs live in a user-level store (same idea as Codex `~/.codex/generated_images`) instead of `repositories/` or a task worktree. `-o` always wins. Override the store with `LOCAL_IMAGE_GEN_OUTPUTS`.
 
 `local-image-gen doctor` reports backends, whether a Dyro CLI or workspace is present, and whether this install is behind `main`. It does not generate an image. `--doctor` is an alias.
 
@@ -171,4 +171,4 @@ No third-party Python dependencies.
 
 ## Related sibling
 
-[`DyroEngineeringFlow`](https://github.com/DandreYang/DyroEngineeringFlow) (`dyro`) is an optional first-party delivery control plane. Same house, not the same product: this CLI does not require it, and installing one does not install the other. If you already have a Dyro workspace, omit `-o` / `--out-dir` and images go to `<workspace>/outputs/images`.
+[`DyroEngineeringFlow`](https://github.com/DandreYang/DyroEngineeringFlow) (`dyro`) is an optional first-party delivery control plane. Same house, not the same product: this CLI does not require it, and installing one does not install the other. If you already have a Dyro workspace, omit `-o` / `--out-dir` and images go to `<workspace>/outputs/images` (a symlink to `~/.local-image-gen/`).

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -55,6 +57,58 @@ class StudioServerLaunchTests(unittest.TestCase):
             fake_http.return_value.serve_forever.return_value = None
             self.assertEqual(studio_server.main(["--lan", "--port", "8765"]), 0)
         self.assertEqual(opened, ["http://127.0.0.1:8765"])
+
+    def test_lan_banner_prints_detected_ipv4(self) -> None:
+        lines: list[str] = []
+        with patch.object(studio_server.cli, "lan_ipv4_addresses", return_value=["192.168.1.12"]), patch.object(
+            studio_server, "print"
+        ) as fake_print:
+            fake_print.side_effect = lambda *args, **kwargs: lines.append(" ".join(str(a) for a in args))
+            studio_server.print_studio_banner("0.0.0.0", 8765)
+        self.assertIn("LAN          http://192.168.1.12:8765", lines)
+        self.assertNotIn("LAN          http://<this-machine-ip>:8765", lines)
+
+    def test_outputs_follow_dyro_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "dyro.toml").write_text('[workspace]\nname = "demo"\n', encoding="utf-8")
+            nested = root / "repositories" / "local-image-gen"
+            nested.mkdir(parents=True)
+            with patch.object(studio_server.Path, "cwd", return_value=nested), patch.dict(
+                os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(root / "blobs")}
+            ):
+                resolved = studio_server.resolve_outputs_root()
+                self.assertEqual(resolved.resolve(), (root / "blobs").resolve())
+                self.assertTrue((root / "outputs").is_symlink())
+
+    def test_outputs_fallback_to_package_without_dyro(self) -> None:
+        with patch.object(studio_server.cli, "find_dyro_workspace", return_value=None):
+            self.assertEqual(studio_server.resolve_outputs_root(), studio_server.WORKSPACE / "outputs")
+
+    def test_fixture_generate_writes_png_without_cli(self) -> None:
+        original_outputs = studio_server.OUTPUTS
+        original_images = studio_server.IMAGE_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"LOCAL_IMAGE_GEN_STUDIO_FIXTURE": "1"}):
+                studio_server.OUTPUTS = Path(tmp)
+                studio_server.IMAGE_DIR = Path(tmp) / "images"
+                result = studio_server.generate_compiled({"aspect": "1:1"}, "一句封面")
+                self.assertTrue(result["success"])
+                self.assertTrue(result["fixture"])
+                self.assertTrue(Path(result["image"]).is_file())
+                self.assertGreater(Path(result["image"]).stat().st_size, 32)
+        finally:
+            studio_server.OUTPUTS = original_outputs
+            studio_server.IMAGE_DIR = original_images
+
+    def test_fixture_compile_skips_cli(self) -> None:
+        with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_STUDIO_FIXTURE": "1"}), patch.object(
+            studio_server, "run_cli"
+        ) as fake_cli:
+            payload = studio_server.compile_job({"prompt": "小红书封面"})
+        fake_cli.assert_not_called()
+        self.assertTrue(payload["fixture"])
+        self.assertEqual(payload["prompt"]["used"], "小红书封面")
 
     def test_open_failure_does_not_abort(self) -> None:
         with patch.object(studio_server, "ThreadingHTTPServer") as fake_http, patch.object(

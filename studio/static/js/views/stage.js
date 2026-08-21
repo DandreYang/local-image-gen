@@ -35,7 +35,7 @@ export function renderFacts(item) {
   action.className = "ghost";
   action.textContent = "用作参考图";
   action.addEventListener("click", () => {
-    if (!state.refs.includes(item.id)) state.refs.push(item.id);
+    if (!state.refs.includes(item.id) && state.refs.length < 4) state.refs.push(item.id);
     notify();
   });
   const wrap = document.createElement("dd");

@@ -1,19 +1,22 @@
 import { state, subscribe, notify } from "../state.js";
 import { getJson, fetchLibrary } from "../api.js";
-import { escapeHtml, formBody } from "../lib/format.js";
-import { PROVIDER_NAMES } from "../lib/constants.js";
+import { escapeHtml, formBody, uniqueImages } from "../lib/format.js";
 import { showStatus, showError } from "../lib/status.js";
-import { startBusy, stopBusy, waitingCopy, quoteCopy } from "../lib/busy.js";
+import { startBusy, stopBusy, quoteCopy } from "../lib/busy.js";
 
 const $ = (id) => document.getElementById(id);
 
 function modeLine(card) {
   const n = (card.jobs || []).length;
-  if (card.mode === "series") return `套图 ${n} 张 · 串行锁脸`;
-  if (card.mode === "variants" || card.mode === "parallel") return `${n} 张独立风格 · 最多两路同时`;
-  if (card.mode === "candidates") return `${n} 张候选 · 同一份终稿`;
+  if (card.mode === "series") return `套图 ${n} 张，一张接一张`;
+  if (card.mode === "variants" || card.mode === "parallel") return `${n} 张不同风格`;
+  if (card.mode === "candidates") return `${n} 张，同一句话`;
   if (n > 1) return `${n} 张`;
-  return "1 张单图";
+  return "1 张";
+}
+
+function shareDraft(card) {
+  return card.mode === "candidates" || (card.jobs || []).length <= 1;
 }
 
 function statusLabel(status) {
@@ -50,15 +53,21 @@ async function waitBatch(id) {
     const done = rows.filter((job) => job.status === "done").length;
     $("busy-sub").textContent =
       snap.mode === "series"
-        ? `套图串行 ${done}/${rows.length}，后一张锁上一张的脸。`
-        : `独立任务最多两路同时。完成 ${done}/${rows.length}，进行中 ${running}。`;
+        ? `套图 ${done}/${rows.length}，后一张跟着上一张的脸。`
+        : `完成 ${done}/${rows.length}，进行中 ${running}。`;
     if (snap.status === "done" || snap.status === "failed") return snap;
     await sleep(1500);
   }
 }
 
 export function collectEditedJobs() {
-  return (state.brief.jobs || []).map((job) => {
+  const jobs = state.brief.jobs || [];
+  const shared = $("draft-shared");
+  if (shared) {
+    const text = shared.value;
+    return jobs.map((job) => ({ ...job, draft: text }));
+  }
+  return jobs.map((job) => {
     const node = $("draft-" + job.id);
     return { ...job, draft: node ? node.value : job.draft || job.prompt };
   });
@@ -122,37 +131,59 @@ export function renderBrief(card) {
   hero.hidden = true;
   node.hidden = false;
   const facts = (card.facts || [])
-    .map((item) => `<li><strong>${escapeHtml(item.source)}</strong> ${escapeHtml(item.text)}</li>`)
+    .filter((item) => item && item.source && item.source !== "user")
+    .map((item) => `<li>${escapeHtml(item.text)}</li>`)
     .join("");
   const warnings = (card.warnings || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-  const jobs = (card.jobs || [])
-    .map((job) => {
-      const draft = job.draft || job.prompt || "";
-      const family = job.family ? ` · ${escapeHtml(job.family)}` : "";
-      const route = job.provider
-        ? ` · ${escapeHtml(PROVIDER_NAMES[job.provider] || job.provider)}${job.model ? " " + escapeHtml(job.model) : ""}`
-        : "";
-      const err = job.compile_error
-        ? `<p class="warn-list">编译失败：${escapeHtml(String(job.compile_error))}</p>`
-        : "";
-      const beat = job.beat ? ` · ${escapeHtml(job.beat)}` : "";
-      return `<div class="job">
-        <strong>${escapeHtml(job.style || "主风格")}</strong>${beat}${route} · ${escapeHtml(job.aspect || "")}${family}
-        <p class="draft-label">发给生图模型的终稿（可改）</p>
+  const jobs = card.jobs || [];
+  let jobsHtml = "";
+  if (shareDraft(card) && jobs.length) {
+    const draft = jobs[0].draft || jobs[0].prompt || "";
+    const err = jobs
+      .filter((job) => job.compile_error)
+      .map((job) => `<p class="warn-list">${escapeHtml(String(job.compile_error))}</p>`)
+      .join("");
+    jobsHtml = `<div class="job">
+      <p class="draft-label">画面说明，可改</p>
+      ${err}
+      <textarea class="draft" id="draft-shared" rows="8">${escapeHtml(draft)}</textarea>
+    </div>`;
+  } else {
+    jobsHtml = jobs
+      .map((job) => {
+        const draft = job.draft || job.prompt || "";
+        const err = job.compile_error
+          ? `<p class="warn-list">${escapeHtml(String(job.compile_error))}</p>`
+          : "";
+        const beat = job.beat ? " · " + escapeHtml(job.beat) : "";
+        return `<div class="job">
+        <strong>${escapeHtml(job.style || job.beat || "这一张")}</strong>${beat} · ${escapeHtml(job.aspect || "")}
+        <p class="draft-label">画面说明，可改</p>
         ${err}
-        <textarea class="draft" id="draft-${escapeHtml(job.id)}" rows="14">${escapeHtml(draft)}</textarea>
+        <textarea class="draft" id="draft-${escapeHtml(job.id)}" rows="8">${escapeHtml(draft)}</textarea>
       </div>`;
-    })
-    .join("");
+      })
+      .join("");
+  }
+  const quote = quoteCopy(jobs.length || 1, $("provider").value);
+  const searched = card.searched ? " · 已对照公开资料补全" : "";
+  const refIds = uniqueImages((state.refs || []).concat((jobs[0] && jobs[0].images) || []));
+  const refsHtml = refIds.length
+    ? `<div class="brief-refs">${refIds
+        .map((ref) => `<img src="/thumb/${escapeHtml(ref)}" alt="">`)
+        .join("")}<span>参考图 ${refIds.length} 张，会锁进画面</span></div>`
+    : "";
   node.innerHTML = `
-    <h2>${escapeHtml(card.template_label || card.template || "任务")}</h2>
-    <p class="meta-line">${card.searched ? "已检索官方网页" : "未检索"} · ${escapeHtml(modeLine(card))} · Codex / gpt-image-2 应出现 Use case: 标签</p>
-    <ul>${facts || "<li>没有抽出事实</li>"}</ul>
+    <h2>${escapeHtml(card.template_label || card.template || "这一张")}</h2>
+    <p class="meta-line">${escapeHtml(modeLine(card))}${searched}</p>
+    ${refsHtml}
+    ${facts ? `<ul>${facts}</ul>` : ""}
     <ul class="warn-list">${warnings}</ul>
-    ${jobs}
+    ${jobsHtml}
+    <p class="quote-line">${escapeHtml(quote)}</p>
     <div class="actions">
       <button type="button" class="ghost" id="cancel-brief">取消</button>
-      <button type="button" id="run-brief">确认并出这 ${card.jobs.length} 张</button>
+      <button type="button" id="run-brief">出这 ${jobs.length} 张</button>
     </div>
   `;
   $("run-brief").addEventListener("click", runBriefJobs);
@@ -166,7 +197,6 @@ export function cancelBrief() {
   if (state.selected) {
     $("empty-view").hidden = true;
     $("hero").hidden = false;
-    notify();
   } else {
     $("empty-view").hidden = false;
     $("hero").hidden = true;
@@ -174,6 +204,7 @@ export function cancelBrief() {
     $("follow").hidden = true;
     $("round-empty").hidden = false;
   }
+  notify();
 }
 
 export async function runBrief() {
@@ -182,7 +213,7 @@ export async function runBrief() {
     $("prompt").focus();
     return;
   }
-  startBusy("正在整理任务", "先检索，再按所选模型家族写成终稿。这一步花文本额度，不花生图额度。");
+  startBusy("正在整理这句话", "先写成画面说明。这一步用文本额度，还不出图。");
   try {
     const payload = await getJson("/api/brief", {
       method: "POST",
@@ -196,10 +227,10 @@ export async function runBrief() {
       showError(payload, "这一句没能整理成终稿。");
       return;
     }
-    showStatus({ ok: true, message: "请核对发给生图模型的终稿。可直接改字，取消不会出图。" });
     if (payload.template) $("template").value = payload.template;
     if (payload.brand_constraints) state.brandConstraints = payload.brand_constraints;
     renderBrief(payload);
+    notify();
   } catch (error) {
     showStatus({ ok: false, message: String(error.message || error) });
   } finally {
@@ -209,22 +240,16 @@ export async function runBrief() {
 
 export async function runBriefJobs() {
   if (!state.brief || !state.brief.jobs) return;
-  const n = state.brief.jobs.length;
-  const lead =
-    state.brief.mode === "series"
-      ? `套图 ${n} 张，一张接一张锁脸。`
-      : state.brief.mode === "candidates"
-        ? `${n} 张候选，同一份终稿。`
-        : n > 1
-          ? `${n} 张独立风格，最多两路同时出。`
-          : "出 1 张。";
   const constraints = (state.brief.brand_constraints || state.brandConstraints || []).filter(Boolean);
-  const ok = await askConfirm(lead + quoteCopy(n, $("provider").value));
-  if (!ok) return;
+  const images = uniqueImages(state.refs);
   const jobs = collectEditedJobs().map((job) => {
-    if (!constraints.length) return job;
+    const next = {
+      ...job,
+      images: uniqueImages((job.images || []).concat(images)),
+    };
+    if (!constraints.length) return next;
     const extra = constraints.map((line) => String(line)).join(" ");
-    return { ...job, draft: extra + " " + (job.draft || job.prompt || "") };
+    return { ...next, draft: extra + " " + (next.draft || next.prompt || "") };
   });
   const body = {
     jobs,

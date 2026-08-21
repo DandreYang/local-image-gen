@@ -1,4 +1,4 @@
-"""Look at a result and rewrite the next turn. Official xAI only. No shell."""
+"""Look at a result and rewrite the next turn. Grok first, then Codex / OpenAI / Gemini."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -21,6 +21,12 @@ from job import _extract_json_object, _research_token, _response_text  # noqa: E
 LOOK_TIMEOUT = 90
 LOOK_MODEL = "grok-4.6"
 OFFICIAL_GROK = "https://api.x.ai/v1"
+LOOK_MODELS = {
+    "grok": LOOK_MODEL,
+    "codex": getattr(cli, "CODEX_RESPONSE_MODEL", "gpt-5.6-terra"),
+    "openai": "gpt-5.6-terra",
+    "gemini": "gemini-2.5-flash",
+}
 
 LOOK_INSTRUCTIONS = (
     "You look at one generated image for a local image studio. "
@@ -108,21 +114,176 @@ def parse_revise_payload(text: str, *, message: str, draft: str, last_image: str
     }
 
 
-def _call_responses(body: Dict[str, Any]) -> str:
+def list_look_backends() -> List[Dict[str, str]]:
+    loaded = cli.env_search_files(None)
+    backends: List[Dict[str, str]] = []
+    grok = cli.grok_optimize_token(loaded, None)
+    if grok:
+        backends.append(grok)
+    if cli.codex_auth_available():
+        backends.append({"provider": "codex", "auth": "subscription"})
+    openai = cli.openai_optimize_token(loaded, None)
+    if openai:
+        backends.append(openai)
+    gemini = cli.gemini_optimize_token(loaded, None)
+    if gemini:
+        backends.append(gemini)
+    return backends
+
+
+def _split_data_url(data_url: str) -> Tuple[str, str]:
+    header, _, blob = data_url.partition(",")
+    mime = "image/jpeg" if "jpeg" in header else "image/png"
+    return mime, blob
+
+
+def _no_look_backend_error() -> str:
+    return (
+        "没有可用的看图通道（需要 grok login、codex auth login、OPENAI_API_KEY 或 GEMINI_API_KEY）。"
+    )
+
+
+def _call_grok_director(backend: Dict[str, str], system: str, user: str, image_url: Optional[str]) -> str:
     auth = _research_token()
     if not auth:
-        raise cli.ImageGenError("没有可用的官方 Grok 文本（需要 grok login 或 XAI_API_KEY）。")
+        token = backend.get("token") or ""
+        if not token:
+            raise cli.ImageGenError("没有可用的官方 Grok 文本（需要 grok login 或 XAI_API_KEY）。")
+        auth = {"token": token, "base_url": backend.get("base_url") or OFFICIAL_GROK}
+    content: List[Dict[str, Any]] = [{"type": "input_text", "text": user}]
+    if image_url:
+        content.insert(0, {"type": "input_image", "image_url": image_url})
     _, payload, _ = cli.http_request(
-        f"{auth['base_url']}/responses",
+        f"{auth['base_url'].rstrip('/')}/responses",
         headers={
             "Authorization": f"Bearer {auth['token']}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         },
-        body=json.dumps(body).encode("utf-8"),
+        body=json.dumps(
+            {
+                "model": LOOK_MODELS["grok"],
+                "input": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": content},
+                ],
+            }
+        ).encode("utf-8"),
         timeout=LOOK_TIMEOUT,
     )
     return _response_text(payload)
+
+
+def _call_openai_director(backend: Dict[str, str], system: str, user: str, image_url: Optional[str]) -> str:
+    user_content: Any = user
+    if image_url:
+        user_content = [
+            {"type": "text", "text": user},
+            {"type": "image_url", "image_url": {"url": image_url}},
+        ]
+    _, payload, _ = cli.http_request(
+        f"{backend['base_url'].rstrip('/')}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {backend['token']}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        body=json.dumps(
+            {
+                "model": LOOK_MODELS["openai"],
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_content},
+                ],
+                "temperature": 0.2,
+                "max_tokens": 800,
+            }
+        ).encode("utf-8"),
+        timeout=LOOK_TIMEOUT,
+    )
+    return _response_text(payload) or cli.extract_chat_text(payload)
+
+
+def _call_gemini_director(backend: Dict[str, str], system: str, user: str, image_url: Optional[str]) -> str:
+    parts: List[Dict[str, Any]] = [{"text": f"{system}\n\n---\n\n{user}"}]
+    if image_url:
+        mime, blob = _split_data_url(image_url)
+        parts.append({"inline_data": {"mime_type": mime, "data": blob}})
+    _, payload, _ = cli.http_request(
+        f"{backend['base_url'].rstrip('/')}/models/{LOOK_MODELS['gemini']}:generateContent",
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "x-goog-api-key": backend["token"],
+        },
+        body=json.dumps(
+            {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 800},
+            }
+        ).encode("utf-8"),
+        timeout=LOOK_TIMEOUT,
+    )
+    return cli.extract_gemini_text(payload)
+
+
+def _call_codex_director(system: str, user: str, image_url: Optional[str]) -> str:
+    access, account_id, _mode = cli.refresh_codex_auth()
+    content: List[Dict[str, Any]] = [{"type": "input_text", "text": user}]
+    if image_url:
+        content.insert(0, {"type": "input_image", "image_url": image_url})
+    _, payload, _ = cli.http_request(
+        cli.CODEX_RESPONSES_ENDPOINT,
+        headers={
+            "Authorization": f"Bearer {access}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "codex_cli_rs/0.0.0",
+            "originator": "codex_cli_rs",
+            "ChatGPT-Account-ID": account_id,
+        },
+        body=json.dumps(
+            {
+                "model": LOOK_MODELS["codex"],
+                "store": False,
+                "stream": False,
+                "instructions": system,
+                "input": [{"type": "message", "role": "user", "content": content}],
+            }
+        ).encode("utf-8"),
+        timeout=LOOK_TIMEOUT,
+    )
+    return _response_text(payload)
+
+
+def _call_director(backend: Dict[str, str], system: str, user: str, image_url: Optional[str] = None) -> str:
+    provider = backend.get("provider")
+    if provider == "grok":
+        return _call_grok_director(backend, system, user, image_url)
+    if provider == "openai":
+        return _call_openai_director(backend, system, user, image_url)
+    if provider == "gemini":
+        return _call_gemini_director(backend, system, user, image_url)
+    if provider == "codex":
+        return _call_codex_director(system, user, image_url)
+    raise cli.ImageGenError(f"unsupported look backend: {provider}")
+
+
+def _call_director_with_fallback(system: str, user: str, image_url: Optional[str] = None) -> Tuple[str, Dict[str, str]]:
+    backends = list_look_backends()
+    if not backends:
+        raise cli.ImageGenError(_no_look_backend_error())
+    errors: List[str] = []
+    for backend in backends:
+        try:
+            text = _call_director(backend, system, user, image_url)
+        except cli.ImageGenError as exc:
+            errors.append(f"{backend.get('provider')}: {exc}")
+            continue
+        if text and str(text).strip():
+            return str(text), backend
+        errors.append(f"{backend.get('provider')}: empty")
+    raise cli.ImageGenError("看图通道都失败了。 " + " | ".join(errors[:4]))
 
 
 def look_at_image(path: Path, *, draft: str = "", brief: str = "") -> Dict[str, Any]:
@@ -136,23 +297,10 @@ def look_at_image(path: Path, *, draft: str = "", brief: str = "") -> Dict[str, 
         + "\n\n请看图并对照。"
     )
     try:
-        text = _call_responses(
-            {
-                "model": LOOK_MODEL,
-                "input": [
-                    {
-                        "role": "system",
-                        "content": LOOK_INSTRUCTIONS,
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "input_image", "image_url": data_url_for_look(path)},
-                            {"type": "input_text", "text": user_text},
-                        ],
-                    },
-                ],
-            }
+        text, backend = _call_director_with_fallback(
+            LOOK_INSTRUCTIONS,
+            user_text,
+            data_url_for_look(path),
         )
     except cli.ImageGenError as exc:
         return {"success": False, "looked": False, "error": str(exc)}
@@ -161,6 +309,7 @@ def look_at_image(path: Path, *, draft: str = "", brief: str = "") -> Dict[str, 
     payload = parse_look_payload(text)
     payload["success"] = True
     payload["looked"] = True
+    payload["backend"] = backend.get("provider")
     payload["raw"] = text[:1500]
     return payload
 
@@ -198,19 +347,12 @@ def revise_turn(
         + ("\n\n有上一张图，默认改图。" if last_image else "\n\n没有上一张图，只能新画。")
     )
     try:
-        raw = _call_responses(
-            {
-                "model": LOOK_MODEL,
-                "input": [
-                    {"role": "system", "content": REVISE_INSTRUCTIONS},
-                    {"role": "user", "content": user_text},
-                ],
-            }
-        )
+        raw, backend = _call_director_with_fallback(REVISE_INSTRUCTIONS, user_text)
     except cli.ImageGenError as exc:
         return {"success": False, "error": str(exc)}
     if not raw.strip():
         return {"success": False, "error": "改稿没有返回文字。"}
     payload = parse_revise_payload(raw, message=text, draft=draft, last_image=last_image)
+    payload["backend"] = backend.get("provider")
     payload["raw"] = raw[:1200]
     return payload

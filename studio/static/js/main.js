@@ -3,7 +3,7 @@ import { getJson } from "./api.js";
 import { showStatus, showError } from "./lib/status.js";
 import { startBusy, stopBusy } from "./lib/busy.js";
 import { exportSelected } from "./lib/canvas.js";
-import { formBody } from "./lib/format.js";
+import { formBody, uniqueImages } from "./lib/format.js";
 
 import { startCompare, stopCompare, setBackdrop } from "./views/stage.js";
 import { refreshLibrary, openLibrary, closeLibrary, initLibrary, openLightbox, closeLightbox, lightboxStep } from "./views/library.js";
@@ -25,6 +25,7 @@ import { initCandidates } from "./views/candidates.js";
 import { initCmdk } from "./lib/cmdk.js";
 import { initTemplates } from "./views/templates.js";
 import { initProjects } from "./views/projects.js";
+import { initShell } from "./lib/shell.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -106,7 +107,9 @@ export async function boot() {
   initCmdk();
   initTemplates();
   initLibrary();
+  initShell();
   await initProjects();
+  if ($("prompt")) $("prompt").focus();
 }
 
 $("version-pill").addEventListener("click", openUpdates);
@@ -253,20 +256,58 @@ $("preview-btn").addEventListener("click", async () => {
   }
 });
 
-$("upload").addEventListener("change", async (event) => {
-  const files = event.target.files;
+const MAX_REFS = 4;
+
+async function addReferenceFiles(files) {
   if (!files || !files.length) return;
-  const data = new FormData();
-  for (const file of files) data.append("file", file, file.name);
-  const payload = await getJson("/api/upload", { method: "POST", body: data });
-  if (!payload.success) {
-    showError(payload, "上传失败。");
+  const room = Math.max(0, MAX_REFS - state.refs.length);
+  if (!room) {
+    showStatus({ ok: false, message: "参考图最多 4 张。点缩略图可去掉。" });
     return;
   }
-  state.refs.push(...payload.items);
+  const data = new FormData();
+  let count = 0;
+  for (const file of files) {
+    if (count >= room) break;
+    data.append("file", file, file.name);
+    count += 1;
+  }
+  const payload = await getJson("/api/upload", { method: "POST", body: data });
+  if (!payload.success) {
+    showError(payload, "参考图没传上去。");
+    return;
+  }
+  state.refs = uniqueImages(state.refs.concat(payload.items || [])).slice(0, MAX_REFS);
   notify();
   await refreshLibrary();
+}
+
+$("upload").addEventListener("change", async (event) => {
+  await addReferenceFiles(event.target.files);
+  event.target.value = "";
 });
+
+const composeUpload = $("compose-upload");
+if (composeUpload) {
+  composeUpload.addEventListener("change", async (event) => {
+    await addReferenceFiles(event.target.files);
+    event.target.value = "";
+  });
+}
+
+const paper = $("empty-view");
+if (paper) {
+  paper.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    paper.classList.add("is-drop");
+  });
+  paper.addEventListener("dragleave", () => paper.classList.remove("is-drop"));
+  paper.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    paper.classList.remove("is-drop");
+    await addReferenceFiles(event.dataTransfer && event.dataTransfer.files);
+  });
+}
 
 window.addEventListener("DOMContentLoaded", () => {
   boot().catch((error) => showStatus({ ok: false, message: String(error.message || error) }));

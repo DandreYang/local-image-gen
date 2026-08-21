@@ -1,6 +1,8 @@
 import { state, subscribe, notify } from "../state.js";
-import { fetchLibrary } from "../api.js";
+import { fetchLibrary, getJson } from "../api.js";
+import { showError } from "../lib/status.js";
 import { PROVIDER_NAMES } from "../lib/constants.js";
+import { uniqueImages } from "../lib/format.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -48,10 +50,37 @@ function edgeLabel(item) {
   return "";
 }
 
+function renderLibraryEmpty() {
+  const sheet = $("library-sheet");
+  const empty = $("library-empty");
+  const hasItems = (state.items || []).length > 0;
+  if (sheet) sheet.classList.toggle("is-empty", !hasItems);
+  if (empty) empty.hidden = hasItems;
+}
+
+async function uploadLibraryFiles(files) {
+  if (!files || !files.length) return;
+  const data = new FormData();
+  for (const file of files) data.append("file", file, file.name);
+  const payload = await getJson("/api/upload", { method: "POST", body: data });
+  if (!payload.success) {
+    showError(payload, "上传失败。");
+    return;
+  }
+  state.refs = uniqueImages(state.refs.concat(payload.items || [])).slice(0, 4);
+  notify();
+  await refreshLibrary();
+}
+
 export function renderLibrary() {
   const root = $("library-grid");
   const filters = $("library-filters");
+  renderLibraryEmpty();
   if (!root) return;
+  if (!(state.items || []).length) {
+    root.innerHTML = "";
+    return;
+  }
   const items = filteredItems();
   const groups = new Map();
   for (const item of items) {
@@ -91,7 +120,7 @@ export function renderLibrary() {
         notify();
       });
       button.addEventListener("dblclick", () => {
-        if (!state.refs.includes(item.id)) state.refs.push(item.id);
+        if (!state.refs.includes(item.id) && state.refs.length < 4) state.refs.push(item.id);
         notify();
       });
       grid.appendChild(button);
@@ -160,6 +189,13 @@ export function initLibrary() {
   }
   const search = $("library-search");
   if (search) search.addEventListener("input", renderLibrary);
+  const upload = $("library-upload");
+  if (upload) {
+    upload.addEventListener("change", async (event) => {
+      await uploadLibraryFiles(event.target.files);
+      event.target.value = "";
+    });
+  }
   subscribe(() => {
     const node = $("library-root");
     if (node) node.hidden = !state.libraryOpen;

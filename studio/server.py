@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 import webbrowser
+import zlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,8 +32,36 @@ import local_image_gen as cli
 WORKSPACE = Path(__file__).resolve().parents[1]
 CLI = WORKSPACE / "scripts" / "local_image_gen.py"
 STATIC = Path(__file__).resolve().parent / "static"
-OUTPUTS = WORKSPACE / "outputs"
+
+
+def resolve_outputs_root() -> Path:
+    """Studio storage follows the CLI: workspace/outputs → ~/.local-image-gen store."""
+    for start in (Path.cwd(), WORKSPACE):
+        found = cli.find_dyro_workspace(start)
+        if found is not None:
+            name = cli.dyro_workspace_name(found) or found.name
+            store = cli.generated_images_root(name)
+            return cli.ensure_outputs_link(found / "outputs", store)
+    return WORKSPACE / "outputs"
+
+
+OUTPUTS = resolve_outputs_root()
 IMAGE_DIR = OUTPUTS / "images"
+
+
+def studio_fixture_enabled() -> bool:
+    return os.environ.get("LOCAL_IMAGE_GEN_STUDIO_FIXTURE", "").strip().lower() in {"1", "true", "yes"}
+
+
+def fixture_png_bytes() -> bytes:
+    width, height = 64, 64
+    raw = b"".join(b"\x00" + (b"\x70\x88\xa0" * width) for _ in range(height))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
 INBOX = IMAGE_DIR / "inbox"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -73,10 +102,21 @@ def public_studio_url(host: str, port: int) -> str:
 def print_studio_banner(host: str, port: int) -> None:
     if host in {"0.0.0.0", "::"}:
         print(f"local studio  http://127.0.0.1:{port}", flush=True)
-        print(f"LAN          http://<this-machine-ip>:{port}", flush=True)
+        for url in cli.lan_studio_urls(port):
+            print(f"LAN          {url}", flush=True)
         print(LAN_WARNING, flush=True)
     else:
         print(f"local studio  http://{host}:{port}", flush=True)
+    try:
+        resolved = OUTPUTS.resolve()
+    except OSError:
+        resolved = OUTPUTS
+    if resolved != OUTPUTS:
+        print(f"outputs      {OUTPUTS} -> {resolved}", flush=True)
+    else:
+        print(f"outputs      {OUTPUTS}", flush=True)
+    if studio_fixture_enabled():
+        print("fixture      on  (no model quota)", flush=True)
 
 
 def maybe_open_browser(url: str, *, open_browser: bool) -> None:
@@ -427,6 +467,7 @@ def finalize_generated(result: Dict[str, Any], job: Dict[str, Any], used: str) -
     if result.get("saved_but_failed") and aspect:
         result = recover_aspect(result, aspect)
     persist_result_receipts(result)
+    invalidate_library_cache()
     return result
 
 
@@ -583,6 +624,13 @@ def list_library() -> List[Dict[str, Any]]:
         items.append(media_item(path))
     items.sort(key=lambda item: item["mtime"], reverse=True)
     return items
+
+
+def invalidate_library_cache() -> None:
+    try:
+        INDEX_PATH.unlink()
+    except FileNotFoundError:
+        pass
 
 
 def list_library_cached() -> List[Dict[str, Any]]:
@@ -833,8 +881,20 @@ def save_composite(png: bytes, composed_from: str, overlays: Any) -> Dict[str, A
 
 
 def compile_job(job: Dict[str, Any]) -> Dict[str, Any]:
+    prompt = str(job.get("prompt") or "")
+    if studio_fixture_enabled():
+        return {
+            "success": True,
+            "dry_run": True,
+            "fixture": True,
+            "prompt": {
+                "original": prompt,
+                "used": prompt,
+                "optimize": {"family": "imagine", "mode": "off"},
+            },
+        }
     args = [
-        str(job.get("prompt") or ""),
+        prompt,
         "--provider",
         str(job.get("provider") or "auto"),
         "--optimize",
@@ -887,6 +947,22 @@ def saved_image_path(result: Dict[str, Any]) -> Optional[str]:
 
 
 def generate_compiled(job: Dict[str, Any], used: str) -> Dict[str, Any]:
+    if studio_fixture_enabled():
+        IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        dest = IMAGE_DIR / f"fixture-{uuid.uuid4().hex[:12]}.png"
+        dest.write_bytes(fixture_png_bytes())
+        return {
+            "success": True,
+            "fixture": True,
+            "provider": "fixture",
+            "auth": "fixture",
+            "model": "fixture",
+            "image": str(dest),
+            "images": [str(dest)],
+            "saved_image": str(dest),
+            "aspect_ratio": str(job.get("aspect") or "1:1"),
+            "prompt": {"original": used, "used": used},
+        }
     args = [
         used,
         "--raw",
@@ -1195,6 +1271,18 @@ def resolve_library_image(raw: str) -> Path:
 
 def run_look(body: Dict[str, Any]) -> Dict[str, Any]:
     path = resolve_library_image(str(body.get("image") or ""))
+    if studio_fixture_enabled():
+        return {
+            "success": True,
+            "looked": True,
+            "backend": "fixture",
+            "summary": "fixture：构图完整，字偏上。",
+            "ok": True,
+            "issues": [],
+            "keep": ["主体还在"],
+            "next": "字再大一点",
+            "image": str(path),
+        }
     return look_at_image(
         path,
         draft=str(body.get("draft") or ""),
@@ -1208,6 +1296,17 @@ def run_revise(body: Dict[str, Any]) -> Dict[str, Any]:
     if image:
         resolved = resolve_library_image(image)
         last_image = str(resolved.resolve().relative_to(OUTPUTS.resolve()).as_posix())
+    if studio_fixture_enabled():
+        message = str(body.get("message") or "").strip()
+        draft = str(body.get("draft") or "")
+        return {
+            "success": True,
+            "mode": "edit",
+            "draft": (draft + "\nConstraints: " + message).strip() if message else draft,
+            "reason": "fixture 改稿",
+            "backend": "fixture",
+            "images": [last_image] if last_image else [],
+        }
     payload = revise_turn(
         str(body.get("message") or ""),
         draft=str(body.get("draft") or ""),
@@ -1654,7 +1753,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--lan", action="store_true", help="Bind 0.0.0.0 so other devices on the LAN can connect.")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--no-open", action="store_true", help="Do not open a browser.")
+    parser.add_argument(
+        "--fixture",
+        action="store_true",
+        help="Return canned images and looks. Does not call image or text backends.",
+    )
     args = parser.parse_args(argv)
+    if args.fixture:
+        os.environ["LOCAL_IMAGE_GEN_STUDIO_FIXTURE"] = "1"
     host = "0.0.0.0" if args.lan else args.host
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer((host, args.port), Handler)

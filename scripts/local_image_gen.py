@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import signal
+import socket
 import struct
 import subprocess
 import sys
@@ -89,7 +90,11 @@ GROK_MAX_REFERENCE_IMAGES = 3
 TOKEN_EXPIRY_SKEW_SECONDS = 60
 DEFAULT_OUTPUT_STEM = "local-generated-image"
 DYRO_TOML_NAME = "dyro.toml"
+DYRO_OUTPUTS_NAME = "outputs"
 DYRO_IMAGE_DIR = Path("outputs") / "images"
+GENERATED_IMAGES_NAME = "generated_images"
+OUTPUTS_HOME_NAME = ".local-image-gen"
+OUTPUTS_BUCKET_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 
 ASPECT_ALIASES = {
     "square": "1:1",
@@ -732,7 +737,11 @@ def attach_latest_version(info: Dict[str, Any]) -> Dict[str, Any]:
 
 def doctor_payload(loaded_files: Sequence[Path]) -> Dict[str, Any]:
     workspace = find_dyro_workspace()
-    output_dir, _detected = default_image_dir()
+    output_dir, detected = default_image_dir()
+    output_store = None
+    if detected is not None:
+        name = dyro_workspace_name(detected) or detected.name
+        output_store = str(generated_images_root(name))
     install = inspect_install()
     if update_check_enabled():
         attach_latest_version(install)
@@ -751,6 +760,7 @@ def doctor_payload(loaded_files: Sequence[Path]) -> Dict[str, Any]:
             "workspace": str(workspace) if workspace else None,
             "workspace_name": dyro_workspace_name(workspace) if workspace else None,
             "output_dir": str(output_dir),
+            "output_store": output_store,
         },
         "providers": list_provider_status(loaded_files),
     }
@@ -1012,13 +1022,152 @@ def dyro_cli_version() -> Optional[str]:
     return text[0] if text else "present"
 
 
+def outputs_bucket_name(raw: str) -> str:
+    slug = OUTPUTS_BUCKET_RE.sub("-", (raw or "").strip()).strip(".-")
+    return slug or "default"
+
+
+def default_outputs_home() -> Path:
+    override = os.environ.get("LOCAL_IMAGE_GEN_OUTPUTS", "").strip()
+    if override:
+        return Path(os.path.expanduser(override)).resolve()
+    return (Path.home() / OUTPUTS_HOME_NAME).resolve()
+
+
+def _looks_like_outputs_store(path: Path) -> bool:
+    if not path.is_dir() or path.is_symlink():
+        return False
+    return (path / "images").exists() or (path / ".index.json").is_file()
+
+
+def _legacy_store_paths(bucket: str = "default") -> List[Path]:
+    names: List[str] = []
+    for raw in (bucket, "local-image-gen", "default"):
+        name = outputs_bucket_name(raw)
+        if name not in names:
+            names.append(name)
+    home = default_outputs_home()
+    share_root = default_share_home() / GENERATED_IMAGES_NAME
+    paths: List[Path] = []
+    for name in names:
+        paths.append(share_root / name)
+        nested = home / name
+        if nested != home:
+            paths.append(nested)
+    return paths
+
+
+def _migrate_legacy_generated_images(target: Path, bucket: str = "default") -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    for legacy in _legacy_store_paths(bucket):
+        try:
+            if not legacy.exists() or legacy.resolve() == target.resolve():
+                continue
+        except OSError:
+            continue
+        if not _looks_like_outputs_store(legacy):
+            continue
+        _migrate_outputs_dir(legacy, target)
+        _remove_empty_dir(legacy)
+    _remove_empty_dir(default_share_home() / GENERATED_IMAGES_NAME)
+
+
+def generated_images_root(bucket: str = "default") -> Path:
+    target = default_outputs_home()
+    _migrate_legacy_generated_images(target, bucket)
+    return target
+
+
+def _is_junk_name(name: str) -> bool:
+    return name in {".DS_Store", "Thumbs.db"}
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
+
+
+def _migrate_outputs_dir(source: Path, target: Path) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    for child in list(source.iterdir()):
+        if _is_junk_name(child.name):
+            try:
+                child.unlink()
+            except OSError:
+                pass
+            continue
+        dest = target / child.name
+        if not dest.exists():
+            child.rename(dest)
+            continue
+        if child.is_dir() and not child.is_symlink() and dest.is_dir() and not dest.is_symlink():
+            _migrate_outputs_dir(child, dest)
+            _remove_empty_dir(child)
+            continue
+        try:
+            _remove_path(child)
+        except OSError:
+            pass
+
+
+def _remove_empty_dir(path: Path) -> bool:
+    if not path.is_dir() or path.is_symlink():
+        return False
+    for child in list(path.iterdir()):
+        if _is_junk_name(child.name):
+            try:
+                child.unlink()
+            except OSError:
+                return False
+            continue
+        return False
+    try:
+        path.rmdir()
+        return True
+    except OSError:
+        return False
+
+
+def ensure_outputs_link(link: Path, target: Path) -> Path:
+    """Make project `outputs` a symlink to the user-level generated_images store."""
+    target = target.expanduser()
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "images").mkdir(parents=True, exist_ok=True)
+    link = link.expanduser()
+    try:
+        if link.is_symlink():
+            if link.resolve() == target.resolve():
+                return link
+            link.unlink()
+        elif link.is_dir():
+            _migrate_outputs_dir(link, target)
+            if not _remove_empty_dir(link):
+                return target
+        elif link.exists():
+            return target
+        link.symlink_to(target.resolve(), target_is_directory=True)
+        return link
+    except OSError:
+        return target
+
+
 def default_image_dir(explicit: Optional[Path] = None, start: Optional[Path] = None) -> Tuple[Path, Optional[Path]]:
-    """Return (output_dir, dyro_workspace_or_none)."""
+    """Return (output_dir, dyro_workspace_or_none).
+
+    Inside a Dyro workspace, files live in ``~/.local-image-gen/``
+    and ``<workspace>/outputs`` is a symlink to that directory.
+    """
     if explicit:
         return explicit.expanduser(), find_dyro_workspace(start)
     workspace = find_dyro_workspace(start)
     if workspace:
-        return workspace / DYRO_IMAGE_DIR, workspace
+        name = dyro_workspace_name(workspace) or workspace.name
+        store = generated_images_root(name)
+        outputs = ensure_outputs_link(workspace / DYRO_OUTPUTS_NAME, store)
+        return outputs / "images", workspace
     return (start or Path(".")).expanduser(), None
 
 
@@ -1865,9 +2014,11 @@ def grok_image_payload(
         payload["resolution"] = resolution
     if images:
         encoded = [normalize_image_source(item) for item in images]
-        payload["image"] = {"url": encoded[0], "type": "image_url"}
-        if len(encoded) > 1:
-            payload["images"] = [{"url": item, "type": "image_url"} for item in encoded[1:]]
+        # Imagine rejects sending both `image` and `images`.
+        if len(encoded) == 1:
+            payload["image"] = {"url": encoded[0], "type": "image_url"}
+        else:
+            payload["images"] = [{"url": item, "type": "image_url"} for item in encoded]
     return payload
 
 
@@ -2832,6 +2983,11 @@ def parse_studio_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--no-open", action="store_true", dest="no_open", help="Do not open a browser.")
     parser.add_argument("--daemon", action="store_true", help="Detach from this terminal. Implies --no-open.")
     parser.add_argument("--stop", action="store_true", help="Stop the Studio started from this install home.")
+    parser.add_argument(
+        "--fixture",
+        action="store_true",
+        help="Studio returns canned images/looks and does not spend model quota.",
+    )
     args = parser.parse_args(list(argv))
     args.command = "studio"
     args.doctor = False
@@ -2871,10 +3027,83 @@ def studio_url(host: str, port: int) -> str:
 LAN_WARNING = "warning: LAN bind shares this machine's image backends with the network."
 
 
+def is_usable_lan_ipv4(ip: str) -> bool:
+    text = (ip or "").strip()
+    if not text or ":" in text:
+        return False
+    parts = text.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        nums = [int(part) for part in parts]
+    except ValueError:
+        return False
+    if any(part < 0 or part > 255 for part in nums):
+        return False
+    if nums[0] in {0, 127, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 255}:
+        return False
+    if nums[0] == 169 and nums[1] == 254:
+        return False
+    if nums[0] == 198 and nums[1] in {18, 19}:
+        return False
+    if nums[0] == 100 and 64 <= nums[1] <= 127:
+        return False
+    return True
+
+
+def _lan_ipv4_rank(ip: str) -> int:
+    nums = [int(part) for part in ip.split(".")]
+    if nums[0] == 192 and nums[1] == 168:
+        return 0
+    if nums[0] == 10:
+        return 1
+    if nums[0] == 172 and 16 <= nums[1] <= 31:
+        return 2
+    return 9
+
+
+def lan_ipv4_addresses() -> List[str]:
+    found: List[str] = []
+
+    def add(ip: str) -> None:
+        if is_usable_lan_ipv4(ip) and ip not in found:
+            found.append(ip)
+
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.connect(("1.1.1.1", 80))
+            add(probe.getsockname()[0])
+        finally:
+            probe.close()
+    except OSError:
+        pass
+    try:
+        hostname = socket.gethostname()
+        try:
+            add(socket.gethostbyname(hostname))
+        except OSError:
+            pass
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_DGRAM):
+            add(info[4][0])
+    except OSError:
+        pass
+    found.sort(key=_lan_ipv4_rank)
+    return found
+
+
+def lan_studio_urls(port: int) -> List[str]:
+    ips = lan_ipv4_addresses()
+    if not ips:
+        return [f"http://<this-machine-ip>:{int(port)}"]
+    return [f"http://{ip}:{int(port)}" for ip in ips]
+
+
 def print_studio_banner(host: str, port: int) -> None:
     if host in {"0.0.0.0", "::"}:
         print(f"local studio  http://127.0.0.1:{port}", flush=True)
-        print(f"LAN          http://<this-machine-ip>:{port}", flush=True)
+        for url in lan_studio_urls(port):
+            print(f"LAN          {url}", flush=True)
         print(LAN_WARNING, flush=True)
     else:
         print(f"local studio  http://{host}:{port}", flush=True)
@@ -2996,6 +3225,8 @@ def studio_server_argv(args: argparse.Namespace) -> List[str]:
         argv.extend(["--host", str(args.host)])
     if args.daemon or args.no_open:
         argv.append("--no-open")
+    if getattr(args, "fixture", False):
+        argv.append("--fixture")
     return argv
 
 

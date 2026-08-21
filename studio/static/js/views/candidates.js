@@ -1,7 +1,7 @@
 import { state, subscribe, notify } from "../state.js";
 import { getJson, postJson, fetchLibrary } from "../api.js";
-import { showStatus, showError } from "../lib/status.js";
-import { escapeHtml } from "../lib/format.js";
+import { showStatus } from "../lib/status.js";
+import { escapeHtml, uniqueImages } from "../lib/format.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -41,6 +41,10 @@ function renderCandidates() {
   const grid = $("candidate-grid");
   const summary = $("candidate-summary");
   if (!root || !grid) return;
+  if (state.phase && state.phase !== "candidates") {
+    root.hidden = true;
+    return;
+  }
   const snap = state.batch;
   if (!snap) {
     root.hidden = true;
@@ -53,7 +57,7 @@ function renderCandidates() {
     if (snap.status === "interrupted") {
       summary.textContent = `已中断，完成 ${snap.done != null ? snap.done : done} 张`;
     } else {
-      summary.textContent = `${done}/${rows.length} 张 · ${snap.mode || ""}`;
+      summary.textContent = `${done}/${rows.length} 张，先好的可以先挑`;
     }
   }
   grid.innerHTML = "";
@@ -73,7 +77,7 @@ function renderCandidates() {
       cell.appendChild(mark);
       cell.addEventListener("click", () => pickCandidate(job, url));
     } else {
-      cell.innerHTML = `<span class="candidate-label">${escapeHtml(job.style || job.id || "")} · ${escapeHtml(
+      cell.innerHTML = `<span class="candidate-label">第 ${rows.indexOf(job) + 1} 张 · ${escapeHtml(
         statusLabel(job.status)
       )}</span>`;
       if (job.error) cell.title = String(job.error);
@@ -85,11 +89,17 @@ function renderCandidates() {
 async function pickCandidate(job, url) {
   await fetchLibrary();
   const name = String(job.image || url).split(/[/\\]/).pop();
-  const match = state.items.find((item) => item.name === name || (item.url && item.url === url));
-  if (match) {
-    state.selected = match;
-    if (match.session_id) state.sessionId = match.session_id;
-  }
+  const media = url.startsWith("/media/") ? url : jobUrl(job);
+  const match =
+    state.items.find((item) => item.name === name || (item.url && (item.url === url || item.url === media))) || {
+      id: name,
+      name,
+      url: media,
+      prompt_used: job.draft || job.prompt,
+    };
+  state.selected = match;
+  if (match.session_id) state.sessionId = match.session_id;
+  state.phase = "stage";
   const root = $("candidates");
   if (root) root.hidden = true;
   notify();
@@ -110,10 +120,23 @@ export async function pollBatch(id) {
       }
       if (snap.status === "done" || snap.status === "failed") {
         await fetchLibrary();
-        if (snap.status === "failed") showError(snap, "这一批没能全部生成。");
-        else {
-          const done = (snap.jobs || []).filter((job) => job.status === "done").length;
-          showStatus({ ok: true, message: `已生成 ${done}/${(snap.jobs || []).length || done} 张。` });
+        const rows = snap.jobs || [];
+        const doneRows = rows.filter((job) => job.status === "done" && jobUrl(job));
+        if (snap.status === "failed") {
+          const failed = rows.find((job) => job.status === "failed");
+          const err = String((failed && failed.error) || "");
+          let message = "这一批没能全部生成。";
+          if (/not both/i.test(err) && doneRows.length) {
+            message = `参考图在第 ${doneRows.length + 1} 张冲突了。已留下 ${doneRows.length} 张，可以打磨。`;
+          } else if (doneRows.length) {
+            message = `出了 ${doneRows.length} 张，后面没成功。可以先打磨已有的。`;
+          } else if (err) {
+            message = err.slice(0, 120);
+          }
+          showStatus({ ok: false, message, detail: err });
+          if (doneRows.length === 1) await pickCandidate(doneRows[0], jobUrl(doneRows[0]));
+        } else {
+          showStatus({ ok: true, message: `已生成 ${doneRows.length}/${rows.length || doneRows.length} 张。` });
         }
         await drainQueue();
         break;
@@ -148,10 +171,12 @@ async function moreCandidates() {
     showStatus({ ok: false, message: "先整理一句话，再追加候选。" });
     return;
   }
+  const images = uniqueImages(state.refs);
   const jobs = (brief.jobs || []).map((job, index) => ({
     ...job,
     id: String((brief.jobs.length || 0) + index + 1),
     draft: job.draft || job.prompt,
+    images: uniqueImages((job.images || []).concat(images)),
   }));
   const body = {
     jobs,

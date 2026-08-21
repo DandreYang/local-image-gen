@@ -19,8 +19,8 @@ export function openTemplateSheet() {
 
 function thumbFor(id) {
   const own = (state.items || []).find((item) => item.template === id);
-  if (own) return own.url.replace("/media/", "/thumb/");
-  return `/static/templates/${id}.svg`;
+  if (!own || !own.url) return "";
+  return own.url.replace("/media/", "/thumb/");
 }
 
 function renderTemplateSheet() {
@@ -44,13 +44,16 @@ function renderTemplateSheet() {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "template-card" + ($("template").value === id ? " on" : "");
-      const img = document.createElement("img");
-      img.src = thumbFor(id);
-      img.alt = "";
-      img.addEventListener("error", () => {
-        img.src = `/static/templates/${id}.svg`;
-      });
-      button.appendChild(img);
+      const thumb = thumbFor(id);
+      if (thumb) {
+        const img = document.createElement("img");
+        img.src = thumb;
+        img.alt = "";
+        img.addEventListener("error", () => {
+          img.remove();
+        });
+        button.appendChild(img);
+      }
       const cap = document.createElement("span");
       cap.textContent = label;
       button.appendChild(cap);

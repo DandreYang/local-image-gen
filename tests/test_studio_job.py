@@ -10,7 +10,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "studio"))
 
-from director import parse_look_payload, parse_revise_payload  # noqa: E402
+import director as director_mod  # noqa: E402
+from director import look_at_image, parse_look_payload, parse_revise_payload, revise_turn  # noqa: E402
 from cases import list_cases, passes_engagement  # noqa: E402
 from job import (  # noqa: E402
     brief,
@@ -95,6 +96,10 @@ class TemplateTests(unittest.TestCase):
     def test_series_beats(self) -> None:
         self.assertTrue(is_series_request("帮她生成一套商务形象照", "portrait"))
         self.assertFalse(is_series_request("夏季课程日历，三种风格", "calendar-poster"))
+        self.assertFalse(
+            is_series_request("换一套适合参加舞会的穿搭和妆容", images=["inbox/face.png"])
+        )
+        self.assertTrue(is_series_request("三视图套图", "portrait", images=["inbox/face.png"]))
         self.assertEqual(
             parse_beats("三视图全身", "portrait"),
             ["正面全身", "侧面全身", "背面全身"],
@@ -112,6 +117,10 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(parallel["mode"], "variants")
         self.assertEqual(len(parallel["jobs"]), 3)
         self.assertFalse(parallel["jobs"][1].get("chain_prev"))
+        outfit = brief("换一套适合参加舞会的穿搭和妆容", provider="grok", images=["inbox/face.png"])
+        self.assertEqual(outfit["mode"], "candidates")
+        self.assertEqual(len(outfit["jobs"]), 1)
+        self.assertEqual(outfit["jobs"][0]["images"], ["inbox/face.png"])
         self.assertEqual(parallel["template"], "calendar-poster")
         self.assertEqual(parallel["suggested_candidates"], 3)
 
@@ -249,6 +258,100 @@ def _minimal_png(width: int, height: int) -> bytes:
     raw = b"".join(b"\x00" + (b"\x00" * (width * 3)) for _ in range(height))
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
+LOOK_JSON = (
+    '{"summary":"字偏了","ok":false,"issues":[{"area":"text","detail":"副标题被裁"}],'
+    '"keep":["脸还在"],"next":"把字上移"}'
+)
+
+
+class LookBackendTests(unittest.TestCase):
+    def test_look_errors_without_backends(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "shot.png"
+            path.write_bytes(_minimal_png(2, 2))
+            with patch.object(director_mod, "list_look_backends", return_value=[]):
+                result = look_at_image(path)
+        self.assertFalse(result["looked"])
+        self.assertIn("grok login", result["error"])
+
+    def test_look_falls_back_to_gemini_after_grok_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "shot.png"
+            path.write_bytes(_minimal_png(2, 2))
+
+            def fake_http(url, **kwargs):
+                if "x.ai" in url:
+                    raise director_mod.cli.ImageGenError("HTTP 401")
+                if "generateContent" in url:
+                    return (
+                        200,
+                        {"candidates": [{"content": {"parts": [{"text": LOOK_JSON}]}}]},
+                        {},
+                    )
+                raise AssertionError(url)
+
+            backends = [
+                {"provider": "grok", "auth": "subscription"},
+                {
+                    "provider": "gemini",
+                    "auth": "api_key",
+                    "token": "gk",
+                    "base_url": "https://generativelanguage.googleapis.com/v1beta",
+                },
+            ]
+            with patch.object(director_mod, "list_look_backends", return_value=backends), patch.object(
+                director_mod, "_research_token", return_value={"token": "g", "base_url": "https://api.x.ai/v1"}
+            ), patch.object(director_mod, "data_url_for_look", return_value="data:image/png;base64,QQ=="), patch.object(
+                director_mod.cli, "http_request", side_effect=fake_http
+            ):
+                result = look_at_image(path, draft="终稿", brief="封面")
+        self.assertTrue(result["looked"])
+        self.assertEqual(result["backend"], "gemini")
+        self.assertIn("副标题", result["issues"][0]["detail"])
+
+    def test_look_uses_codex_when_only_codex_is_logged_in(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "shot.png"
+            path.write_bytes(_minimal_png(2, 2))
+            captured: list[str] = []
+
+            def fake_http(url, **kwargs):
+                captured.append(url)
+                return 200, {"output_text": LOOK_JSON}, {}
+
+            with patch.object(
+                director_mod, "list_look_backends", return_value=[{"provider": "codex", "auth": "subscription"}]
+            ), patch.object(director_mod.cli, "refresh_codex_auth", return_value=("tok", "acct", "subscription")), patch.object(
+                director_mod, "data_url_for_look", return_value="data:image/png;base64,QQ=="
+            ), patch.object(director_mod.cli, "http_request", side_effect=fake_http):
+                result = look_at_image(path)
+        self.assertTrue(result["looked"])
+        self.assertEqual(result["backend"], "codex")
+        self.assertTrue(any("chatgpt.com" in url for url in captured))
+
+    def test_revise_falls_back_without_image(self) -> None:
+        with patch.object(
+            director_mod,
+            "list_look_backends",
+            return_value=[
+                {
+                    "provider": "openai",
+                    "auth": "api_key",
+                    "token": "sk",
+                    "base_url": "https://api.openai.com/v1",
+                }
+            ],
+        ), patch.object(
+            director_mod.cli,
+            "http_request",
+            return_value=(200, {"choices": [{"message": {"content": '{"mode":"edit","draft":"keep face","reason":"只改字"}'}}]}, {}),
+        ):
+            result = revise_turn("字大一点", draft="old", last_image="images/a.png")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["backend"], "openai")
+        self.assertEqual(result["mode"], "edit")
 
 
 class ReceiptTests(unittest.TestCase):

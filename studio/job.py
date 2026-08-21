@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -37,6 +38,8 @@ def _research_token() -> Optional[Dict[str, str]]:
 
 
 def research_facts(prompt: str) -> Dict[str, Any]:
+    if os.environ.get("LOCAL_IMAGE_GEN_STUDIO_FIXTURE", "").strip().lower() in {"1", "true", "yes"}:
+        return {"searched": False, "error": None, "facts": []}
     auth = _research_token()
     if not auth:
         return {
@@ -184,9 +187,16 @@ def aspect_warning(provider: str, aspect: str) -> Optional[str]:
     )
 
 
-def is_series_request(prompt: str, template_id: str = "") -> bool:
+def is_series_request(
+    prompt: str,
+    template_id: str = "",
+    images: Optional[List[str]] = None,
+) -> bool:
     text = prompt or ""
-    if any(token in text for token in ("套图", "组图", "三视图", "四视图", "正侧背")):
+    explicit = any(token in text for token in ("套图", "组图", "三视图", "四视图", "正侧背"))
+    if images and not explicit:
+        return False
+    if explicit:
         return True
     if "一套" in text and "风格" not in text:
         return True
@@ -296,7 +306,7 @@ def brief(
         warnings.append("二维码请后贴真码。模型画出来的码不能扫。")
     if chosen == "reel":
         warnings.append("只出静帧，不会生成视频。")
-    series = is_series_request(text, chosen)
+    series = is_series_request(text, chosen, images=images)
     jobs: List[Dict[str, Any]] = []
     if series:
         beats = parse_beats(text, chosen)
