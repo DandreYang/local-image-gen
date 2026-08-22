@@ -70,10 +70,16 @@
         <div class="paper" id="empty-view">
           <h1>这一张要什么</h1>
           <textarea id="prompt" rows="3" required placeholder="一句就行。例如：小红书封面，人物出镜，主标题原文入画。"></textarea>
+          <div id="prompt-examples" class="prompt-examples" aria-label="试试这些开头">
+            <button type="button" class="example-chip" data-example="小红书封面，人物出镜，暖调奶油风，主标题「夏日出行」原文入画，留出底部文案区。">小红书封面</button>
+            <button type="button" class="example-chip" data-example="手机屏海报，深色背景，一杯冰美式居中，杯壁挂水珠，产品摄影质感，顶部留标题位。">产品海报</button>
+            <button type="button" class="example-chip" data-example="日历壁纸，十月，山间清晨薄雾，低饱和青绿色调，日期区域留在右下角保持干净。">日历壁纸</button>
+            <button type="button" class="example-chip" data-example="活动邀请卡，竖版，米白纸纹底，手写体「邀请」二字烫金，边缘一圈细金框。">邀请卡</button>
+          </div>
           <div id="templates" class="template-picker"></div>
           <div class="compose-refs-row">
             <div id="compose-refs" class="ref-list"></div>
-            <label class="compose-ref-add">加参考图
+            <label class="compose-ref-add">+ 参考图
               <input id="compose-upload" type="file" accept="image/png,image/jpeg" multiple>
             </label>
           </div>

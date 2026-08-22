@@ -62,15 +62,24 @@ body[data-shell="compose"] .viewer[data-backdrop="ambient"]::after {
 }
 body[data-shell="compose"] .paper {
   width: min(36rem, 88%);
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  padding: 0 0 2.4rem;
+  background: color-mix(in srgb, var(--n-850) 92%, transparent);
+  border: 1px solid var(--n-700);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  padding: var(--s-22) var(--s-22) var(--s-18);
 }
 body[data-shell="compose"] .paper textarea {
   min-height: 0;
-  height: 3.6em;
-  padding-bottom: 0.55rem;
+  height: auto;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--n-400) 62%, var(--n-600));
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--n-900) 80%, transparent);
+}
+body[data-shell="compose"] .paper textarea::placeholder {
+  color: var(--n-400);
+}
+body[data-shell="compose"] .paper textarea:focus {
+  border-color: color-mix(in srgb, var(--accent) 70%, black);
 }
 body[data-shell="compose"] .paper .template-picker:empty {
   display: none;
@@ -78,9 +87,36 @@ body[data-shell="compose"] .paper .template-picker:empty {
 body[data-shell="compose"] .paper .go {
   width: auto;
   min-width: 7.5rem;
-  margin-top: 1.15rem;
+  margin-top: var(--s-14);
   padding-left: 1.35rem;
   padding-right: 1.35rem;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+body[data-shell="compose"] .paper .go:hover {
+  filter: brightness(1.06);
+}
+.prompt-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-8);
+  margin-top: var(--s-11);
+  padding-bottom: var(--s-11);
+  border-bottom: 1px solid color-mix(in srgb, var(--n-700) 70%, transparent);
+}
+.prompt-examples[hidden] { display: none; }
+.example-chip {
+  font-size: 0.76rem;
+  color: var(--n-400);
+  background: transparent;
+  border: 1px dashed var(--n-600);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  transition: color 120ms var(--ease), border-color 120ms var(--ease);
+}
+.example-chip:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--n-600));
 }
 .compose-refs-row {
   display: flex;

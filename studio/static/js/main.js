@@ -216,6 +216,21 @@ $("lightbox").addEventListener(
 $("follow-provider").addEventListener("change", fillFollowModels);
 
 $("brief-btn").addEventListener("click", runBrief);
+
+// 首屏示例：点一下填入输入框；开写后示例条让位。
+function syncPromptExamples() {
+  const examples = $("prompt-examples");
+  if (examples) examples.hidden = Boolean($("prompt").value.trim());
+}
+document.querySelectorAll(".example-chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    $("prompt").value = chip.dataset.example || "";
+    syncPromptExamples();
+    $("prompt").focus();
+  });
+});
+$("prompt").addEventListener("input", syncPromptExamples);
+
 $("snippet-save").addEventListener("click", () => saveSnippetFromSelection());
 $("snippet-color").addEventListener("change", (event) => {
   insertIntoPrompt(colorSentence(event.target.value));
