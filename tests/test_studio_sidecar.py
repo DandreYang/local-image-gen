@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import threading
@@ -87,6 +88,56 @@ class TestAtomicSidecar(unittest.TestCase):
             loaded = server.load_receipt(crop)
             self.assertEqual(loaded["cropped_from"], str(parent))
             self.assertEqual(loaded["prompt"]["used"], "Use case: ads-marketing")
+
+
+class TestCrossProcessSidecar(unittest.TestCase):
+    """Board 2026-08-23 P1-3: separate processes must not overwrite each other."""
+
+    def test_six_processes_each_keep_their_key(self):
+        script = (
+            "import sys, time, threading\n"
+            "sys.path.insert(0, %r)\n"
+            "barrier_path = sys.argv[1]\n"
+            "# Wait on the barrier file so every process enters its critical section\n"
+            "# at roughly the same moment; the flock in merge_sidecar must serialize them.\n"
+            "while True:\n"
+            "    try:\n"
+            "        open(barrier_path).read()\n"
+            "        break\n"
+            "    except OSError:\n"
+            "        time.sleep(0.01)\n"
+            "import server\n"
+            "from pathlib import Path\n"
+            "image = Path(sys.argv[2])\n"
+            "server.merge_sidecar(image, {('p' + sys.argv[3]): int(sys.argv[3])})\n"
+        ) % (str(ROOT / "studio"),)
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "shot.png"
+            image.write_bytes(b"x")
+            barrier = Path(tmp) / "go"
+            barrier.write_text("1", encoding="utf-8")
+            procs = []
+            for index in range(6):
+                procs.append(
+                    subprocess.Popen(
+                        [
+                            sys.executable,
+                            "-c",
+                            script,
+                            str(barrier),
+                            str(image),
+                            str(index),
+                        ],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.PIPE,
+                    )
+                )
+            for proc in procs:
+                _, err = proc.communicate(timeout=60)
+                self.assertEqual(proc.returncode, 0, err.decode("utf-8", "replace"))
+            data = server.read_sidecar(image)
+            for index in range(6):
+                self.assertEqual(data.get(f"p{index}"), index, f"跨进程并发丢了 p{index}: {data}")
 
 
 if __name__ == "__main__":

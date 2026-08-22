@@ -324,7 +324,9 @@ class TestViewModules(unittest.TestCase):
         # showError 取代——旧版把整个 payload 原样丢给用户读，新版只显示
         # 一句人话，原始返回收进可折叠的 detail。
         "lib/status.js": ["showStatus", "showError"],
-        "lib/busy.js": ["durationFromName", "expectCopy", "startBusy", "stopBusy", "waitingCopy", "quoteCopy"],
+        # waitingCopy（上轮 P0 的引擎词文案）在 2026-08-23 修复轮删除：
+        # 无调用方的死代码，报价统一走 quoteCopy。
+        "lib/busy.js": ["durationFromName", "expectCopy", "startBusy", "stopBusy", "quoteCopy"],
         "lib/format.js": ["escapeHtml", "dash", "formatDuration", "formatTime", "aspectFromText", "formBody", "uniqueImages"],
         "views/overlay.js": ["openOverlay", "closeOverlay", "initOverlay", "saveOverlayCompose", "applyOverlayAsset", "runRepaint"],
     }
@@ -661,6 +663,31 @@ class TestRepaintPaths(unittest.TestCase):
     def test_path_a_does_not_require_a_key(self):
         text = (STATIC / "js" / "lib" / "canvas.js").read_text(encoding="utf-8")
         self.assertIn('api_key ? "B" : "A"', text)
+
+
+class TestBoard20260823Regressions(unittest.TestCase):
+    """Fix-round regressions for the 2026-08-23 adversarial board."""
+
+    def test_engine_word_waiting_copy_is_gone(self):
+        text = (STATIC / "js" / "lib" / "busy.js").read_text(encoding="utf-8")
+        self.assertNotIn("waitingCopy", text)
+        self.assertNotIn("Codex 订阅出图", text)
+
+    def test_shortcut_actions_are_pro_only(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        match = re.search(r'<div class="actions pro-only"[^>]*>\s*'
+                          r'<button type="button" id="new-take"', html)
+        self.assertIsNotNone(match, "新画一张/只预览一稿 必须收进 pro-only")
+
+    def test_overlay_dock_escapes_user_content(self):
+        text = (STATIC / "js" / "views" / "overlay.js").read_text(encoding="utf-8")
+        self.assertIn("escapeHtml(session.prompt", text)
+        self.assertIn("escapeHtml(asset.id)", text)
+        self.assertIn("escapeHtml(asset.name)", text)
+
+    def test_mockup_is_not_served(self):
+        source = (ROOT / "studio" / "server.py").read_text(encoding="utf-8")
+        self.assertIn('"mockup" in target.relative_to(STATIC).parts', source)
 
 
 class TestCanvasContracts(unittest.TestCase):

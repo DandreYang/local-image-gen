@@ -535,6 +535,11 @@ USERINFO_RE = re.compile(r"(https?://)[^/\s]+@", re.IGNORECASE)
 GOOG_HEADER_RE = re.compile(r"(x-goog-api-key\s*[:=]\s*)\S+", re.IGNORECASE)
 GEMINI_KEY_RE = re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b")
 OPENAI_KEY_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{10,}\b")
+XAI_KEY_RE = re.compile(r"\bxai-[A-Za-z0-9_-]{10,}\b")
+JSON_SECRET_RE = re.compile(
+    r'("(?:api[_-]?key|access[_-]?token|token|secret|key)"\s*[:=]\s*)"[^"]{4,}"',
+    re.IGNORECASE,
+)
 
 
 def redact_secrets(text: str) -> str:
@@ -544,7 +549,11 @@ def redact_secrets(text: str) -> str:
     out = USERINFO_RE.sub(r"\1***@", out)
     out = GOOG_HEADER_RE.sub(r"\1***", out)
     out = GEMINI_KEY_RE.sub("***", out)
-    return OPENAI_KEY_RE.sub("***", out)
+    out = OPENAI_KEY_RE.sub("***", out)
+    # Board 2026-08-23 P1-4: xAI bare keys and quoted JSON/ini assignments.
+    out = XAI_KEY_RE.sub("***", out)
+    out = JSON_SECRET_RE.sub(r'\1"***"', out)
+    return out
 
 
 def http_request(
@@ -1090,7 +1099,44 @@ def _remove_path(path: Path) -> None:
         shutil.rmtree(path)
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _files_identical(left: Path, right: Path) -> bool:
+    """Byte-identical regular files. Never raises: unreadable pairs count as different."""
+    try:
+        if left.stat().st_size != right.stat().st_size:
+            return False
+        return _file_sha256(left) == _file_sha256(right)
+    except OSError:
+        return False
+
+
+def _conflict_free_dest(dest: Path) -> Path:
+    """A sibling name like ``name.from-legacy.png`` that keeps both copies alive."""
+    stem = dest.stem or dest.name
+    suffix = dest.suffix
+    for number in range(1, 1000):
+        tag = "from-legacy" if number == 1 else f"from-legacy-{number}"
+        candidate = dest.with_name(f"{stem}.{tag}{suffix}")
+        if not candidate.exists() and not candidate.is_symlink():
+            return candidate
+    return dest.with_name(f"{dest.name}.from-legacy-{os.getpid()}")
+
+
 def _migrate_outputs_dir(source: Path, target: Path) -> None:
+    """Move legacy store contents into the target without ever losing data.
+
+    Name conflicts are resolved by keeping both copies: identical files are
+    deduplicated (source dropped only after a hash match), anything else is
+    renamed into the target as ``<name>.from-legacy<...>``. The source entry
+    is deleted only for exact duplicates or successful moves.
+    """
     target.mkdir(parents=True, exist_ok=True)
     for child in list(source.iterdir()):
         if _is_junk_name(child.name):
@@ -1100,15 +1146,27 @@ def _migrate_outputs_dir(source: Path, target: Path) -> None:
                 pass
             continue
         dest = target / child.name
-        if not dest.exists():
+        if not dest.exists() and not dest.is_symlink():
             child.rename(dest)
             continue
         if child.is_dir() and not child.is_symlink() and dest.is_dir() and not dest.is_symlink():
             _migrate_outputs_dir(child, dest)
             _remove_empty_dir(child)
             continue
+        if (
+            child.is_file()
+            and not child.is_symlink()
+            and dest.is_file()
+            and not dest.is_symlink()
+            and _files_identical(child, dest)
+        ):
+            try:
+                child.unlink()
+                continue
+            except OSError:
+                pass
         try:
-            _remove_path(child)
+            child.rename(_conflict_free_dest(dest))
         except OSError:
             pass
 

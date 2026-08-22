@@ -7,14 +7,43 @@ import os
 import re
 import threading
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 MAX_SNIPPETS = 80
 MAX_LABEL = 24
 MAX_TEXT = 240
 HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 _LOCK = threading.Lock()
+
+try:  # Board 2026-08-23 P1-3: cross-process mutual exclusion where available.
+    import fcntl as _fcntl
+except ImportError:  # pragma: no cover - non-POSIX fallback
+    _fcntl = None
+
+
+@contextmanager
+def _file_lock(path: Path) -> Iterator[None]:
+    """Advisory cross-process lock; degrades to thread-only on non-POSIX."""
+    if _fcntl is None:
+        yield
+        return
+    lock_path = path.with_name(path.name + ".lock")
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(lock_path, "a+")
+    except OSError:
+        yield
+        return
+    try:
+        _fcntl.flock(handle.fileno(), _fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            _fcntl.flock(handle.fileno(), _fcntl.LOCK_UN)
+    finally:
+        handle.close()
 
 SEED_SNIPPETS: List[Dict[str, str]] = [
     {
@@ -158,14 +187,22 @@ def _read_unlocked(path: Path) -> List[Dict[str, Any]]:
 def _write_unlocked(path: Path, rows: List[Dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"version": 1, "snippets": rows}
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    # Board 2026-08-23 P2-5: unique temp name so two processes cannot race on one file.
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    os.replace(str(tmp), str(path))
 
 
 def list_snippets() -> List[Dict[str, Any]]:
     path = snippets_path()
-    with _LOCK:
+    with _LOCK, _file_lock(path):
         return _read_unlocked(path)
 
 
@@ -174,7 +211,7 @@ def add_snippet(label: str, text: str) -> Dict[str, Any]:
     if not row:
         raise ValueError("先选中一句不超过 240 字的话。")
     path = snippets_path()
-    with _LOCK:
+    with _LOCK, _file_lock(path):
         rows = _read_unlocked(path)
         if len(rows) >= MAX_SNIPPETS:
             raise ValueError("常用句已满。")
@@ -190,7 +227,7 @@ def delete_snippet(snippet_id: str) -> bool:
     if not ident:
         return False
     path = snippets_path()
-    with _LOCK:
+    with _LOCK, _file_lock(path):
         rows = _read_unlocked(path)
         kept = [item for item in rows if item["id"] != ident]
         if len(kept) == len(rows):

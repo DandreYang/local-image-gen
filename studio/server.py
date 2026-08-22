@@ -87,10 +87,94 @@ HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 LAN_WARNING = "warning: LAN bind shares this machine's image backends with the network."
 MAX_PARALLEL = 2
-BATCH_DIR = OUTPUTS / ".batches"
+MAX_JSON_BYTES = 10 * 1024 * 1024
+MAX_BATCH_JOBS = 24
+STUDIO_TOKEN: Optional[str] = None
+STUDIO_TOKEN_HEADER = "X-Studio-Token"
+BIND_HOST = HOST
+_BATCH_DIR = OUTPUTS / ".batches"
+BATCH_DIR = _BATCH_DIR
 _BATCHES: Dict[str, Dict[str, Any]] = {}
 _BATCH_LOCK = threading.Lock()
 _BATCHES_LOADED = False
+
+
+def loopback_hostnames() -> "set[str]":
+    names = {"127.0.0.1", "::1", "localhost", "0.0.0.0", "::"}
+    try:
+        import socket as _socket
+
+        for info in _socket.getaddrinfo(_socket.gethostname(), None, family=_socket.AF_INET):
+            names.add(str(info[4][0]))
+    except OSError:
+        pass
+    return names
+
+
+def bound_addresses(bind_host: str) -> "set[str]":
+    """Addresses a client can actually reach when we bind ``bind_host``."""
+    if bind_host in {"0.0.0.0", "::"}:
+        return loopback_hostnames() | {"*"}
+    return loopback_hostnames() | {bind_host}
+
+
+def host_allows(host_header: Any, bind_host: str) -> bool:
+    """Board 2026-08-23 P0-A: the Host header must name an address we really bound.
+
+    DNS-rebinding attacks win by making the browser send an attacker-chosen
+    Host to a same-origin-seeming request; comparing against the bound
+    addresses closes that. Host is optional for CLI clients (no header).
+    """
+    if not host_header:
+        return True
+    raw = str(host_header).strip()
+    if not raw:
+        return False
+    netloc = (urlparse(f"//{raw}" if "//" not in raw else raw).netloc or raw).lower()
+    hostname = netloc.rsplit(":", 1)[0].strip("[]") if netloc else ""
+    if not hostname:
+        return False
+    allowed_names = {item.lower() for item in bound_addresses(bind_host)}
+    if "*" in allowed_names:
+        return True
+    try:
+        import ipaddress as _ipaddress
+
+        candidate = _ipaddress.ip_address(hostname)
+        allowed: "set[str]" = set()
+        for item in allowed_names:
+            try:
+                allowed.add(str(_ipaddress.ip_address(item.strip("[]"))))
+            except ValueError:
+                allowed.add(item)
+        return str(candidate) in allowed
+    except ValueError:
+        return hostname in allowed_names
+
+
+def issue_studio_token() -> str:
+    global STUDIO_TOKEN
+    import secrets as _secrets
+
+    STUDIO_TOKEN = _secrets.token_urlsafe(24)
+    return STUDIO_TOKEN
+
+
+def studio_token_required(bind_host: str) -> bool:
+    return bind_host not in {"127.0.0.1", "::1", "localhost"}
+
+
+def studio_token_ok(headers: Any) -> bool:
+    if STUDIO_TOKEN is None:
+        return True
+    supplied = str(headers.get(STUDIO_TOKEN_HEADER) or "").strip()
+    if not supplied:
+        cookie = str(headers.get("Cookie") or "")
+        match = re.search(r"(?:^|;\s*)studio_token=([A-Za-z0-9_\-]+)", cookie)
+        supplied = match.group(1) if match else ""
+    import hmac as _hmac
+
+    return bool(supplied) and _hmac.compare_digest(supplied, STUDIO_TOKEN)
 
 
 def public_studio_url(host: str, port: int) -> str:
@@ -154,6 +238,17 @@ def redact_public_text(text: Any) -> str:
     return cli.redact_secrets(str(text or ""))
 
 
+def _redact_deep(value: Any) -> Any:
+    """Board 2026-08-23 P1-4: redact every string, whatever field carries it."""
+    if isinstance(value, str):
+        return redact_public_text(value)
+    if isinstance(value, list):
+        return [_redact_deep(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact_deep(item) for key, item in value.items()}
+    return value
+
+
 def redact_cli_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Strip keys from CLI JSON before it reaches receipts, batches, or the UI."""
     out = dict(payload)
@@ -166,6 +261,9 @@ def redact_cli_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         out["notes"] = [redact_public_text(item) for item in notes]
     elif isinstance(notes, str):
         out["notes"] = redact_public_text(notes)
+    for key, value in out.items():
+        if key not in {"error", "details", "notes"}:
+            out[key] = _redact_deep(value)
     return out
 
 
@@ -281,6 +379,36 @@ _SIDECAR_LOCKS: Dict[str, threading.Lock] = {}
 _SIDECAR_LOCKS_GUARD = threading.Lock()
 _SIDECAR_WARNINGS: List[str] = []
 
+try:  # Board 2026-08-23 P1-3: cross-process mutual exclusion where available.
+    import fcntl as _fcntl
+except ImportError:  # pragma: no cover - non-POSIX fallback keeps tests green
+    _fcntl = None
+
+import contextlib as _contextlib
+
+
+@_contextlib.contextmanager
+def file_lock(path: Path):
+    """Advisory whole-file lock shared across processes (thread lock still applies)."""
+    if _fcntl is None:
+        yield
+        return
+    lock_path = path.with_name(path.name + ".lock")
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(lock_path, "a+")
+    except OSError:
+        yield
+        return
+    try:
+        _fcntl.flock(handle.fileno(), _fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            _fcntl.flock(handle.fileno(), _fcntl.LOCK_UN)
+    finally:
+        handle.close()
+
 
 def sidecar_lock_for(path: Path) -> threading.Lock:
     key = str(path.resolve())
@@ -300,6 +428,11 @@ def atomic_write_text(path: Path, text: str) -> None:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
+        # Board 2026-08-23 P2-7: receipts and batches are private to the user.
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
         os.replace(str(tmp), str(path))
     except Exception:
         if tmp.exists():
@@ -335,7 +468,7 @@ def read_sidecar(path: Path) -> Dict[str, Any]:
 
 def merge_sidecar(path: Path, fields: Dict[str, Any]) -> Path:
     sidecar = path.with_suffix(".json")
-    with sidecar_lock_for(sidecar):
+    with sidecar_lock_for(sidecar), file_lock(sidecar):
         existing = read_sidecar(sidecar)
         prompt: Dict[str, Any] = {}
         if isinstance(existing.get("prompt"), dict):
@@ -504,10 +637,28 @@ def save_image_bytes(
         raise ValueError("not a PNG or JPEG")
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{uuid.uuid4().hex[:10]}{name_suffix}{sniffed}"
-    dest.write_bytes(data)
-    if not is_under(dest, OUTPUTS):
-        dest.unlink()
+    # Board 2026-08-23 P1-8: constrain the parent first, then write via
+    # temp + fsync + replace so a crash never leaves a truncated image.
+    if not is_under(dest_dir, OUTPUTS):
         raise ValueError("image is outside the library")
+    tmp = dest.with_name(f".{dest.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with open(tmp, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        os.replace(str(tmp), str(dest))
+    except Exception:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise
     return dest
 
 
@@ -686,7 +837,16 @@ def thumb_file(rel: str) -> Path:
     """JPEG ≤480px on Mac (sips) and Windows (System.Drawing). Linux keeps the original."""
     source = resolve_library_image(rel)
     cache = THUMB_DIR / (Path(rel).as_posix() + ".jpg")
-    if cache.is_file() and cache.stat().st_mtime >= source.stat().st_mtime:
+    # Board 2026-08-23 P1-2: the cache lives under OUTPUTS; a symlinked or
+    # escaped cache path must never be served just because it looks fresh.
+    cache_ok = (
+        cache.is_file()
+        and not cache.is_symlink()
+        and is_under(cache, OUTPUTS)
+        and cache.resolve().is_relative_to(OUTPUTS.resolve())
+        and cache.stat().st_mtime >= source.stat().st_mtime
+    )
+    if cache_ok:
         return cache
     cache.parent.mkdir(parents=True, exist_ok=True)
     made = False
@@ -782,6 +942,7 @@ def patch_receipt(rel: str, fields: Dict[str, Any]) -> Dict[str, Any]:
     path = resolve_library_image(rel)
     allowed = {key: fields[key] for key in ("starred", "project_id") if key in fields}
     merge_sidecar(path, allowed)
+    invalidate_library_cache()
     return media_item(path)
 
 
@@ -877,6 +1038,7 @@ def save_composite(png: bytes, composed_from: str, overlays: Any) -> Dict[str, A
             "overlays": records,
         },
     )
+    invalidate_library_cache()
     return media_item(path)
 
 
@@ -997,9 +1159,18 @@ def _run_one_job(job: Dict[str, Any]) -> Dict[str, Any]:
     return finalize_generated(generated, job, used)
 
 
+def valid_batch_id(batch_id: Any) -> bool:
+    """Board 2026-08-23 P1-1: batch ids are 12-hex uuid slices, nothing else."""
+    return bool(re.fullmatch(r"[0-9a-f]{12}", str(batch_id or "").strip().lower()))
+
+
 def persist_batch(rec: Dict[str, Any]) -> None:
     batch_id = str(rec.get("id") or "").strip()
-    if not batch_id:
+    if not valid_batch_id(batch_id):
+        return
+    batch_dir = BATCH_DIR.resolve()
+    target = (batch_dir / f"{batch_id}.json").resolve()
+    if not target.is_relative_to(batch_dir):
         return
     BATCH_DIR.mkdir(parents=True, exist_ok=True)
     snapshot = {
@@ -1027,7 +1198,7 @@ def persist_batch(rec: Dict[str, Any]) -> None:
             for item in rec.get("jobs") or []
         ],
     }
-    atomic_write_text(BATCH_DIR / f"{batch_id}.json", json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n")
+    atomic_write_text(target, json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n")
 
 
 def ensure_batches_loaded() -> None:
@@ -1113,11 +1284,12 @@ def _worker(batch_id: str, mode: str, jobs: List[Dict[str, Any]]) -> None:
         else:
             execute_parallel(batch_id, jobs)
     except Exception as exc:  # noqa: BLE001
-        _finish_batch(batch_id, "failed")
+        # Board 2026-08-23 P2-2: the failure reason must reach disk, not just memory.
         with _BATCH_LOCK:
             rec = _BATCHES.get(batch_id)
             if rec:
-                rec["error"] = redact_public_text(exc)
+                rec["error"] = redact_public_text(str(exc))
+        _finish_batch(batch_id, "failed")
 
 
 def batch_public(rec: Dict[str, Any]) -> Dict[str, Any]:
@@ -1162,6 +1334,8 @@ def start_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
     raw_jobs = body.get("jobs")
     if not isinstance(raw_jobs, list) or not raw_jobs:
         raise ValueError("jobs required")
+    if len(raw_jobs) > MAX_BATCH_JOBS:
+        raise ValueError(f"too many jobs in one batch (limit {MAX_BATCH_JOBS})")
     jobs = [dict(item) for item in raw_jobs if isinstance(item, dict)]
     if not jobs:
         raise ValueError("jobs required")
@@ -1204,6 +1378,8 @@ def start_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def get_batch(batch_id: str) -> Optional[Dict[str, Any]]:
+    if not valid_batch_id(batch_id):
+        return None
     ensure_batches_loaded()
     with _BATCH_LOCK:
         rec = _BATCHES.get(batch_id)
@@ -1396,6 +1572,17 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         sys.stderr.write("studio: " + (format % args) + "\n")
 
+    def _guard(self, bind_host: str) -> bool:
+        """Shared request guard: Host allowlist (P0-A) and LAN token (P1-6)."""
+        host_header = self.headers.get("Host") or ""
+        if not host_allows(host_header, bind_host):
+            self._send(*json_bytes({"success": False, "error": "host not allowed"}, 403))
+            return False
+        if not studio_token_ok(self.headers):
+            self._send(*json_bytes({"success": False, "error": "studio token required"}, 403))
+            return False
+        return True
+
     def _send(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -1405,7 +1592,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _read_json(self) -> Dict[str, Any]:
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            raise ValueError("bad Content-Length")
+        if length > MAX_JSON_BYTES:
+            raise ValueError(f"request body too large (limit {MAX_JSON_BYTES} bytes)")
         raw = self.rfile.read(length) if length else b"{}"
         payload = json.loads(raw.decode("utf-8") or "{}")
         if not isinstance(payload, dict):
@@ -1413,8 +1605,13 @@ class Handler(BaseHTTPRequestHandler):
         return payload
 
     def do_GET(self) -> None:  # noqa: N802
+        if not self._guard(BIND_HOST):
+            return
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
+        if "\x00" in path:
+            self._send(*json_bytes({"error": "not found"}, 404))
+            return
         if path == "/favicon.ico":
             self._send(204, b"", "image/x-icon")
             return
@@ -1425,6 +1622,10 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/static/"):
             target = (STATIC / path[len("/static/") :]).resolve()
             if not is_under(target, STATIC) or not target.is_file():
+                self._send(*json_bytes({"error": "not found"}, 404))
+                return
+            # Board 2026-08-23 P2-4: historical mockups are not product surface.
+            if "mockup" in target.relative_to(STATIC).parts:
                 self._send(*json_bytes({"error": "not found"}, 404))
                 return
             mime = STATIC_MIME.get(target.suffix.lower()) or mimetypes.guess_type(str(target))[0] or "application/octet-stream"
@@ -1505,6 +1706,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(*json_bytes({"error": "not found"}, 404))
 
     def do_POST(self) -> None:  # noqa: N802
+        if not self._guard(BIND_HOST):
+            return
         parsed = urlparse(self.path)
         host = (self.headers.get("Host") or f"{HOST}:{DEFAULT_PORT}").strip()
         if not csrf_allows(self.headers, host):
@@ -1658,6 +1861,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(*json_bytes({"error": "not found"}, 404))
 
     def do_DELETE(self) -> None:  # noqa: N802
+        if not self._guard(BIND_HOST):
+            return
         host = (self.headers.get("Host") or f"{HOST}:{DEFAULT_PORT}").strip()
         if not csrf_allows(self.headers, host):
             self._send(*json_bytes({"success": False, "error": "cross-origin request blocked"}, 403))
@@ -1762,6 +1967,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.fixture:
         os.environ["LOCAL_IMAGE_GEN_STUDIO_FIXTURE"] = "1"
     host = "0.0.0.0" if args.lan else args.host
+    global BIND_HOST
+    BIND_HOST = host
+    if studio_token_required(host):
+        issue_studio_token()
+        print(
+            f"LAN token: set cookie studio_token={STUDIO_TOKEN} for this address "
+            f"(header {STUDIO_TOKEN_HEADER} also accepted).",
+            flush=True,
+        )
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer((host, args.port), Handler)
     print_studio_banner(host, args.port)

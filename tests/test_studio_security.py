@@ -109,6 +109,193 @@ class TestCsrfHttp(unittest.TestCase):
         self.assertIn("没有这句", payload.get("error", ""))
 
 
+class TestHostAllowlist(unittest.TestCase):
+    """Board 2026-08-23 P0-A regressions."""
+
+    def test_function_exists(self):
+        self.assertTrue(callable(server.host_allows))
+
+    def test_missing_host_still_allowed_for_cli(self):
+        self.assertTrue(server.host_allows("", "127.0.0.1"))
+
+    def test_loopback_names_pass_on_loopback_bind(self):
+        self.assertTrue(server.host_allows("127.0.0.1:8765", "127.0.0.1"))
+        self.assertTrue(server.host_allows("localhost:8765", "127.0.0.1"))
+        self.assertTrue(server.host_allows("[::1]:8765", "127.0.0.1"))
+
+    def test_attacker_chosen_host_fails_on_loopback_bind(self):
+        self.assertFalse(server.host_allows("evil.example", "127.0.0.1"))
+        self.assertFalse(server.host_allows("evil.example:80", "127.0.0.1"))
+        self.assertFalse(server.host_allows("192.0.2.10", "127.0.0.1"))
+
+    def test_lan_bind_name_is_allowed_on_that_bind(self):
+        self.assertTrue(server.host_allows("192.168.1.5:8765", "192.168.1.5"))
+        self.assertFalse(server.host_allows("other.host:8765", "192.168.1.5"))
+
+    def test_wildcard_bind_accepts_any_host(self):
+        self.assertTrue(server.host_allows("anything.example", "0.0.0.0"))
+
+    def test_garbage_host_is_rejected(self):
+        self.assertFalse(server.host_allows("   ", "127.0.0.1"))
+
+
+class TestHostGuardHttp(unittest.TestCase):
+    """The rebinding-shaped request the board proved was accepted must now be 403."""
+
+    def setUp(self):
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        self.port = self.httpd.server_address[1]
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+    def test_same_origin_header_with_foreign_host_is_403(self):
+        req = Request(
+            f"http://127.0.0.1:{self.port}/api/snippets",
+            headers={
+                "Host": "evil.example",
+                "Origin": "http://evil.example",
+                "Sec-Fetch-Site": "same-origin",
+            },
+            method="GET",
+        )
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(req, timeout=5)
+        self.assertEqual(caught.exception.code, 403)
+
+    def test_real_loopback_host_still_served(self):
+        req = Request(
+            f"http://127.0.0.1:{self.port}/api/snippets",
+            headers={"Host": f"127.0.0.1:{self.port}"},
+            method="GET",
+        )
+        with urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        self.assertEqual(payload.get("success"), True)
+
+
+class TestStudioToken(unittest.TestCase):
+    """Board 2026-08-23 P1-6 regressions."""
+
+    def tearDown(self):
+        server.STUDIO_TOKEN = None
+
+    def test_loopback_needs_no_token(self):
+        self.assertFalse(server.studio_token_required("127.0.0.1"))
+        self.assertTrue(server.studio_token_required("0.0.0.0"))
+        self.assertTrue(server.studio_token_required("192.168.1.5"))
+
+    def test_header_and_cookie_are_accepted(self):
+        token = server.issue_studio_token()
+
+        class Headers(dict):
+            def get(self, key, default=None):  # urllib-style case handling not needed here
+                return super().get(key, default)
+
+        self.assertTrue(server.studio_token_ok(Headers({server.STUDIO_TOKEN_HEADER: token})))
+        self.assertTrue(
+            server.studio_token_ok(Headers({"Cookie": f"other=1; studio_token={token}; x=2"}))
+        )
+        self.assertFalse(server.studio_token_ok(Headers({})))
+        self.assertFalse(server.studio_token_ok(Headers({server.STUDIO_TOKEN_HEADER: "wrong"})))
+
+    def test_no_token_means_open_when_unset(self):
+        server.STUDIO_TOKEN = None
+
+        class Empty:
+            def get(self, key, default=None):
+                return default
+
+        self.assertTrue(server.studio_token_ok(Empty()))
+
+
+class TestBatchContainment(unittest.TestCase):
+    """Board 2026-08-23 P1-1/P1-7 regressions."""
+
+    def test_valid_ids_are_twelve_hex(self):
+        self.assertTrue(server.valid_batch_id("abc123def456"))
+        self.assertFalse(server.valid_batch_id("../escape"))
+        self.assertFalse(server.valid_batch_id("/etc/passwd"))
+        self.assertFalse(server.valid_batch_id("short"))
+        self.assertFalse(server.valid_batch_id(None))
+
+    def test_get_batch_refuses_paths_outside_batches_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = Path(tmp) / "outside.json"
+            outside.write_text('{"id":"x","status":"running"}', encoding="utf-8")
+            malicious = str(outside)[:-len(".json")]
+            self.assertIsNone(server.get_batch(malicious))
+        self.assertIsNone(server.get_batch("../outside"))
+
+    def test_persist_batch_never_writes_outside(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = Path(tmp) / "victim.json"
+            outside.write_text("keep me", encoding="utf-8")
+            server.persist_batch({"id": str(outside.with_suffix("")) , "status": "failed"})
+            self.assertEqual(outside.read_text(encoding="utf-8"), "keep me")
+
+    def test_jobs_have_a_hard_cap(self):
+        self.assertGreater(server.MAX_BATCH_JOBS, 0)
+        with self.assertRaises(ValueError):
+            server.start_confirm_generate(
+                {"jobs": [{"id": str(i)} for i in range(server.MAX_BATCH_JOBS + 1)]}
+            )
+
+    def test_json_body_limit_constant(self):
+        self.assertEqual(server.MAX_JSON_BYTES, 10 * 1024 * 1024)
+
+
+class TestThumbCacheContainment(unittest.TestCase):
+    """Board 2026-08-23 P1-2 regression: symlinked cache must not be served."""
+
+    def test_symlinked_cache_is_not_trusted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            source = images / "pic.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+            escaped = root / "escaped.jpg"
+            escaped.write_bytes(b"secret-outside")
+            thumbs = root / ".thumbs"
+            thumbs.mkdir()
+            cache = thumbs / "pic.png.jpg"
+            try:
+                cache.symlink_to(escaped)
+            except OSError:
+                self.skipTest("symlinks unavailable")
+            with patch.object(server, "OUTPUTS", root), patch.object(server, "THUMB_DIR", thumbs), \
+                 patch.object(server, "resolve_library_image", return_value=source):
+                result = server.thumb_file("pic.png")
+            self.assertNotEqual(result.resolve(), escaped.resolve())
+
+
+class TestSecretShapeRedaction(unittest.TestCase):
+    """Board 2026-08-23 P1-4 regressions."""
+
+    def test_xai_bare_key_shape(self):
+        text = 'body contained {"api_key":"xai-SYNTHETIC0123456789"} end'
+        out = server.cli.redact_secrets(text)
+        self.assertNotIn("xai-SYNTHETIC0123456789", out)
+
+    def test_quoted_json_assignment_shape(self):
+        out = server.cli.redact_secrets('{"api_key":"SUPERSECRETVALUE","model":"m"}')
+        self.assertNotIn("SUPERSECRETVALUE", out)
+        self.assertIn('"model":"m"', out.replace(" ", ""))
+
+    def test_payload_redaction_is_recursive(self):
+        payload = {
+            "error": "outer",
+            "jobs": [{"result": {"trace": "xai-SYNTHETIC0123456789 leaked"}}],
+        }
+        cleaned = server.redact_cli_payload(payload)
+        blob = json.dumps(cleaned)
+        self.assertNotIn("xai-SYNTHETIC0123456789", blob)
+
+
 def _png(width: int = 2, height: int = 2) -> bytes:
     import struct
     import zlib

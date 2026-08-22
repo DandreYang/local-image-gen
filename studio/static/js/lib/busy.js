@@ -93,23 +93,6 @@ export function stopBusy() {
   }
 }
 
-export function waitingCopy(provider, aspect) {
-  if (provider === "codex") {
-    return (
-      "Codex 订阅出图通常 1–3 分钟，请不要关闭或连点。" +
-      `你选了 ${aspect || "默认"}，它只能按方/横/竖三档去要，结果仍可能被改画幅。` +
-      "这一步按你写下的画面说明出图。"
-    );
-  }
-  if (provider === "grok" || provider === "xai") {
-    return "Grok Imagine 一般几十秒到两分钟。请等这一张回来，中途关闭不会取消计费。";
-  }
-  if (provider === "agy" || provider === "antigravity" || provider === "cursor") {
-    return "正在等 Antigravity / Cursor 的生图工具。本机助手有时会先想再画，请稍候。";
-  }
-  return "已交给本仓 CLI，请等这一张回来。不要刷新或连点。";
-}
-
 // 每步报价：把历史均时变成知情同意。
 export function quoteCopy(count, provider) {
   const name =

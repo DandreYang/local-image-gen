@@ -1365,6 +1365,50 @@ class DyroOptionalTests(unittest.TestCase):
             self.assertEqual((root / "outputs").resolve(), home.resolve())
             self.assertEqual(out_dir.resolve(), (home / "images").resolve())
 
+    def test_migration_keeps_both_copies_on_name_conflict(self) -> None:
+        """Board 2026-08-23 P0-B: a legacy/target name clash must never delete the source."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "blobs"
+            root = Path(tmp) / "ws"
+            nested = root / "repositories" / "app"
+            nested.mkdir(parents=True)
+            (root / "dyro.toml").write_text('[workspace]\nname = "demo"\n', encoding="utf-8")
+            bucket = home / "demo" / "images"
+            bucket.mkdir(parents=True)
+            legacy_bytes = b"\x89PNG\r\n\x1a\nlegacy-version"
+            target_bytes = b"\x89PNG\r\n\x1a\ntarget-version"
+            (bucket / "same.png").write_bytes(legacy_bytes)
+            (home / "images").mkdir(parents=True)
+            (home / "images" / "same.png").write_bytes(target_bytes)
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(home)}):
+                image_gen.default_image_dir(None, nested)
+            kept = home / "images" / "same.png"
+            moved = home / "images" / "same.from-legacy.png"
+            self.assertTrue(kept.is_file())
+            self.assertEqual(kept.read_bytes(), target_bytes)
+            self.assertTrue(moved.is_file())
+            self.assertEqual(moved.read_bytes(), legacy_bytes)
+            self.assertFalse((home / "demo").exists())
+
+    def test_migration_dedupes_identical_conflicting_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "blobs"
+            root = Path(tmp) / "ws"
+            nested = root / "repositories" / "app"
+            nested.mkdir(parents=True)
+            (root / "dyro.toml").write_text('[workspace]\nname = "demo"\n', encoding="utf-8")
+            bucket = home / "demo" / "images"
+            bucket.mkdir(parents=True)
+            same_bytes = b"\x89PNG\r\n\x1a\nidentical"
+            (bucket / "same.png").write_bytes(same_bytes)
+            (home / "images").mkdir(parents=True)
+            (home / "images" / "same.png").write_bytes(same_bytes)
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(home)}):
+                image_gen.default_image_dir(None, nested)
+            self.assertEqual((home / "images" / "same.png").read_bytes(), same_bytes)
+            self.assertFalse((home / "images" / "same.from-legacy.png").exists())
+            self.assertFalse((home / "demo").exists())
+
     def test_no_workspace_keeps_cwd_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             start = Path(tmp)

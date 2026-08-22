@@ -3,6 +3,7 @@ import { getJson, postJson, postForm, fetchLibrary } from "../api.js";
 import { showStatus, showError } from "../lib/status.js";
 import { quoteCopy } from "../lib/busy.js";
 import { OVERLAY_SLOTS } from "../lib/constants.js";
+import { escapeHtml } from "../lib/format.js";
 import {
   loadImage, blobToBase64, composeOverlay, detectQuietRect, slotRect, pixelsToPct,
   chooseRepaintPath, measurePlacementScan, pasteRegion, inwardFeatherPx, buildMaskCanvas,
@@ -194,14 +195,14 @@ function renderDock() {
   }
   if (session.intent === "repaint") {
     const provider = session.path === "B" ? "openai" : followProvider();
-    const pathLine = `<p id="overlay-path">${repaintPathCopy(session.path)}</p>`;
+    const pathLine = `<p id="overlay-path">${escapeHtml(repaintPathCopy(session.path))}</p>`;
     dock.innerHTML = session.awaitingConfirm
-      ? `${pathLine}<p id="overlay-quote">${quoteCopy(1, provider)}</p><button type="button" id="overlay-repaint-ok">确认重绘</button><button type="button" id="overlay-repaint-cancel">取消</button>`
-      : `${pathLine}<textarea id="overlay-repaint-text" rows="2" placeholder="只改框里：例如 把这行字改成夏季营">${session.prompt || ""}</textarea><button type="button" id="overlay-repaint-run">重绘这一块</button>`;
+      ? `${pathLine}<p id="overlay-quote">${escapeHtml(quoteCopy(1, provider))}</p><button type="button" id="overlay-repaint-ok">确认重绘</button><button type="button" id="overlay-repaint-cancel">取消</button>`
+      : `${pathLine}<textarea id="overlay-repaint-text" rows="2" placeholder="只改框里：例如 把这行字改成夏季营">${escapeHtml(session.prompt || "")}</textarea><button type="button" id="overlay-repaint-run">重绘这一块</button>`;
     return;
   }
   const assets = (session.assets || [])
-    .map((asset) => `<button type="button" class="chip" data-overlay-asset="${asset.id}">${asset.name}</button>`)
+    .map((asset) => `<button type="button" class="chip" data-overlay-asset="${escapeHtml(asset.id)}">${escapeHtml(asset.name)}</button>`)
     .join("");
   dock.innerHTML = `<label class="upload">选一张贴图<input id="overlay-file" type="file" accept="image/png,image/jpeg"></label><div class="overlay-assets">${assets || "库存还是空的"}</div><button type="button" class="pro-only" id="overlay-detect">检测干净区</button><button type="button" class="pro-only" id="overlay-slot">用模板槽位</button><label class="pro-only">宽 %<input id="overlay-w" type="number" min="4" max="80" value="${session.placement.w_pct}"></label><label class="pro-only">静区 %<input id="overlay-quiet" type="number" min="8" max="30" value="${session.placement.quiet_zone_pct}"></label><button type="button" id="overlay-save">贴到这张图</button>`;
 }
