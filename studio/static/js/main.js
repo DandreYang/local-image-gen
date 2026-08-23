@@ -25,6 +25,7 @@ import { initCandidates } from "./views/candidates.js";
 import { initCmdk } from "./lib/cmdk.js";
 import { initTemplates } from "./views/templates.js";
 import { initProjects } from "./views/projects.js";
+import { initCreateView } from "./create-view.js";
 import { initShell } from "./lib/shell.js";
 
 const $ = (id) => document.getElementById(id);
@@ -137,12 +138,6 @@ $("backdrop-toggle").addEventListener("click", () => {
   setBackdrop($("viewer").dataset.backdrop === "flat" ? "ambient" : "flat");
 });
 
-$("mode-toggle").addEventListener("click", () => {
-  setMode(state.mode === "pro" ? "simple" : "pro");
-  $("mode-toggle").textContent = state.mode === "pro" ? "专业" : "默认";
-});
-$("mode-toggle").textContent = state.mode === "pro" ? "专业" : "默认";
-
 ["overlay-qr", "overlay-logo", "overlay-workbench", "overlay-repaint"].forEach((id) => {
   const node = $(id);
   if (!node) return;
@@ -217,54 +212,15 @@ $("follow-provider").addEventListener("change", fillFollowModels);
 
 $("brief-btn").addEventListener("click", runBrief);
 
-// 首屏示例：点一下填入输入框；开写后示例条让位。
-function syncPromptExamples() {
-  const examples = $("prompt-examples");
-  if (examples) examples.hidden = Boolean($("prompt").value.trim());
-}
-document.querySelectorAll(".example-chip").forEach((chip) => {
-  chip.addEventListener("click", () => {
-    $("prompt").value = chip.dataset.example || "";
-    syncPromptExamples();
-    $("prompt").focus();
-  });
+// 首屏创作卡 + 侧栏导航的行为都在 create-view.js（组装层延伸）。
+const createView = initCreateView({
+  runBrief,
+  cancelBrief,
+  closeLibrary,
+  closeOverlay,
+  fillModels,
+  setMode,
 });
-$("prompt").addEventListener("input", syncPromptExamples);
-// Cmd/Ctrl+Enter 直接出图：写完一句不用离开键盘。
-$("prompt").addEventListener("keydown", (event) => {
-  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-    event.preventDefault();
-    runBrief();
-  }
-});
-
-// 比例 chips 是 #aspect select 的首屏镜像：点 chip 即写回 select，
-// 专业栏里改 select 也同步高亮，两条路共享一份状态。
-function syncAspectChips() {
-  const current = $("aspect").value || "";
-  document.querySelectorAll(".aspect-chip").forEach((chip) => {
-    chip.classList.toggle("is-active", (chip.dataset.aspect || "") === current);
-  });
-}
-document.querySelectorAll(".aspect-chip").forEach((chip) => {
-  chip.addEventListener("click", () => {
-    $("aspect").value = chip.dataset.aspect || "";
-    syncAspectChips();
-  });
-});
-$("aspect").addEventListener("change", syncAspectChips);
-syncAspectChips();
-
-// 模式切换后侧栏按钮文案跟着翻转。
-const modeToggle = $("mode-toggle");
-if (modeToggle) {
-  const paintModeLabel = () => {
-    const label = $("mode-toggle-label");
-    if (label) label.textContent = state.mode === "simple" ? "专业模式" : "简洁模式";
-  };
-  modeToggle.addEventListener("click", () => setTimeout(paintModeLabel, 0));
-  paintModeLabel();
-}
 
 $("snippet-save").addEventListener("click", () => saveSnippetFromSelection());
 $("snippet-color").addEventListener("change", (event) => {
