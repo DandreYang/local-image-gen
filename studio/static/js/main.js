@@ -231,12 +231,41 @@ document.querySelectorAll(".example-chip").forEach((chip) => {
 });
 $("prompt").addEventListener("input", syncPromptExamples);
 
+// 比例 chips 是 #aspect select 的首屏镜像：点 chip 即写回 select，
+// 专业栏里改 select 也同步高亮，两条路共享一份状态。
+function syncAspectChips() {
+  const current = $("aspect").value || "";
+  document.querySelectorAll(".aspect-chip").forEach((chip) => {
+    chip.classList.toggle("is-active", (chip.dataset.aspect || "") === current);
+  });
+}
+document.querySelectorAll(".aspect-chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    $("aspect").value = chip.dataset.aspect || "";
+    syncAspectChips();
+  });
+});
+$("aspect").addEventListener("change", syncAspectChips);
+syncAspectChips();
+
+// 模式切换后侧栏按钮文案跟着翻转。
+const modeToggle = $("mode-toggle");
+if (modeToggle) {
+  const paintModeLabel = () => {
+    const label = $("mode-toggle-label");
+    if (label) label.textContent = state.mode === "simple" ? "专业模式" : "简洁模式";
+  };
+  modeToggle.addEventListener("click", () => setTimeout(paintModeLabel, 0));
+  paintModeLabel();
+}
+
 $("snippet-save").addEventListener("click", () => saveSnippetFromSelection());
 $("snippet-color").addEventListener("change", (event) => {
   insertIntoPrompt(colorSentence(event.target.value));
 });
 $("new-take").addEventListener("click", newTake);
 $("library-open").addEventListener("click", () => openLibrary());
+$("recent-open").addEventListener("click", () => openLibrary({ filter: "recent" }));
 $("director-look").addEventListener("click", () => lookSelected());
 $("director-revise").addEventListener("click", reviseSelected);
 

@@ -10,24 +10,37 @@
   <link rel="stylesheet" href="/static/css/views.css">
 </head>
 <body data-shell="compose">
-  <header class="top">
+  <aside class="sidenav">
     <div class="brand">
       <span class="mark"></span>
       <div>
         <h1>local studio</h1>
-        <p>本机暗房 · 一句话出图，看图后再改</p>
+        <p>本机暗房</p>
       </div>
     </div>
-    <div class="meta">
-      <span id="workspace-pill" class="compose-hide">Dyro 工作区</span>
+    <nav class="sidenav-nav">
+      <button type="button" class="nav-item is-active" id="nav-create" title="回到创作">
+        <span class="nav-glyph">✎</span>创作
+      </button>
+      <button type="button" class="nav-item" id="library-open" title="打开素材库">
+        <span class="nav-glyph">▦</span>素材库
+      </button>
+      <button type="button" class="nav-item" id="recent-open" title="最近生成的图都在素材库里">
+        <span class="nav-glyph">◷</span>最近创作
+      </button>
+      <button type="button" class="nav-item compose-hide pro-flip" id="mode-toggle" title="专业模式会显示贴图槽位和框选重绘">
+        <span class="nav-glyph">◑</span><span id="mode-toggle-label">专业模式</span>
+      </button>
+    </nav>
+    <div class="sidenav-foot">
+      <span id="workspace-pill" class="pill compose-hide">Dyro 工作区</span>
       <button type="button" class="pill compose-hide" id="version-pill">…</button>
       <button type="button" class="pill compose-hide" id="log-pill">更新日志</button>
       <button type="button" class="pill compose-hide" id="backdrop-toggle" title="纯色画布更适合评估白平衡">画布底</button>
-      <button type="button" class="pill compose-hide" id="mode-toggle" title="专业模式会显示贴图槽位和框选重绘">模式</button>
-      <button type="button" class="pill" id="library-open" title="打开素材库">素材库</button>
     </div>
-  </header>
+  </aside>
 
+  <div class="workspace">
   <main>
     <aside class="process" id="process" hidden>
       <p class="kicker">工序</p>
@@ -77,13 +90,25 @@
             <button type="button" class="example-chip" data-example="活动邀请卡，竖版，米白纸纹底，手写体「邀请」二字烫金，边缘一圈细金框。">邀请卡</button>
           </div>
           <div id="templates" class="template-picker"></div>
-          <div class="compose-refs-row">
-            <div id="compose-refs" class="ref-list"></div>
+          <div id="compose-refs" class="ref-list"></div>
+          <div class="compose-toolbar">
+            <span class="toolbar-kicker">比例</span>
+            <div class="aspect-chips" id="aspect-chips" role="radiogroup" aria-label="画面比例">
+              <button type="button" class="aspect-chip is-active" data-aspect="">自动</button>
+              <button type="button" class="aspect-chip" data-aspect="1:1">1:1</button>
+              <button type="button" class="aspect-chip" data-aspect="16:9">16:9</button>
+              <button type="button" class="aspect-chip" data-aspect="9:16">9:16</button>
+              <button type="button" class="aspect-chip" data-aspect="4:3">4:3</button>
+              <button type="button" class="aspect-chip" data-aspect="3:4">3:4</button>
+            </div>
             <label class="compose-ref-add">+ 参考图
               <input id="compose-upload" type="file" accept="image/png,image/jpeg" multiple>
             </label>
           </div>
-          <button type="button" class="go" id="brief-btn">出图</button>
+          <div class="compose-actions">
+            <p class="compose-hint" id="compose-hint">预览不花额度；确认后才真正出图。</p>
+            <button type="button" class="go" id="brief-btn">出图</button>
+          </div>
         </div>
         <span class="aspect-badge" id="aspect-badge" hidden></span>
         <img id="hero" alt="" hidden>
@@ -230,6 +255,7 @@
       </div>
     </div>
   </main>
+  </div><!-- /.workspace -->
 
   <div class="sheet-root" id="cmdk-root" hidden>
     <div class="sheet-backdrop" data-cmdk-close></div>
@@ -332,3 +358,4 @@
   <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>
+

@@ -11,10 +11,15 @@ export async function refreshLibrary() {
   renderLibrary();
 }
 
-export function openLibrary() {
+export function openLibrary(options) {
   state.libraryOpen = true;
   const root = $("library-root");
   if (root) root.hidden = false;
+  const search = $("library-search");
+  if (options && options.filter === "recent" && search) {
+    // 「最近创作」入口：按时间倒排的素材库就是最近列表，清掉旧搜索词即可。
+    search.value = "";
+  }
   renderLibrary();
   notify();
 }

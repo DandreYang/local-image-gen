@@ -167,7 +167,8 @@ function fillRefList(root) {
 
 export function renderRefs() {
   fillRefList($("refs"));
-  fillRefList($("compose-refs"));
+  const composeRefs = $("compose-refs");
+  if (composeRefs) fillRefList(composeRefs);
 }
 
 export function insertIntoPrompt(text) {

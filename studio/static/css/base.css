@@ -7,7 +7,79 @@ html, body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
-body { display: flex; flex-direction: column; min-height: 100%; }
+/* 即梦式骨架：左侧固定功能栏，右侧工作区纵向滚动。 */
+body {
+  display: flex;
+  flex-direction: row;
+  min-height: 100%;
+}
+
+/* ---- 左侧功能导航（即梦/可灵式） ---- */
+.sidenav {
+  width: 168px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-18);
+  padding: var(--s-18) var(--s-11);
+  border-right: 1px solid color-mix(in srgb, var(--n-700) 60%, transparent);
+  background: color-mix(in srgb, var(--n-950) 55%, transparent);
+  min-height: 100vh;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+}
+.sidenav .brand h1 { font-size: 0.95rem; margin: 0; }
+.sidenav .brand p { margin: 0.15rem 0 0; font-size: 0.68rem; color: var(--n-400); }
+.sidenav .brand .mark { width: 1.5rem; height: 1.5rem; }
+.sidenav-nav { display: flex; flex-direction: column; gap: var(--s-4); }
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-8);
+  padding: 0.48rem 0.6rem;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--n-400);
+  font-family: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+  transition: color 120ms var(--ease), background 120ms var(--ease);
+}
+.nav-item:hover { color: var(--n-200); background: color-mix(in srgb, var(--n-800) 70%, transparent); }
+.nav-item { position: relative; }
+.nav-item.is-active {
+  color: var(--n-200);
+  background: color-mix(in srgb, var(--n-800) 80%, transparent);
+}
+.nav-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: -0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 58%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.nav-glyph { font-size: 0.85rem; width: 1.1rem; text-align: center; }
+.sidenav-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+  align-items: stretch;
+}
+.workspace {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
 ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 
 .round, .desk, .viewer, .film, .status, .brief-card, .changelog, .director-turns {
