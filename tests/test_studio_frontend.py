@@ -788,7 +788,7 @@ class TestComposeFirstRun(unittest.TestCase):
         self.assertNotIn("常用说法", html)
         self.assertNotIn("先看终稿", html)
         self.assertNotIn("按这句话选", desk)
-        self.assertIn('class="nav-item compose-hide pro-flip" id="mode-toggle"', html)
+        self.assertIn('class="pill ghost pro-flip" id="mode-toggle"', html)
         self.assertRegex(
             css,
             r'body\[data-shell="compose"\]\s+\.viewer',

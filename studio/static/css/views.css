@@ -116,18 +116,143 @@ body[data-shell="compose"] .paper .go:hover {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 55%, var(--n-600));
 }
-/* ---- 创作卡工具条：比例 chips + 底部操作行 ---- */
-.compose-toolbar {
+/* ---- 画布优先 compose 态：舞台即页面，指令舱悬浮底部 ---- */
+body[data-shell="compose"] main {
+  grid-template-columns: minmax(0, 1fr);
+}
+body[data-shell="compose"] .round,
+body[data-shell="compose"] .desk,
+body[data-shell="compose"] .process {
+  display: none !important;
+}
+body[data-shell="compose"] .compose-hide {
+  display: none !important;
+}
+body[data-shell="compose"] .viewer {
+  position: relative;
+  min-height: calc(100vh - 3.4rem);
+}
+/* 空态品牌时刻 */
+.canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--s-11);
+  padding-bottom: 9rem;
+  pointer-events: none;
+}
+.canvas-kicker {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.42em;
+  color: color-mix(in srgb, var(--accent) 82%, var(--n-200));
+}
+.canvas-title {
+  margin: 0;
+  font-family: var(--font-brand);
+  font-size: clamp(1.7rem, 3.2vw, 2.5rem);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--n-200);
+}
+.canvas-sub {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--n-400);
+}
+/* 底部指令舱 */
+.command-bar {
+  position: absolute;
+  left: 50%;
+  bottom: max(4.5vh, 2.2rem);
+  transform: translateX(-50%);
+  width: min(44rem, calc(100% - 3rem));
+  background: color-mix(in srgb, var(--n-850) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--n-600) 85%, transparent);
+  border-radius: var(--r-xl);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+  padding: var(--s-14) var(--s-14) var(--s-11);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.command-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-11);
+}
+.command-row textarea {
+  flex: 1 1 auto;
+  min-height: 2.6rem;
+  max-height: 9rem;
+  resize: none;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 0.98rem;
+  line-height: 1.55;
+  color: var(--n-200);
+  padding: 0.35rem 0.1rem;
+}
+.command-row textarea:focus { outline: none; }
+.command-row textarea::placeholder {
+  color: color-mix(in srgb, var(--n-400) 62%, var(--n-200));
+}
+.command-row .go {
+  flex: 0 0 auto;
+  min-width: 5.2rem;
+  padding: 0.6rem 1.15rem;
+  border-radius: var(--r-md);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.prompt-examples {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-6);
+  margin-top: var(--s-11);
+}
+.prompt-examples[hidden] { display: none; }
+.examples-kicker {
+  font-size: 0.68rem;
+  color: var(--n-400);
+  letter-spacing: 0.14em;
+}
+.example-chip {
+  font-size: 0.74rem;
+  font-weight: 400;
+  color: var(--n-400);
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--n-400) 40%, var(--n-700));
+  border-radius: 999px;
+  padding: 0.22rem 0.66rem;
+  cursor: pointer;
+  transition: color 120ms var(--ease), border-color 120ms var(--ease);
+}
+.example-chip:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--n-600));
+}
+.command-toolbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--s-8);
   margin-top: var(--s-11);
+  padding-top: var(--s-11);
+  border-top: 1px solid color-mix(in srgb, var(--n-700) 60%, transparent);
 }
-.toolbar-kicker {
-  font-size: 0.7rem;
-  color: var(--n-400);
-  letter-spacing: 0.08em;
+.command-toolbar select,
+.compose-toolbar select {
+  background: color-mix(in srgb, var(--n-900) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--n-400) 38%, var(--n-600));
+  color: var(--n-200);
+  font-size: 0.76rem;
+  padding: 0.26rem 0.5rem;
 }
 .aspect-chips {
   display: flex;
@@ -153,6 +278,36 @@ body[data-shell="compose"] .paper .go:hover {
 }
 .compose-toolbar .compose-ref-add {
   margin-left: auto;
+}
+.command-toolbar .compose-ref-add {
+  margin-left: auto;
+}
+.command-toolbar[hidden] { display: none; }
+.command-toolbar .toolbar-kicker {
+  font-size: 0.7rem;
+  color: var(--n-400);
+}
+.command-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-11);
+  margin-top: var(--s-11);
+}
+.options-toggle {
+  font-size: 0.72rem;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+}
+.options-toggle[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, black);
+}
+.command-hint {
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: color-mix(in srgb, var(--n-400) 75%, var(--n-200));
+  margin-left: var(--s-8);
+  white-space: nowrap;
 }
 .compose-actions {
   display: flex;

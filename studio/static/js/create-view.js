@@ -122,5 +122,16 @@ export function initCreateView(deps) {
   document.querySelectorAll("[data-library-close]").forEach((node) => {
     node.addEventListener("click", () => setTimeout(paintNav, 0));
   });
+
+  // 指令舱的参数行默认折叠，「⚙ 选项」展开/收起。
+  const optionsToggle = $("options-toggle");
+  const toolbar = $("command-toolbar");
+  if (optionsToggle && toolbar) {
+    optionsToggle.addEventListener("click", () => {
+      const open = toolbar.hidden;
+      toolbar.hidden = !open;
+      optionsToggle.setAttribute("aria-expanded", String(open));
+    });
+  }
   return { paintNav };
 }

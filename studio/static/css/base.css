@@ -7,76 +7,50 @@ html, body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
-/* 即梦式骨架：左侧固定功能栏，右侧工作区纵向滚动。 */
+/* 画布优先骨架：顶栏一条，其余全部让给舞台。 */
 body {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   min-height: 100%;
 }
 
-/* ---- 左侧功能导航（即梦/可灵式） ---- */
-.sidenav {
-  width: 168px;
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-18);
-  padding: var(--s-18) var(--s-11);
-  border-right: 1px solid color-mix(in srgb, var(--n-700) 60%, transparent);
-  background: color-mix(in srgb, var(--n-950) 55%, transparent);
-  min-height: 100vh;
-  position: sticky;
-  top: 0;
-  align-self: flex-start;
-  height: 100vh;
-}
-.sidenav .brand h1 { font-size: 0.95rem; margin: 0; }
-.sidenav .brand p { margin: 0.15rem 0 0; font-size: 0.68rem; color: var(--n-400); }
-.sidenav .brand .mark { width: 1.5rem; height: 1.5rem; }
-.sidenav-nav { display: flex; flex-direction: column; gap: var(--s-4); }
-.nav-item {
+/* ---- 顶栏：品牌 + 轻操作，视觉上尽量隐形 ---- */
+.topbar {
   display: flex;
   align-items: center;
-  gap: var(--s-8);
-  padding: 0.48rem 0.6rem;
-  border: 0;
-  border-radius: var(--r-md);
-  background: transparent;
-  color: var(--n-400);
-  font-family: inherit;
-  font-size: 0.82rem;
-  cursor: pointer;
-  text-align: left;
-  transition: color 120ms var(--ease), background 120ms var(--ease);
+  justify-content: space-between;
+  gap: var(--s-14);
+  padding: var(--s-11) var(--s-18);
+  border-bottom: 1px solid color-mix(in srgb, var(--n-700) 45%, transparent);
+  background: color-mix(in srgb, var(--n-950) 40%, transparent);
 }
-.nav-item:hover { color: var(--n-200); background: color-mix(in srgb, var(--n-800) 70%, transparent); }
-.nav-item { position: relative; }
-.nav-item.is-active {
-  color: var(--n-200);
-  background: color-mix(in srgb, var(--n-800) 80%, transparent);
+.topbar .brand { display: flex; align-items: center; gap: var(--s-8); }
+.topbar .brand .mark { width: 1.15rem; height: 1.15rem; }
+.brand-name {
+  font-family: var(--font-brand);
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--n-200) 86%, transparent);
 }
-.nav-item.is-active::before {
-  content: "";
-  position: absolute;
-  left: -0.35rem;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 58%;
-  border-radius: 2px;
-  background: var(--accent);
-}
-.nav-glyph { font-size: 0.85rem; width: 1.1rem; text-align: center; }
-.sidenav-foot {
-  margin-top: auto;
+.topbar-actions {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--s-6);
-  align-items: stretch;
+  min-width: 0;
+  overflow-x: auto;
 }
+.topbar-actions::-webkit-scrollbar { display: none; }
+.topbar-divider {
+  width: 1px;
+  height: 1.1rem;
+  background: color-mix(in srgb, var(--n-600) 80%, transparent);
+  flex: 0 0 auto;
+}
+.topbar .pill { background: transparent; border-color: transparent; color: var(--n-400); }
+.topbar .pill:hover { color: var(--n-200); border-color: var(--n-600); }
 .workspace {
   flex: 1 1 auto;
-  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }

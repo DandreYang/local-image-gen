@@ -10,35 +10,22 @@
   <link rel="stylesheet" href="/static/css/views.css">
 </head>
 <body data-shell="compose">
-  <aside class="sidenav">
+  <header class="topbar">
     <div class="brand">
       <span class="mark"></span>
-      <div>
-        <h1>local studio</h1>
-        <p>本机暗房</p>
-      </div>
+      <span class="brand-name">local studio</span>
     </div>
-    <nav class="sidenav-nav">
-      <button type="button" class="nav-item is-active" id="nav-create" title="回到创作">
-        <span class="nav-glyph">✎</span>创作
-      </button>
-      <button type="button" class="nav-item" id="library-open" title="打开素材库">
-        <span class="nav-glyph">▦</span>素材库
-      </button>
-      <button type="button" class="nav-item" id="recent-open" title="最近生成的图都在素材库里">
-        <span class="nav-glyph">◷</span>最近创作
-      </button>
-      <button type="button" class="nav-item compose-hide pro-flip" id="mode-toggle" title="专业模式会显示贴图槽位和框选重绘">
-        <span class="nav-glyph">◑</span><span id="mode-toggle-label">专业模式</span>
-      </button>
-    </nav>
-    <div class="sidenav-foot">
-      <span id="workspace-pill" class="pill compose-hide">Dyro 工作区</span>
-      <button type="button" class="pill compose-hide" id="version-pill">…</button>
-      <button type="button" class="pill compose-hide" id="log-pill">更新日志</button>
-      <button type="button" class="pill compose-hide" id="backdrop-toggle" title="纯色画布更适合评估白平衡">画布底</button>
+    <div class="topbar-actions">
+      <button type="button" class="pill" id="library-open" title="打开素材库">素材库</button>
+      <button type="button" class="pill" id="recent-open" title="最近生成的图都在素材库里">最近创作</button>
+      <span class="topbar-divider"></span>
+      <button type="button" class="pill ghost pro-flip" id="mode-toggle" title="专业模式会显示贴图槽位和框选重绘"><span id="mode-toggle-label">专业模式</span></button>
+      <button type="button" class="pill ghost" id="backdrop-toggle" title="纯色画布更适合评估白平衡">画布底</button>
+      <button type="button" class="pill ghost" id="log-pill">更新日志</button>
+      <button type="button" class="pill ghost" id="version-pill">…</button>
+      <span id="workspace-pill" class="pill ghost">Dyro 工作区</span>
     </div>
-  </aside>
+  </header>
 
   <div class="workspace">
   <main>
@@ -80,10 +67,19 @@
       </div>
       <div class="viewer" id="viewer">
         <span class="compare-badge" id="compare-badge" hidden>上一张</span>
-        <div class="paper" id="empty-view">
-          <h1>这一张要什么</h1>
-          <textarea id="prompt" rows="3" required placeholder="一句就行。例如：小红书封面，人物出镜，主标题原文入画。"></textarea>
+        <!-- 空态品牌时刻：全幅画布上的唯一一句话。 -->
+        <div class="canvas-empty" id="empty-view">
+          <p class="canvas-kicker">本机暗房</p>
+          <h1 class="canvas-title">想到什么，说一句。</h1>
+          <p class="canvas-sub">出 2 张候选 · 看图后再改 · 图与提示词都留在本机</p>
+        </div>
+        <div class="command-bar" id="command-bar">
+          <div class="command-row">
+            <textarea id="prompt" rows="1" required placeholder="描述这一张要什么…"></textarea>
+            <button type="button" class="go" id="brief-btn">出图</button>
+          </div>
           <div id="prompt-examples" class="prompt-examples" aria-label="试试这些开头">
+            <span class="examples-kicker">试试</span>
             <button type="button" class="example-chip" data-example="小红书封面，人物出镜，暖调奶油风，主标题「夏日出行」原文入画，留出底部文案区。">小红书封面</button>
             <button type="button" class="example-chip" data-example="手机屏海报，深色背景，一杯冰美式居中，杯壁挂水珠，产品摄影质感，顶部留标题位。">产品海报</button>
             <button type="button" class="example-chip" data-example="日历壁纸，十月，山间清晨薄雾，低饱和青绿色调，日期区域留在右下角保持干净。">日历壁纸</button>
@@ -91,13 +87,10 @@
           </div>
           <div id="templates" class="template-picker"></div>
           <div id="compose-refs" class="ref-list"></div>
-          <div class="compose-toolbar">
-            <span class="toolbar-kicker">模型</span>
+          <div class="command-toolbar" id="command-toolbar" hidden>
+            <span class="toolbar-kicker">通路</span>
             <select id="compose-provider" aria-label="生图通路"></select>
             <select id="compose-model" aria-label="生图模型"></select>
-          </div>
-          <div class="compose-toolbar">
-            <span class="toolbar-kicker">比例</span>
             <div class="aspect-chips" id="aspect-chips" role="radiogroup" aria-label="画面比例">
               <button type="button" class="aspect-chip is-active" data-aspect="">自动</button>
               <button type="button" class="aspect-chip" data-aspect="1:1">1:1</button>
@@ -110,9 +103,9 @@
               <input id="compose-upload" type="file" accept="image/png,image/jpeg" multiple>
             </label>
           </div>
-          <div class="compose-actions">
-            <p class="compose-hint" id="compose-hint">预览不花额度；确认后才真正出图。</p>
-            <button type="button" class="go" id="brief-btn">出图</button>
+          <div class="command-foot">
+            <button type="button" class="options-toggle ghost" id="options-toggle" aria-expanded="false">⚙ 选项</button>
+            <span class="command-hint">⌘↩ 出图 · 预览不花额度</span>
           </div>
         </div>
         <span class="aspect-badge" id="aspect-badge" hidden></span>
