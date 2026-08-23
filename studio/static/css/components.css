@@ -1,8 +1,8 @@
 button {
   font: inherit;
   cursor: pointer;
-  border: 1px solid var(--accent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 85%, white), var(--accent));
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, black);
+  background: var(--accent);
   color: var(--n-950);
   padding: 0.5rem 0.85rem;
   font-weight: 600;

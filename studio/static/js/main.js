@@ -230,6 +230,13 @@ document.querySelectorAll(".example-chip").forEach((chip) => {
   });
 });
 $("prompt").addEventListener("input", syncPromptExamples);
+// Cmd/Ctrl+Enter 直接出图：写完一句不用离开键盘。
+$("prompt").addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault();
+    runBrief();
+  }
+});
 
 // 比例 chips 是 #aspect select 的首屏镜像：点 chip 即写回 select，
 // 专业栏里改 select 也同步高亮，两条路共享一份状态。

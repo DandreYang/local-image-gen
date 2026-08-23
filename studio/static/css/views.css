@@ -288,9 +288,74 @@ main:has(#process:not([hidden])) {
 .cmdk-list { display: flex; flex-direction: column; gap: 4px; }
 .cmdk-item { text-align: left; }
 .library-sheet { width: min(72rem, 100%); max-height: 92vh; }
-.library-root { align-items: stretch; }
+/* 素材库改为右侧抽屉：选图时舞台实时可见，不用关面板再核对。 */
+.library-root {
+  align-items: stretch;
+  justify-content: flex-end;
+}
+.library-root .sheet-backdrop {
+  background: color-mix(in srgb, var(--n-950) 38%, transparent);
+}
+.library-sheet {
+  width: min(40rem, 46vw);
+  max-height: none;
+  height: 100vh;
+  border-radius: 0;
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--n-700) 80%, transparent);
+}
 .library-toolbar { display: flex; gap: var(--s-8); align-items: center; }
-.library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: var(--s-8); overflow: auto; }
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: var(--s-11);
+  overflow: auto;
+  padding-bottom: var(--s-14);
+}
+.library-session {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: var(--s-11);
+}
+/* 素材卡：统一比例、圆角与加载态，不再参差。 */
+.library-grid .frame,
+.library-session .frame {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--n-800) 85%, transparent);
+}
+.library-grid .frame img,
+.library-session .frame img {
+  opacity: 1;
+}
+.library-grid .frame img:not([src]),
+.library-session .frame img:not([src]) { opacity: 0; }
+/* 素材库工具区：深色输入框 + 中性筛选 chips（琥珀只留给主操作）。 */
+.library-sheet input[type="search"] {
+  background: color-mix(in srgb, var(--n-900) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--n-400) 45%, var(--n-600));
+  color: var(--n-200);
+  padding: 0.42rem 0.7rem;
+  flex: 0 1 15rem;
+}
+.library-sheet .chips button {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--n-400) 35%, var(--n-600));
+  color: var(--n-400);
+  font-size: 0.74rem;
+  font-weight: 500;
+  padding: 0.26rem 0.65rem;
+  border-radius: 999px;
+}
+.library-sheet .chips button:hover { color: var(--n-200); border-color: var(--n-400); }
+.library-sheet .chips button.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 60%, black);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
 .project-rail { min-width: 8rem; }
 .template-groups { overflow: auto; display: flex; flex-direction: column; gap: var(--s-14); }
 .brand-constraints { color: var(--accent); }

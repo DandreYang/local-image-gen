@@ -123,6 +123,8 @@ export function renderLibrary() {
       button.addEventListener("click", () => {
         state.selected = item;
         notify();
+        // 单击即上屏：收起抽屉让舞台立刻可见，不必手动关闭核对。
+        if (state.libraryOpen) closeLibrary();
       });
       button.addEventListener("dblclick", () => {
         if (!state.refs.includes(item.id) && state.refs.length < 4) state.refs.push(item.id);
@@ -142,6 +144,7 @@ export function renderLibrary() {
       const chip = document.createElement("button");
       chip.type = "button";
       chip.textContent = label;
+      chip.classList.toggle("on", (state.libraryFilter || "") === id);
       chip.addEventListener("click", () => {
         state.libraryFilter = id;
         renderLibrary();
