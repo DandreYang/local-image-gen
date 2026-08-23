@@ -6,7 +6,7 @@ import { state } from "./state.js";
 const $ = (id) => document.getElementById(id);
 
 export function initCreateView(deps) {
-  const { runBrief, cancelBrief, closeLibrary, closeOverlay, fillModels } = deps;
+  const { runBrief, cancelBrief, closeLibrary, closeOverlay, fillModels, setMode } = deps;
 
   // 示例 chips：点一下整句填入；开写后示例条让位。
   const syncPromptExamples = () => {
@@ -91,7 +91,7 @@ export function initCreateView(deps) {
   const modeToggle = $("mode-toggle");
   if (modeToggle) {
     modeToggle.addEventListener("click", () => {
-      deps.setMode(state.mode === "pro" ? "simple" : "pro");
+      setMode(state.mode === "pro" ? "simple" : "pro");
       paintModeLabel();
     });
     paintModeLabel();
@@ -118,7 +118,17 @@ export function initCreateView(deps) {
     if (createBtn) createBtn.classList.toggle("is-active", !libraryVisible);
     if (libBtn) libBtn.classList.toggle("is-active", Boolean(libraryVisible));
   };
-  $("nav-create").addEventListener("click", focusCreate);
+  // 「创作」入口在画布优先布局里已并入顶栏；旧 id 存在才绑定，缺失时
+  // 点击画布空白处即回到创作（关浮层 + 聚焦输入框）。
+  const createBtn = $("nav-create");
+  if (createBtn) {
+    createBtn.addEventListener("click", focusCreate);
+  } else {
+    document.getElementById("viewer").addEventListener("click", (event) => {
+      if (event.target.closest("#command-bar, #brief-card, #busy, button, a, select, textarea, input")) return;
+      focusCreate();
+    });
+  }
   document.querySelectorAll("[data-library-close]").forEach((node) => {
     node.addEventListener("click", () => setTimeout(paintNav, 0));
   });
