@@ -1,0 +1,80 @@
+{
+  "date": "2026-08-24",
+  "quota_mode": "fixture",
+  "brief_request": {
+    "prompt": "未来台北雨夜，电影感人物海报，主标题「夜行」原文入画。",
+    "provider": "grok",
+    "model": "grok-imagine-image-2.0",
+    "template": "xiaohongshu",
+    "aspect": "3:4",
+    "resolution": "1k",
+    "quality": "medium",
+    "images": []
+  },
+  "brief_response_verified": {
+    "template": "xiaohongshu",
+    "template_label": "小红书封面",
+    "mode": "candidates",
+    "jobs": 2,
+    "job_aspect": "3:4",
+    "job_resolution": "1k",
+    "job_quality": "medium",
+    "job_model": "grok-imagine-image-2.0"
+  },
+  "batch_verified": {
+    "status": "done",
+    "done": 2,
+    "results": 2,
+    "receipt_aspect_ratio": "3:4",
+    "receipt_resolution": "1k",
+    "receipt_quality": "medium"
+  },
+  "revision_verified": {
+    "look": true,
+    "revise": true,
+    "version_count_after_generation": 2,
+    "provider": "grok",
+    "model": "grok-imagine-image-2.0",
+    "aspect": "3:4",
+    "resolution": "1k",
+    "quality": "medium"
+  },
+  "reference_upload_verified": {
+    "click_selection": true,
+    "drag_drop_surface": true,
+    "thumbnail_preview": true,
+    "individual_remove": true,
+    "upload_response_ids": [
+      "images/inbox/91570b27da.png",
+      "images/inbox/36a02ed531.png"
+    ],
+    "brief_images_field": [
+      "images/inbox/91570b27da.png",
+      "images/inbox/36a02ed531.png"
+    ]
+  },
+  "custom_select_verified": {
+    "native_select_count": 0,
+    "mouse_selection": true,
+    "keyboard_arrow_enter": true,
+    "escape_close": true,
+    "aria_activedescendant": true,
+    "tabbable_option_count": 0,
+    "mobile_menu_in_viewport": true
+  },
+  "live_runtime_verified": {
+    "backend": "http://127.0.0.1:8767",
+    "fixture": false,
+    "bind_host": "127.0.0.1",
+    "default_provider": "grok",
+    "default_model": "grok-imagine-image-2.0",
+    "console_errors": 0,
+    "console_warnings": 0,
+    "live_generation_consumed": false
+  },
+  "proxy_boundary_verified": {
+    "loopback_status": 200,
+    "lan_status": 403,
+    "hosted_status": 503
+  }
+}

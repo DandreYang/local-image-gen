@@ -1,0 +1,141 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  apiAssetUrl,
+  confirmGenerate,
+  createBrief,
+  loadCapabilities,
+  uploadReferences,
+} from "../src/studio-api.js";
+import { isLoopbackAddress } from "../vite.config.mjs";
+import { getRuntimeAccess, validateRuntimeMode } from "../src/studio-options.js";
+
+function jsonResponse(payload, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => JSON.stringify(payload),
+  };
+}
+
+test("createBrief preserves every user-selectable generation field", async () => {
+  const originalFetch = globalThis.fetch;
+  let captured;
+  globalThis.fetch = async (url, options) => {
+    captured = { url, options };
+    return jsonResponse({ success: true, jobs: [] });
+  };
+  try {
+    const body = {
+      prompt: "未来城市雨夜",
+      provider: "grok",
+      model: "grok-imagine-image-2.0",
+      template: "xiaohongshu",
+      aspect: "3:4",
+      resolution: "1k",
+      quality: "medium",
+      images: ["images/inbox/reference.png"],
+    };
+    await createBrief(body);
+    assert.equal(captured.url, "/studio-api/api/brief");
+    assert.equal(captured.options.method, "POST");
+    assert.deepEqual(JSON.parse(captured.options.body), body);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("confirmGenerate preserves compiled jobs and template", async () => {
+  const originalFetch = globalThis.fetch;
+  let captured;
+  globalThis.fetch = async (url, options) => {
+    captured = { url, options };
+    return jsonResponse({ success: true, batch_id: "batch123", status: "running" });
+  };
+  try {
+    const body = {
+      jobs: [{ id: "1", aspect: "16:9", model: "gpt-image-2", resolution: "2k" }],
+      mode: "candidates",
+      template: "cover",
+    };
+    await confirmGenerate(body);
+    assert.equal(captured.url, "/studio-api/api/confirm-generate");
+    assert.deepEqual(JSON.parse(captured.options.body), body);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("loadCapabilities combines provider availability and model metadata", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (url.endsWith("/api/doctor")) return jsonResponse({ success: true, providers: [{ provider: "grok", subscription: true }] });
+    if (url.endsWith("/api/models")) return jsonResponse({ success: true, models: [{ provider: "grok", model: "grok-imagine-image-2.0" }] });
+    throw new Error(`unexpected URL ${url}`);
+  };
+  try {
+    const payload = await loadCapabilities();
+    assert.equal(payload.providers[0].provider, "grok");
+    assert.equal(payload.models[0].model, "grok-imagine-image-2.0");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("uploadReferences returns persistent Studio image ids", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "/studio-api/api/upload");
+    assert.equal(options.method, "POST");
+    assert.ok(options.body instanceof FormData);
+    return jsonResponse({ success: true, items: ["images/inbox/reference.png"] });
+  };
+  try {
+    const result = await uploadReferences([new Blob(["png"], { type: "image/png" })]);
+    assert.deepEqual(result, ["images/inbox/reference.png"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("uploadReferences rejects more than four files instead of dropping them", async () => {
+  const files = Array.from({ length: 5 }, () => new Blob(["png"], { type: "image/png" }));
+  await assert.rejects(() => uploadReferences(files), /最多 4 张/);
+});
+
+test("apiAssetUrl routes media through the local Studio proxy", () => {
+  assert.equal(apiAssetUrl("/media/images/a.png"), "/studio-api/media/images/a.png");
+  assert.equal(apiAssetUrl("images/a.png"), "/studio-api/media/images/a.png");
+});
+
+test("Studio proxy accepts loopback addresses and rejects LAN addresses", () => {
+  assert.equal(isLoopbackAddress("127.0.0.1"), true);
+  assert.equal(isLoopbackAddress("::1"), true);
+  assert.equal(isLoopbackAddress("::ffff:127.0.0.1"), true);
+  assert.equal(isLoopbackAddress("192.168.1.20"), false);
+  assert.equal(isLoopbackAddress("10.0.0.4"), false);
+});
+
+test("runtime mode handshake fails closed for unknown or mismatched backends", () => {
+  assert.match(validateRuntimeMode(false, undefined), /未返回权威运行模式/);
+  assert.match(validateRuntimeMode(true, false), /模式与 Studio 后端不一致/);
+  assert.match(validateRuntimeMode(false, true), /模式与 Studio 后端不一致/);
+  assert.equal(validateRuntimeMode(false, false), "");
+  assert.equal(validateRuntimeMode(true, true), "");
+});
+
+test("runtime access allows credential-free fixture but blocks every mismatch", () => {
+  assert.deepEqual(
+    getRuntimeAccess({ doctorSuccess: true, declaredFixture: true, runtimeFixture: true, usableProviderCount: 0 }),
+    { backendReady: true, modeError: "", canUse: true },
+  );
+  assert.equal(
+    getRuntimeAccess({ doctorSuccess: true, declaredFixture: true, runtimeFixture: false, usableProviderCount: 4 }).canUse,
+    false,
+  );
+  assert.equal(
+    getRuntimeAccess({ doctorSuccess: true, declaredFixture: false, runtimeFixture: undefined, usableProviderCount: 4 }).canUse,
+    false,
+  );
+});

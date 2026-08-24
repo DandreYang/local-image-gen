@@ -234,6 +234,15 @@ def parse_cli_json(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def studio_doctor_payload(*, skip_update_check: bool = True) -> Dict[str, Any]:
+    payload = run_cli(["doctor"], timeout=25, skip_update_check=skip_update_check)
+    payload["studio_runtime"] = {
+        "fixture": studio_fixture_enabled(),
+        "bind_host": BIND_HOST,
+    }
+    return payload
+
+
 def redact_public_text(text: Any) -> str:
     return cli.redact_secrets(str(text or ""))
 
@@ -1641,10 +1650,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, target.read_bytes(), mime)
             return
         if path == "/api/doctor":
-            self._send(*json_bytes(run_cli(["doctor"], timeout=20)))
+            self._send(*json_bytes(studio_doctor_payload()))
             return
         if path == "/api/version":
-            payload = run_cli(["doctor"], timeout=25, skip_update_check=False)
+            payload = studio_doctor_payload(skip_update_check=False)
             payload["changelog_available"] = (WORKSPACE / "CHANGELOG.md").is_file()
             payload["releases"] = "https://github.com/DandreYang/local-image-gen/releases"
             self._send(*json_bytes(payload))

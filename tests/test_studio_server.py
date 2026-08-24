@@ -110,6 +110,28 @@ class StudioServerLaunchTests(unittest.TestCase):
         self.assertTrue(payload["fixture"])
         self.assertEqual(payload["prompt"]["used"], "小红书封面")
 
+    def test_doctor_payload_reports_authoritative_fixture_mode(self) -> None:
+        with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_STUDIO_FIXTURE": "1"}), patch.object(
+            studio_server, "run_cli", return_value={"success": True, "providers": []}
+        ), patch.object(studio_server, "BIND_HOST", "0.0.0.0"):
+            payload = studio_server.studio_doctor_payload()
+        self.assertTrue(payload["studio_runtime"]["fixture"])
+        self.assertEqual(payload["studio_runtime"]["bind_host"], "0.0.0.0")
+
+    def test_doctor_payload_reports_live_mode(self) -> None:
+        with patch.dict(os.environ, {}, clear=True), patch.object(
+            studio_server, "run_cli", return_value={"success": True, "providers": []}
+        ):
+            payload = studio_server.studio_doctor_payload()
+        self.assertFalse(payload["studio_runtime"]["fixture"])
+
+    def test_version_doctor_payload_preserves_live_update_check(self) -> None:
+        with patch.object(
+            studio_server, "run_cli", return_value={"success": True, "providers": []}
+        ) as fake_cli:
+            studio_server.studio_doctor_payload(skip_update_check=False)
+        fake_cli.assert_called_once_with(["doctor"], timeout=25, skip_update_check=False)
+
     def test_open_failure_does_not_abort(self) -> None:
         with patch.object(studio_server, "ThreadingHTTPServer") as fake_http, patch.object(
             studio_server.webbrowser, "open", side_effect=RuntimeError("no display")
