@@ -279,6 +279,13 @@ class TestHostAllowlist(unittest.TestCase):
         self.assertTrue(server.host_allows("localhost:8765", "127.0.0.1"))
         self.assertTrue(server.host_allows("[::1]:8765", "127.0.0.1"))
 
+    def test_loopback_bind_does_not_resolve_the_machine_hostname(self):
+        with patch("socket.getaddrinfo", side_effect=AssertionError("loopback bind must not DNS")):
+            with patch("socket.gethostname", side_effect=AssertionError("loopback bind must not DNS")):
+                allowed = server.bound_addresses("127.0.0.1")
+                self.assertIn("127.0.0.1", allowed)
+                self.assertTrue(server.host_allows("127.0.0.1:8765", "127.0.0.1"))
+
     def test_attacker_chosen_host_fails_on_loopback_bind(self):
         self.assertFalse(server.host_allows("evil.example", "127.0.0.1"))
         self.assertFalse(server.host_allows("evil.example:80", "127.0.0.1"))

@@ -117,15 +117,27 @@ _BATCH_LOCK = threading.Lock()
 _BATCHES_LOADED = False
 
 
-def loopback_hostnames() -> "set[str]":
-    names = {"127.0.0.1", "::1", "localhost", "0.0.0.0", "::"}
+_STATIC_LOOPBACK_NAMES = {"127.0.0.1", "::1", "localhost", "0.0.0.0", "::"}
+
+
+def primary_lan_ipv4() -> Optional[str]:
+    """Best-effort local IPv4 without blocking on hostname/mDNS lookup."""
     try:
         import socket as _socket
 
-        for info in _socket.getaddrinfo(_socket.gethostname(), None, family=_socket.AF_INET):
-            names.add(str(info[4][0]))
+        with _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            ip = str(sock.getsockname()[0] or "")
+            return ip or None
     except OSError:
-        pass
+        return None
+
+
+def loopback_hostnames() -> "set[str]":
+    names = set(_STATIC_LOOPBACK_NAMES)
+    lan_ip = primary_lan_ipv4()
+    if lan_ip:
+        names.add(lan_ip)
     return names
 
 
@@ -133,7 +145,9 @@ def bound_addresses(bind_host: str) -> "set[str]":
     """Addresses a client can actually reach when we bind ``bind_host``."""
     if bind_host in {"0.0.0.0", "::"}:
         return loopback_hostnames() | {"*"}
-    return loopback_hostnames() | {bind_host}
+    if bind_host in _STATIC_LOOPBACK_NAMES:
+        return set(_STATIC_LOOPBACK_NAMES)
+    return set(_STATIC_LOOPBACK_NAMES) | {bind_host}
 
 
 def host_allows(host_header: Any, bind_host: str) -> bool:
