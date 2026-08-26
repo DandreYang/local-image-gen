@@ -53,8 +53,11 @@ class StudioServerLaunchTests(unittest.TestCase):
             images.mkdir(parents=True, mode=0o755)
             root.chmod(0o755)
             studio_server.ensure_private_storage_root(root, images)
-            self.assertEqual(root.stat().st_mode & 0o777, 0o700)
-            self.assertEqual(images.stat().st_mode & 0o777, 0o700)
+            self.assertTrue(root.is_dir())
+            self.assertTrue(images.is_dir())
+            if os.name != "nt":
+                self.assertEqual(root.stat().st_mode & 0o777, 0o700)
+                self.assertEqual(images.stat().st_mode & 0o777, 0o700)
 
     def test_job_receipt_keeps_the_human_prompt_separate_from_the_compiled_draft(self) -> None:
         result = studio_server.stamp_job_meta(

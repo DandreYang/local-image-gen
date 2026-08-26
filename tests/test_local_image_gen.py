@@ -253,7 +253,8 @@ class AuthFileTests(unittest.TestCase):
             path = Path(tmp) / "auth.json"
             image_gen.atomic_write_json(path, {"ok": True})
             self.assertEqual(json.loads(path.read_text()), {"ok": True})
-            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
     def test_grok_entry_nested(self) -> None:
         data = {"https://auth.x.ai::abc": {"key": "token", "refresh_token": "r"}}
@@ -484,6 +485,26 @@ class DryRunTests(unittest.TestCase):
         self.assertEqual(config["imageConfig"]["aspectRatio"], "1:1")
         self.assertEqual(config["imageConfig"]["imageSize"], "2K")
         self.assertTrue(result["endpoint"].endswith("/models/gemini-3-pro-image:generateContent"))
+        self.assertIn("generativelanguage.googleapis.com", result["endpoint"])
+
+    def test_explicit_official_providers_fail_closed_without_keys(self) -> None:
+        cases = (
+            (["poster", "--provider", "gemini", "--model", "gemini-3-pro-image"], "GEMINI_API_KEY"),
+            (["poster", "--provider", "openai", "--model", "gpt-image-2"], "OPENAI_API_KEY"),
+            (["poster", "--provider", "xai", "--model", "grok-imagine-image-2.0"], "XAI_API_KEY"),
+        )
+        for argv, marker in cases:
+            with self.subTest(provider=argv[2]):
+                with patch.dict(os.environ, _env_without_credentials(), clear=True), patch.object(
+                    image_gen, "env_search_files", return_value=[]
+                ), patch.object(image_gen, "antigravity_auth_available", return_value=True), patch.object(
+                    image_gen, "run_antigravity"
+                ) as agy, patch.object(image_gen, "run_cursor") as cursor:
+                    with self.assertRaises(image_gen.ImageGenError) as ctx:
+                        image_gen.run_job(image_gen.parse_args(argv))
+                agy.assert_not_called()
+                cursor.assert_not_called()
+                self.assertIn(marker, str(ctx.exception))
 
 
 class AgyParseTests(unittest.TestCase):
@@ -513,22 +534,23 @@ class AgyParseTests(unittest.TestCase):
 
     def test_extracts_image_path_from_json(self) -> None:
         payload = {"success": True, "image": "/tmp/cover.png", "nested": {"file_path": "/tmp/other.jpg"}}
-        paths = [str(path) for path in image_gen.extract_image_paths(payload)]
-        self.assertIn("/tmp/cover.png", paths)
-        self.assertIn("/tmp/other.jpg", paths)
+        paths = image_gen.extract_image_paths(payload)
+        self.assertIn(Path("/tmp/cover.png"), paths)
+        self.assertIn(Path("/tmp/other.jpg"), paths)
 
     def test_worker_prompt_includes_model_and_output(self) -> None:
+        output = Path("/tmp/out.png")
         text = image_gen.build_agy_worker_prompt(
             "minimal cover",
             "gemini-3.1-flash-image-preview",
             "16:9",
             "2K",
             [],
-            Path("/tmp/out.png"),
+            output,
         )
         self.assertIn("generate_image.model_name: gemini-3.1-flash-image", text)
         self.assertIn("generate_image.aspect_ratio: 16:9", text)
-        self.assertIn("/tmp/out.png", text)
+        self.assertIn(str(output.resolve()), text)
 
 
 BASE_ENV_KEYS = (
@@ -2077,7 +2099,7 @@ class StudioLaunchTests(unittest.TestCase):
         args = image_gen.parse_args(["studio", "--daemon", "--lan", "--port", "9000"])
         argv = image_gen.studio_server_argv(args)
         self.assertEqual(argv[0], sys.executable)
-        self.assertTrue(str(argv[1]).endswith("studio/server.py"))
+        self.assertEqual(Path(argv[1]), image_gen.studio_server_path())
         self.assertIn("--lan", argv)
         self.assertIn("--no-open", argv)
         self.assertIn("--ready-file", argv)

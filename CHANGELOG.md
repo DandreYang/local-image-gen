@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Studio brief stays local when no Grok/Codex/official key is logged in; confirm still fail-closes. Windows sidecar writes take a real interprocess lock and retry replace.
 - Studio productization: the selected Future Studio React build is now the only root UI served by `local-image-gen studio`; the legacy darkroom HTML is no longer a product route.
 - Studio consent boundary: building a confirmation card is local and does not call search/text models. Antigravity/Cursor are hidden from Studio until their coding-agent workers have an image-only permission boundary.
 - Studio truth receipts: requested provider/model/quality/resolution are separated from decoded MIME type and actual pixel dimensions; copied native images use a suffix that matches magic bytes.

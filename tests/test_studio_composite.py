@@ -260,7 +260,7 @@ class TestMaskAndParseGenerate(unittest.TestCase):
                 args = server.parse_generate(
                     {
                         "prompt": "clean wall",
-                        "provider": "auto",
+                        "provider": "grok",
                         "images": ["images/face.png"],
                         "scratch": True,
                         "dry_run": True,
@@ -272,12 +272,17 @@ class TestMaskAndParseGenerate(unittest.TestCase):
                 normal = server.parse_generate(
                     {
                         "prompt": "clean wall",
-                        "provider": "auto",
+                        "provider": "grok",
                         "images": ["images/face.png"],
                         "dry_run": True,
                     }
                 )
                 self.assertEqual(Path(normal[normal.index("--out-dir") + 1]).resolve(), images.resolve())
+
+    def test_parse_generate_auto_without_safe_providers_fails_closed(self):
+        with patch.object(server, "current_studio_providers", return_value=[]):
+            with self.assertRaisesRegex(ValueError, "没有可用的 Studio 安全通路"):
+                server.parse_generate({"prompt": "clean wall", "provider": "auto", "dry_run": True})
 
     def test_mask_must_stay_inside_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:

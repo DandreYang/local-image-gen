@@ -156,6 +156,40 @@ class TestStudioProviderSafety(unittest.TestCase):
         self.assertIn("权限", indexed["antigravity"]["studio_disabled_reason"])
         self.assertTrue(indexed["grok"]["studio_enabled"])
 
+    def test_local_brief_does_not_require_a_logged_in_provider(self):
+        self.assertEqual(server.studio_brief_provider("auto", []), "auto")
+        self.assertEqual(server.studio_brief_provider("grok", []), "grok")
+        self.assertEqual(server.studio_brief_provider("gemini", []), "gemini")
+        with self.assertRaisesRegex(ValueError, "暂未安全开放"):
+            server.studio_brief_provider("antigravity", [])
+        with self.assertRaisesRegex(ValueError, "暂未安全开放"):
+            server.studio_brief_provider("cursor", [])
+
+    def test_brief_http_stays_local_when_no_studio_provider_is_available(self):
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        port = httpd.server_address[1]
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with patch.object(server, "current_studio_providers", return_value=[]):
+                with urlopen(
+                    Request(
+                        f"http://127.0.0.1:{port}/api/brief",
+                        data=b'{"prompt":"private launch"}',
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    ),
+                    timeout=5,
+                ) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join(timeout=3)
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload.get("preflight"), "local")
+        self.assertIn("确认前未调用外部文本或搜索模型", payload.get("warnings") or [])
+
     def test_auto_provider_never_resolves_to_an_unsafe_agent(self):
         providers = [
             {"provider": "antigravity", "subscription": True, "studio_enabled": False},

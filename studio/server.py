@@ -320,6 +320,21 @@ def resolve_studio_provider(requested: Any, providers: List[Dict[str, Any]]) -> 
     raise ValueError("没有可用的 Studio 安全通路；请登录 Grok/Codex 或配置官方 API Key")
 
 
+def studio_brief_provider(requested: Any, providers: List[Dict[str, Any]]) -> str:
+    """Local brief may name a safe provider before login; confirm still fail-closes."""
+    if studio_fixture_enabled():
+        return "fixture"
+    wanted = str(requested or "auto").strip().lower() or "auto"
+    if wanted != "auto":
+        if not studio_provider_allowed(wanted):
+            raise ValueError(f"Studio 暂未安全开放 {wanted} 通路")
+        return wanted
+    try:
+        return resolve_studio_provider("auto", providers)
+    except ValueError:
+        return "auto"
+
+
 def current_studio_providers() -> List[Dict[str, Any]]:
     loaded = cli.env_search_files(None)
     return annotate_studio_providers(cli.list_provider_status(loaded))
@@ -522,8 +537,12 @@ _SIDECAR_WARNINGS: List[str] = []
 
 try:  # Board 2026-08-23 P1-3: cross-process mutual exclusion where available.
     import fcntl as _fcntl
-except ImportError:  # pragma: no cover - non-POSIX fallback keeps tests green
+except ImportError:  # pragma: no cover - non-POSIX
     _fcntl = None
+try:
+    import msvcrt as _msvcrt
+except ImportError:  # pragma: no cover - non-Windows
+    _msvcrt = None
 
 import contextlib as _contextlib
 
@@ -531,22 +550,37 @@ import contextlib as _contextlib
 @_contextlib.contextmanager
 def file_lock(path: Path):
     """Advisory whole-file lock shared across processes (thread lock still applies)."""
-    if _fcntl is None:
-        yield
-        return
     lock_path = path.with_name(path.name + ".lock")
+    handle = None
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        handle = open(lock_path, "a+")
+        handle = open(lock_path, "a+b")
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
     except OSError:
+        if handle is not None:
+            handle.close()
         yield
         return
     try:
-        _fcntl.flock(handle.fileno(), _fcntl.LOCK_EX)
-        try:
+        if _fcntl is not None:
+            _fcntl.flock(handle.fileno(), _fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                _fcntl.flock(handle.fileno(), _fcntl.LOCK_UN)
+        elif _msvcrt is not None:
+            _msvcrt.locking(handle.fileno(), _msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                _msvcrt.locking(handle.fileno(), _msvcrt.LK_UNLCK, 1)
+        else:
             yield
-        finally:
-            _fcntl.flock(handle.fileno(), _fcntl.LOCK_UN)
     finally:
         handle.close()
 
@@ -574,7 +608,17 @@ def atomic_write_text(path: Path, text: str) -> None:
             os.chmod(tmp, 0o600)
         except OSError:
             pass
-        os.replace(str(tmp), str(path))
+        last_error: Optional[OSError] = None
+        for attempt in range(8):
+            try:
+                os.replace(str(tmp), str(path))
+                last_error = None
+                break
+            except PermissionError as exc:
+                last_error = exc
+                time.sleep(0.02 * (attempt + 1))
+        if last_error is not None:
+            raise last_error
     except Exception:
         if tmp.exists():
             tmp.unlink()
@@ -2145,7 +2189,7 @@ class Handler(BaseHTTPRequestHandler):
                         if ref not in images:
                             images.append(ref)
                 providers = current_studio_providers()
-                provider = "fixture" if studio_fixture_enabled() else resolve_studio_provider(body.get("provider"), providers)
+                provider = studio_brief_provider(body.get("provider"), providers)
                 normalized = normalize_studio_generation_settings(
                     provider,
                     body.get("model"),
