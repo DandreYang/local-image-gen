@@ -37,10 +37,37 @@ export const DEFAULT_SETTINGS = {
   quality: "high",
 };
 
+export function providerUsable(row) {
+  return Boolean(row && row.studio_enabled !== false && (row.subscription || row.api_key));
+}
+
+export function modelMatchesProvider(provider, row) {
+  if (!row) return false;
+  if (!provider || provider === "auto") return true;
+  return row.provider === provider;
+}
+
+export function imageFactLabel(item = {}) {
+  const actual = item.size || (
+    item.actual_width && item.actual_height ? `${item.actual_width}x${item.actual_height}` : ""
+  );
+  const requested = item.resolution_requested || "";
+  if (actual && requested) return `${actual} · 请求 ${requested}`;
+  return actual || (requested ? `请求 ${requested}` : "—");
+}
+
+export function libraryItemTitle(item = {}) {
+  const prompt = String(item.prompt_original || item.prompt_used || "").trim().split(/\r?\n/)[0].split(/\s+事实：/)[0];
+  if (prompt) return prompt.length > 36 ? `${prompt.slice(0, 36)}…` : prompt;
+  const filename = String(item.name || "本机作品").replace(/\.[^.]+$/, "");
+  return filename || "本机作品";
+}
+
 export function validateRuntimeMode(declaredFixture, runtimeFixture) {
   if (typeof runtimeFixture !== "boolean") {
     return "Studio 后端未返回权威运行模式，已阻止生成；请重启本机 Studio。";
   }
+  if (declaredFixture === "dynamic") return "";
   if (Boolean(declaredFixture) !== runtimeFixture) {
     return "前端声明的 FIXTURE/LIVE 模式与 Studio 后端不一致，已阻止生成以免误用真实额度。";
   }

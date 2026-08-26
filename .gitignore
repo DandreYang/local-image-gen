@@ -18,6 +18,13 @@ generated_images/
 !docs/*.jpg
 !studio/static/templates/*.svg
 !studio/static/templates/*.jpg
+prototypes/future-studio-v1/node_modules/
+prototypes/future-studio-v1/dist/
+prototypes/future-studio-v1/playwright-report/
+prototypes/future-studio-v1/test-results/
+prototypes/future-studio-v1/.artifacts/
+!studio/client/
+!studio/client/**
 .DS_Store
 .idea/
 .vscode/

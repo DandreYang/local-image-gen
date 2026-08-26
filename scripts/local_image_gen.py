@@ -36,6 +36,8 @@ _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
+from studio_report import dogfood_report  # noqa: E402
+
 from prompt_compile import (  # noqa: E402
     OPTIMIZE_MODES,
     PROMPT_PROFILES,
@@ -185,13 +187,13 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
     "gemini-2.5-flash-image-preview": {
         "provider": "antigravity",
         "aliases": ("nano-banana-v1", "gemini-2.5-flash-image"),
-        "resolutions": ("1k", "2k", "4k"),
+        "resolutions": ("1k",),
         "qualities": (),
     },
     "gemini-3.1-flash-lite-image": {
         "provider": "antigravity",
         "aliases": ("nano-banana-lite", "gemini-3.1-flash-lite-image-preview"),
-        "resolutions": ("1k", "2k"),
+        "resolutions": ("1k",),
         "qualities": (),
     },
 }
@@ -285,6 +287,20 @@ def catalog_provider(model: Optional[str]) -> Optional[str]:
     return str(meta["provider"])
 
 
+def validate_model_resolution(model: str, resolution: Optional[str]) -> None:
+    if not resolution:
+        return
+    meta = MODEL_CATALOG.get(model)
+    if not meta:
+        return
+    supported = tuple(meta.get("resolutions") or ())
+    if resolution not in supported:
+        allowed = ", ".join(supported) if supported else "provider-specific size/quality controls"
+        raise ImageGenError(
+            f"{model} does not support resolution {resolution}; supported: {allowed}."
+        )
+
+
 def normalize_aspect(raw: Optional[str]) -> Optional[str]:
     if raw is None:
         return None
@@ -376,6 +392,22 @@ def read_image_dimensions(path: Path) -> Tuple[int, int]:
             length = struct.unpack(">H", data[index + 2 : index + 4])[0]
             index += 2 + length
     raise ImageGenError(f"Could not read image dimensions from {path}")
+
+
+def image_suffix_from_magic(path: Path) -> Optional[str]:
+    try:
+        head = path.read_bytes()[:16]
+    except OSError:
+        return None
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if head.startswith(b"\xff\xd8"):
+        return ".jpg"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if len(head) >= 12 and head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+        return ".webp"
+    return None
 
 
 def assert_saved_aspect(paths: Sequence[Path], *aspects: Optional[str]) -> None:
@@ -1499,10 +1531,15 @@ def harvest_new_images(directory: Path, since: float) -> List[Path]:
 def copy_to_output(source: Path, output: Path, overwrite: bool) -> Path:
     if not source.is_file():
         raise ImageGenError(f"Reported image does not exist: {source}")
-    target = unique_output_path(output, overwrite)
+    detected_suffix = image_suffix_from_magic(source)
+    requested = output.with_suffix(detected_suffix) if detected_suffix else output
+    target = unique_output_path(requested, overwrite)
     target.parent.mkdir(parents=True, exist_ok=True)
     if source.resolve() != target.resolve():
+        source_was_requested_path = source.resolve() == output.resolve()
         shutil.copy2(source, target)
+        if source_was_requested_path and source.suffix.lower() != target.suffix.lower():
+            source.unlink()
         return target
     return source
 
@@ -2531,14 +2568,8 @@ def choose_auto_provider(model: Optional[str], loaded_files: Sequence[Path]) -> 
     )
 
 
-def resolve_nano_banana_provider(loaded_files: Sequence[Path]) -> str:
-    return choose_auto_provider("nano-banana", loaded_files)
-
-
 def resolve_provider(requested: str, model: Optional[str], loaded_files: Sequence[Path]) -> str:
     requested = PROVIDER_ALIASES.get(requested, requested)
-    if requested == "gemini":
-        return resolve_nano_banana_provider(loaded_files)
     if requested != "auto":
         return requested
     return choose_auto_provider(model, loaded_files)
@@ -3040,13 +3071,29 @@ def parse_studio_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-open", action="store_true", dest="no_open", help="Do not open a browser.")
     parser.add_argument("--daemon", action="store_true", help="Detach from this terminal. Implies --no-open.")
-    parser.add_argument("--stop", action="store_true", help="Stop the Studio started from this install home.")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--stop", action="store_true", help="Stop the Studio started from this install home.")
+    action.add_argument(
+        "--report",
+        action="store_true",
+        help="Print a privacy-preserving local dogfood report instead of starting Studio.",
+    )
+    parser.add_argument("--days", type=int, default=None, help="Report window in days (default 7).")
+    parser.add_argument(
+        "--force-stop",
+        action="store_true",
+        help="Stop even when Studio reports an active generation batch.",
+    )
     parser.add_argument(
         "--fixture",
         action="store_true",
         help="Studio returns canned images/looks and does not spend model quota.",
     )
     args = parser.parse_args(list(argv))
+    if args.days is not None and not args.report:
+        parser.error("--days requires --report")
+    if args.report and not 1 <= int(args.days or 7) <= 3650:
+        parser.error("--days must be between 1 and 3650")
     args.command = "studio"
     args.doctor = False
     args.list_providers = False
@@ -3072,8 +3119,30 @@ def studio_log_path() -> Path:
     return studio_runtime_dir() / "studio.log"
 
 
+def studio_ready_path() -> Path:
+    return studio_runtime_dir() / "studio.ready"
+
+
 def studio_bind_host(args: argparse.Namespace) -> str:
     return "0.0.0.0" if getattr(args, "lan", False) else str(args.host)
+
+
+def studio_outputs_root() -> Path:
+    override = os.environ.get("LOCAL_IMAGE_GEN_STUDIO_OUTPUTS", "").strip()
+    if override:
+        return Path(os.path.expanduser(override)).resolve()
+    outputs_override = os.environ.get("LOCAL_IMAGE_GEN_OUTPUTS", "").strip()
+    if outputs_override:
+        return Path(os.path.expanduser(outputs_override)).resolve()
+    workspace = find_dyro_workspace()
+    if workspace is not None:
+        candidate = workspace / DYRO_OUTPUTS_NAME
+        if candidate.exists() or candidate.is_symlink():
+            try:
+                return candidate.resolve()
+            except OSError:
+                pass
+    return package_root() / "outputs"
 
 
 def studio_url(host: str, port: int) -> str:
@@ -3190,14 +3259,18 @@ def write_studio_record(pid: int, host: str, port: int) -> None:
     studio_runtime_dir().mkdir(parents=True, exist_ok=True)
     payload = {"pid": int(pid), "host": host, "port": int(port)}
     studio_pid_path().write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+    try:
+        os.chmod(studio_pid_path(), 0o600)
+    except OSError:
+        pass
 
 
 def remove_studio_record() -> None:
-    path = studio_pid_path()
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        return
+    for path in (studio_pid_path(), studio_ready_path()):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
 
 
 def studio_cmdline(pid: int) -> Optional[str]:
@@ -3237,7 +3310,18 @@ def studio_pid_status(record: Dict[str, Any]) -> str:
     return "alive"
 
 
-def stop_studio() -> int:
+def studio_runtime_status(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    port = int(record.get("port") or 8765)
+    request = urllib.request.Request(f"http://127.0.0.1:{port}/api/runtime")
+    try:
+        with urllib.request.urlopen(request, timeout=1) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def stop_studio(*, force: bool = False) -> int:
     record = read_studio_record()
     if record is None:
         remove_studio_record()
@@ -3248,6 +3332,15 @@ def stop_studio() -> int:
         remove_studio_record()
         print("studio is not running", flush=True)
         return 0
+    runtime = studio_runtime_status(record)
+    if not force and runtime and int(runtime.get("active_batches") or 0) > 0:
+        active_batches = int(runtime.get("active_batches") or 0)
+        active_jobs = int(runtime.get("active_jobs") or 0)
+        sys.stderr.write(
+            f"studio has {active_batches} active batch(es) / {active_jobs} job(s); "
+            "wait for completion or use --force-stop\n"
+        )
+        return 1
     pid = int(record["pid"])
     try:
         os.kill(pid, signal.SIGTERM)
@@ -3283,6 +3376,8 @@ def studio_server_argv(args: argparse.Namespace) -> List[str]:
         argv.extend(["--host", str(args.host)])
     if args.daemon or args.no_open:
         argv.append("--no-open")
+    if args.daemon:
+        argv.extend(["--ready-file", str(studio_ready_path())])
     if getattr(args, "fixture", False):
         argv.append("--fixture")
     return argv
@@ -3311,9 +3406,33 @@ def _stop_child(proc: subprocess.Popen) -> None:
     proc.kill()
 
 
+def wait_for_studio_ready(
+    proc: subprocess.Popen,
+    ready_file: Path,
+    *,
+    timeout: float = 8.0,
+) -> bool:
+    deadline = time.time() + timeout
+    while time.time() <= deadline:
+        if proc.poll() is not None:
+            return False
+        try:
+            if ready_file.read_text(encoding="utf-8").strip() == str(int(proc.pid)):
+                return True
+        except (OSError, ValueError):
+            pass
+        if time.time() >= deadline:
+            break
+        time.sleep(0.05)
+    return False
+
+
 def run_studio(args: argparse.Namespace) -> int:
+    if getattr(args, "report", False):
+        print_json(dogfood_report(studio_outputs_root() / ".batches", days=int(args.days or 7)))
+        return 0
     if args.stop:
-        return stop_studio()
+        return stop_studio(force=bool(getattr(args, "force_stop", False)))
     server = studio_server_path()
     if not server.is_file():
         sys.stderr.write("studio is not in this install\n")
@@ -3327,7 +3446,19 @@ def run_studio(args: argparse.Namespace) -> int:
     argv = studio_server_argv(args)
     if args.daemon:
         studio_runtime_dir().mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(studio_runtime_dir(), 0o700)
+        except OSError:
+            pass
+        try:
+            studio_ready_path().unlink()
+        except FileNotFoundError:
+            pass
         log = studio_log_path().open("a", encoding="utf-8")
+        try:
+            os.chmod(studio_log_path(), 0o600)
+        except OSError:
+            pass
         try:
             proc = subprocess.Popen(
                 argv,
@@ -3339,6 +3470,11 @@ def run_studio(args: argparse.Namespace) -> int:
             log.close()
             raise
         log.close()
+        if not wait_for_studio_ready(proc, studio_ready_path()):
+            _stop_child(proc)
+            remove_studio_record()
+            sys.stderr.write(f"studio failed to bind {host}:{int(args.port)}; see {studio_log_path()}\n")
+            return 1
         write_studio_record(int(proc.pid), host, int(args.port))
         print_studio_banner(host, int(args.port))
         print(f"log   {studio_log_path()}", flush=True)
@@ -3369,6 +3505,7 @@ def parse_job_args(argv: Sequence[str]) -> argparse.Namespace:
             "  local-image-gen studio --no-open  Start without opening a browser\n"
             "  local-image-gen studio --lan --daemon\n"
             "  local-image-gen studio --stop     Stop a detached Studio\n"
+            "  local-image-gen studio --report --days 7\n"
         ),
     )
     parser.add_argument("--version", action="version", version=f"local-image-gen {__version__}")
@@ -3478,6 +3615,7 @@ def run_job(args: argparse.Namespace) -> Dict[str, Any]:
     if not model:
         model = DEFAULT_MODEL_FOR_PROVIDER.get(provider, "grok-imagine-image-2.0")
         model = canonical_model(model) or model
+    validate_model_resolution(model, args.resolution)
 
     aspect = normalize_aspect(args.aspect_ratio) if args.aspect_ratio else None
     if args.size and args.size != "auto" and not aspect:

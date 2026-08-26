@@ -10,6 +10,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -32,10 +33,15 @@ import local_image_gen as cli
 WORKSPACE = Path(__file__).resolve().parents[1]
 CLI = WORKSPACE / "scripts" / "local_image_gen.py"
 STATIC = Path(__file__).resolve().parent / "static"
+CLIENT = Path(__file__).resolve().parent / "client"
+STUDIO_API_PREFIX = "/studio-api"
 
 
 def resolve_outputs_root() -> Path:
     """Studio storage follows the CLI: workspace/outputs → ~/.local-image-gen store."""
+    override = os.environ.get("LOCAL_IMAGE_GEN_STUDIO_OUTPUTS", "").strip()
+    if override:
+        return Path(os.path.expanduser(override)).resolve()
     for start in (Path.cwd(), WORKSPACE):
         found = cli.find_dyro_workspace(start)
         if found is not None:
@@ -47,6 +53,17 @@ def resolve_outputs_root() -> Path:
 
 OUTPUTS = resolve_outputs_root()
 IMAGE_DIR = OUTPUTS / "images"
+JOB_DIR = OUTPUTS / ".jobs"
+
+
+def ensure_private_storage_root(root: Path, images: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    images.mkdir(parents=True, exist_ok=True)
+    for path in (root, images):
+        try:
+            os.chmod(path, 0o700)
+        except OSError:
+            pass
 
 
 def studio_fixture_enabled() -> bool:
@@ -89,6 +106,7 @@ LAN_WARNING = "warning: LAN bind shares this machine's image backends with the n
 MAX_PARALLEL = 2
 MAX_JSON_BYTES = 10 * 1024 * 1024
 MAX_BATCH_JOBS = 24
+MAX_ACTIVE_BATCHES = 2
 STUDIO_TOKEN: Optional[str] = None
 STUDIO_TOKEN_HEADER = "X-Studio-Token"
 BIND_HOST = HOST
@@ -164,9 +182,17 @@ def studio_token_required(bind_host: str) -> bool:
     return bind_host not in {"127.0.0.1", "::1", "localhost"}
 
 
-def studio_token_ok(headers: Any) -> bool:
+def studio_token_ok(headers: Any, *, client_host: str = "", request_path: str = "") -> bool:
     if STUDIO_TOKEN is None:
         return True
+    if request_path == "/api/runtime" and client_host:
+        try:
+            import ipaddress as _ipaddress
+
+            if _ipaddress.ip_address(client_host).is_loopback:
+                return True
+        except ValueError:
+            pass
     supplied = str(headers.get(STUDIO_TOKEN_HEADER) or "").strip()
     if not supplied:
         cookie = str(headers.get("Cookie") or "")
@@ -236,11 +262,117 @@ def parse_cli_json(text: str) -> Optional[Dict[str, Any]]:
 
 def studio_doctor_payload(*, skip_update_check: bool = True) -> Dict[str, Any]:
     payload = run_cli(["doctor"], timeout=25, skip_update_check=skip_update_check)
+    providers = payload.get("providers")
+    if isinstance(providers, list):
+        payload["providers"] = annotate_studio_providers(providers)
     payload["studio_runtime"] = {
         "fixture": studio_fixture_enabled(),
         "bind_host": BIND_HOST,
     }
     return payload
+
+
+STUDIO_UNSAFE_AGENT_PROVIDERS = {"agy", "antigravity", "cursor"}
+STUDIO_SAFE_PROVIDER_ORDER = ("grok", "codex", "gemini", "xai", "openai")
+
+
+def studio_provider_allowed(provider: Any) -> bool:
+    return str(provider or "").strip().lower() not in STUDIO_UNSAFE_AGENT_PROVIDERS
+
+
+def annotate_studio_providers(providers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for raw in providers:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        enabled = studio_provider_allowed(row.get("provider"))
+        row["studio_enabled"] = enabled
+        if not enabled:
+            row["studio_disabled_reason"] = "该通路当前依赖全权限编程代理，尚未达到 Studio 权限隔离要求"
+        rows.append(row)
+    return rows
+
+
+def studio_provider_available(row: Dict[str, Any]) -> bool:
+    provider = str(row.get("provider") or "")
+    if not studio_provider_allowed(provider) or row.get("studio_enabled") is False:
+        return False
+    if provider == "codex":
+        return bool(row.get("subscription"))
+    return bool(row.get("subscription") or row.get("api_key"))
+
+
+def resolve_studio_provider(requested: Any, providers: List[Dict[str, Any]]) -> str:
+    wanted = str(requested or "auto").strip().lower() or "auto"
+    indexed = {str(row.get("provider") or ""): row for row in providers if isinstance(row, dict)}
+    if wanted != "auto":
+        if not studio_provider_allowed(wanted):
+            raise ValueError(f"Studio 暂未安全开放 {wanted} 通路")
+        row = indexed.get(wanted)
+        if row is None or not studio_provider_available(row):
+            raise ValueError(f"Studio 的 {wanted} 安全通路当前不可用")
+        return wanted
+    for provider in STUDIO_SAFE_PROVIDER_ORDER:
+        row = indexed.get(provider)
+        if row is not None and studio_provider_available(row):
+            return provider
+    raise ValueError("没有可用的 Studio 安全通路；请登录 Grok/Codex 或配置官方 API Key")
+
+
+def current_studio_providers() -> List[Dict[str, Any]]:
+    loaded = cli.env_search_files(None)
+    return annotate_studio_providers(cli.list_provider_status(loaded))
+
+
+def studio_models_payload() -> Dict[str, Any]:
+    """Expose only models reachable through non-agent Studio providers."""
+    rows: List[Dict[str, Any]] = []
+    for model, meta in cli.MODEL_CATALOG.items():
+        base = {
+            "model": model,
+            "aliases": list(meta.get("aliases") or ()),
+            "resolutions": list(meta.get("resolutions") or ()),
+            "qualities": list(meta.get("qualities") or ()),
+        }
+        catalog_provider = str(meta.get("provider") or "")
+        if catalog_provider == "antigravity":
+            rows.append({**base, "provider": "gemini"})
+        elif catalog_provider == "grok":
+            rows.append({**base, "provider": "grok"})
+            rows.append({**base, "provider": "xai"})
+        elif catalog_provider == "codex":
+            rows.append({**base, "provider": "codex"})
+            rows.append({**base, "provider": "openai"})
+        elif studio_provider_allowed(catalog_provider):
+            rows.append({**base, "provider": catalog_provider})
+    return {"success": True, "models": rows}
+
+
+def normalize_studio_generation_settings(
+    provider: str,
+    model: Any,
+    resolution: Any,
+    providers: List[Dict[str, Any]],
+) -> Dict[str, str]:
+    indexed = {str(row.get("provider") or ""): row for row in providers if isinstance(row, dict)}
+    selected_model = str(model or indexed.get(provider, {}).get("default_model") or "").strip()
+    selected_resolution = str(resolution or "").strip()
+    warning = ""
+    if selected_model and selected_resolution:
+        model_row = next(
+            (
+                row
+                for row in studio_models_payload().get("models") or []
+                if row.get("provider") == provider and row.get("model") == selected_model
+            ),
+            None,
+        )
+        supported = list((model_row or {}).get("resolutions") or [])
+        if selected_resolution not in supported:
+            warning = f"{provider} / {selected_model} 不接受 {selected_resolution} 清晰度，已改用模型原生尺寸"
+            selected_resolution = ""
+    return {"model": selected_model, "resolution": selected_resolution, "warning": warning}
 
 
 def redact_public_text(text: Any) -> str:
@@ -506,12 +638,20 @@ def write_media_receipt(path: Path, payload: Dict[str, Any]) -> None:
             or (cli.utc_now_iso() if hasattr(cli, "utc_now_iso") else None),
             "image": path.name,
             "provider": payload.get("provider"),
+            "provider_requested": payload.get("provider_requested"),
             "auth": payload.get("auth"),
             "model": payload.get("model"),
+            "model_requested": payload.get("model_requested"),
             "aspect_ratio": payload.get("aspect_ratio"),
             "quality": payload.get("quality"),
+            "quality_requested": payload.get("quality_requested"),
             "resolution": payload.get("resolution"),
+            "resolution_reported": payload.get("resolution_reported"),
+            "resolution_requested": payload.get("resolution_requested"),
             "size": payload.get("size"),
+            "actual_width": payload.get("actual_width"),
+            "actual_height": payload.get("actual_height"),
+            "actual_mime": payload.get("actual_mime"),
             "cropped_from": payload.get("cropped_from"),
             "notes": payload.get("notes"),
             "prompt": prompt,
@@ -557,21 +697,24 @@ def stamp_job_meta(result: Dict[str, Any], job: Dict[str, Any], used: str) -> Di
     if job.get("style"):
         result["style"] = job.get("style")
     job_provider = str(job.get("provider") or "").strip()
-    if job_provider and job_provider != "auto" and not _nonzero(result.get("provider")):
-        result["provider"] = job_provider
-    if job.get("model") and not _nonzero(result.get("model")):
-        result["model"] = job.get("model")
-    if job.get("quality") and not _nonzero(result.get("quality")):
-        result["quality"] = job.get("quality")
-    if job.get("resolution") and not _nonzero(result.get("resolution")):
-        result["resolution"] = job.get("resolution")
+    if job_provider and job_provider != "auto":
+        result["provider_requested"] = job_provider
+    if job.get("model"):
+        result["model_requested"] = job.get("model")
+    if job.get("quality"):
+        result["quality_requested"] = job.get("quality")
+    if job.get("resolution"):
+        result["resolution_requested"] = job.get("resolution")
+        reported_resolution = result.pop("resolution", None)
+        if reported_resolution and reported_resolution != job.get("resolution"):
+            result["resolution_reported"] = reported_resolution
     aspect = job.get("aspect") or result.get("aspect_ratio")
     if aspect:
         result["aspect_ratio"] = aspect
     prompt = result.get("prompt") if isinstance(result.get("prompt"), dict) else {}
     if used:
         result["prompt"] = {
-            "original": prompt.get("original") or used,
+            "original": job.get("user_prompt") or prompt.get("original") or used,
             "used": used,
         }
     return result
@@ -595,8 +738,11 @@ def persist_result_receipts(result: Dict[str, Any]) -> None:
                 "provider": result.get("provider"),
                 "auth": result.get("auth"),
                 "model": result.get("model"),
+                "model_requested": result.get("model_requested"),
                 "quality": result.get("quality"),
+                "quality_requested": result.get("quality_requested"),
                 "resolution": result.get("resolution"),
+                "resolution_requested": result.get("resolution_requested"),
                 "prompt": prompt_parts(result),
                 "notes": result.get("notes"),
             },
@@ -605,10 +751,23 @@ def persist_result_receipts(result: Dict[str, Any]) -> None:
 
 def finalize_generated(result: Dict[str, Any], job: Dict[str, Any], used: str) -> Dict[str, Any]:
     result = stamp_job_meta(result, job, used)
+    studio_committed = bool(result.pop("_studio_committed", False))
     aspect = str(job.get("aspect") or "")
     if result.get("saved_but_failed") and aspect:
         result = recover_aspect(result, aspect)
-    persist_result_receipts(result)
+    saved = result.get("image") or result.get("saved_image")
+    if saved:
+        path = Path(str(saved))
+        if path.is_file():
+            result.update(actual_image_facts(path))
+    try:
+        persist_result_receipts(result)
+    except Exception:
+        if studio_committed:
+            saved = result.get("image") or result.get("saved_image")
+            if saved:
+                Path(str(saved)).unlink(missing_ok=True)
+        raise
     invalidate_library_cache()
     return result
 
@@ -627,6 +786,24 @@ def sniff_image_suffix(data: bytes) -> Optional[str]:
     if data.startswith(JPEG_MAGIC):
         return ".jpg"
     return None
+
+
+def actual_image_facts(path: Path) -> Dict[str, Any]:
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(16)
+    except OSError:
+        return {}
+    suffix = sniff_image_suffix(head)
+    mime = {".png": "image/png", ".jpg": "image/jpeg"}.get(suffix or "")
+    try:
+        width, height = cli.read_image_dimensions(path)
+    except (OSError, ValueError, cli.ImageGenError):
+        width = height = None
+    facts: Dict[str, Any] = {"actual_mime": mime}
+    if width and height:
+        facts.update({"actual_width": width, "actual_height": height, "size": f"{width}x{height}"})
+    return facts
 
 
 def save_image_bytes(
@@ -722,7 +899,12 @@ def media_item(path: Path) -> Dict[str, Any]:
         aspect = f"{crop_match.group(1)}:{crop_match.group(2)}"
     elif isinstance(raw_aspect, str) and raw_aspect and " or " not in raw_aspect:
         aspect = raw_aspect
-    pixels = peek_png_size(path)
+    actual = actual_image_facts(path)
+    pixels = (
+        (int(actual["actual_width"]), int(actual["actual_height"]))
+        if actual.get("actual_width") and actual.get("actual_height")
+        else None
+    )
     if not aspect and pixels:
         aspect = cli.describe_dimensions(*pixels)
     size = f"{pixels[0]}x{pixels[1]}" if pixels else (receipt or {}).get("size")
@@ -739,11 +921,18 @@ def media_item(path: Path) -> Dict[str, Any]:
         "bytes": stat.st_size,
         "folder": path.parent.resolve().relative_to(OUTPUTS.resolve()).as_posix(),
         "provider": (receipt or {}).get("provider"),
+        "provider_requested": (receipt or {}).get("provider_requested"),
         "model": (receipt or {}).get("model"),
+        "model_requested": (receipt or {}).get("model_requested"),
         "aspect_ratio": aspect,
         "quality": (receipt or {}).get("quality"),
-        "resolution": (receipt or {}).get("resolution") or size,
+        "quality_requested": (receipt or {}).get("quality_requested"),
+        "resolution": size,
+        "resolution_requested": (receipt or {}).get("resolution_requested"),
         "size": size,
+        "actual_width": actual.get("actual_width") or (receipt or {}).get("actual_width"),
+        "actual_height": actual.get("actual_height") or (receipt or {}).get("actual_height"),
+        "actual_mime": actual.get("actual_mime") or (receipt or {}).get("actual_mime"),
         "auth": (receipt or {}).get("auth"),
         "created_at": created,
         "prompt_original": original,
@@ -842,10 +1031,64 @@ def _windows_jpeg_thumb(source: Path, dest: Path) -> bool:
     return proc.returncode == 0 and dest.is_file()
 
 
+def _linux_jpeg_thumb(source: Path, dest: Path) -> bool:
+    """Create a bounded JPEG with ffmpeg or ImageMagick when available."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f".{dest.stem}.{uuid.uuid4().hex}.tmp.jpg")
+    commands: List[List[str]] = []
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        commands.append(
+            [
+                ffmpeg,
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                str(source),
+                "-vf",
+                "scale=w=480:h=480:force_original_aspect_ratio=decrease",
+                "-frames:v",
+                "1",
+                str(tmp),
+            ]
+        )
+    image_magick = shutil.which("magick") or shutil.which("convert")
+    if image_magick:
+        commands.append(
+            [image_magick, str(source), "-auto-orient", "-thumbnail", "480x480>", "-quality", "84", str(tmp)]
+        )
+    try:
+        for command in commands:
+            tmp.unlink(missing_ok=True)
+            proc = subprocess.run(command, capture_output=True, text=True, check=False)
+            if proc.returncode != 0 or not tmp.is_file():
+                continue
+            try:
+                width, height = cli.read_image_dimensions(tmp)
+                with tmp.open("rb") as handle:
+                    is_jpeg = handle.read(len(JPEG_MAGIC)) == JPEG_MAGIC
+            except (OSError, ValueError, cli.ImageGenError):
+                continue
+            if not is_jpeg or max(width, height) > 480:
+                continue
+            try:
+                os.chmod(tmp, 0o600)
+            except OSError:
+                pass
+            os.replace(str(tmp), str(dest))
+            return True
+    finally:
+        tmp.unlink(missing_ok=True)
+    return False
+
+
 def thumb_file(rel: str) -> Path:
-    """JPEG ≤480px on Mac (sips) and Windows (System.Drawing). Linux keeps the original."""
+    """Return a cached JPEG no larger than 480px when a platform encoder exists."""
     source = resolve_library_image(rel)
     cache = THUMB_DIR / (Path(rel).as_posix() + ".jpg")
+    if THUMB_DIR.is_symlink() or not is_under(cache, OUTPUTS):
+        return source
     # Board 2026-08-23 P1-2: the cache lives under OUTPUTS; a symlinked or
     # escaped cache path must never be served just because it looks fresh.
     cache_ok = (
@@ -858,6 +1101,8 @@ def thumb_file(rel: str) -> Path:
     if cache_ok:
         return cache
     cache.parent.mkdir(parents=True, exist_ok=True)
+    if cache.parent.is_symlink() or not is_under(cache, OUTPUTS):
+        return source
     made = False
     if sys.platform == "darwin":
         proc = subprocess.run(
@@ -868,7 +1113,13 @@ def thumb_file(rel: str) -> Path:
         made = proc.returncode == 0 and cache.is_file()
     elif sys.platform == "win32":
         made = _windows_jpeg_thumb(source, cache)
+    elif sys.platform.startswith("linux"):
+        made = _linux_jpeg_thumb(source, cache)
     if made and cache.is_file() and is_under(cache, OUTPUTS):
+        try:
+            os.chmod(cache, 0o600)
+        except OSError:
+            pass
         return cache
     return source
 
@@ -1028,6 +1279,21 @@ def save_overlay(data: bytes) -> Dict[str, Any]:
     return {"id": rel, "name": path.name, "url": "/media/" + rel, "bytes": path.stat().st_size}
 
 
+def save_inbox_images(bodies: List[bytes]) -> List[str]:
+    INBOX.mkdir(parents=True, exist_ok=True)
+    saved: List[str] = []
+    for body in bodies:
+        path = save_image_bytes(
+            INBOX,
+            body,
+            max_bytes=OVERLAY_MAX_BYTES,
+            allowed=(".png", ".jpg"),
+        )
+        saved.append(str(path.resolve().relative_to(OUTPUTS.resolve()).as_posix()))
+    invalidate_library_cache()
+    return saved
+
+
 def save_composite(png: bytes, composed_from: str, overlays: Any) -> Dict[str, Any]:
     source = resolve_library_image(composed_from)
     source_rel = source.resolve().relative_to(OUTPUTS.resolve()).as_posix()
@@ -1039,14 +1305,18 @@ def save_composite(png: bytes, composed_from: str, overlays: Any) -> Dict[str, A
         name_suffix="-composed",
     )
     records = overlays if isinstance(overlays, list) else None
-    write_media_receipt(
-        path,
-        {
-            "success": True,
-            "composed_from": source_rel,
-            "overlays": records,
-        },
-    )
+    try:
+        write_media_receipt(
+            path,
+            {
+                "success": True,
+                "composed_from": source_rel,
+                "overlays": records,
+            },
+        )
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
     invalidate_library_cache()
     return media_item(path)
 
@@ -1119,9 +1389,13 @@ def saved_image_path(result: Dict[str, Any]) -> Optional[str]:
 
 def generate_compiled(job: Dict[str, Any], used: str) -> Dict[str, Any]:
     if studio_fixture_enabled():
-        IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-        dest = IMAGE_DIR / f"fixture-{uuid.uuid4().hex[:12]}.png"
-        dest.write_bytes(fixture_png_bytes())
+        dest = save_image_bytes(
+            IMAGE_DIR,
+            fixture_png_bytes(),
+            max_bytes=COMPOSITE_MAX_BYTES,
+            allowed=(".png",),
+            name_suffix="-fixture",
+        )
         return {
             "success": True,
             "fixture": True,
@@ -1133,6 +1407,7 @@ def generate_compiled(job: Dict[str, Any], used: str) -> Dict[str, Any]:
             "saved_image": str(dest),
             "aspect_ratio": str(job.get("aspect") or "1:1"),
             "prompt": {"original": used, "used": used},
+            "_studio_committed": True,
         }
     args = [
         used,
@@ -1148,15 +1423,54 @@ def generate_compiled(job: Dict[str, Any], used: str) -> Dict[str, Any]:
         args.extend(["--resolution", str(job["resolution"])])
     if job.get("model"):
         args.extend(["--model", str(job["model"])])
-    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    args.extend(["--out-dir", str(IMAGE_DIR)])
+    job_dir = JOB_DIR / uuid.uuid4().hex
+    job_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
+    args.extend(["--out-dir", str(job_dir)])
     for raw in job.get("images") or []:
         path = Path(str(raw))
         if not path.is_absolute():
             path = (OUTPUTS / path).resolve()
         if path.is_file() and is_under(path, OUTPUTS):
             args.extend(["-i", str(path)])
-    return run_cli(args, timeout=320)
+    try:
+        result = run_cli(args, timeout=320)
+        return commit_generated_artifact(result, job_dir)
+    finally:
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+
+def commit_generated_artifact(result: Dict[str, Any], job_dir: Path) -> Dict[str, Any]:
+    out = dict(result)
+    if not out.get("success") and not out.get("saved_but_failed"):
+        return out
+    raw = out.get("image") or out.get("saved_image")
+    if not raw:
+        raise ValueError("provider finished without an image artifact")
+    source = Path(str(raw)).expanduser().resolve()
+    private_root = job_dir.resolve()
+    if not source.is_file() or not source.is_relative_to(private_root):
+        raise ValueError("provider image escaped its private job directory")
+    if source.stat().st_size > COMPOSITE_MAX_BYTES:
+        raise ValueError(f"provider image too large (limit {COMPOSITE_MAX_BYTES} bytes)")
+    with source.open("rb") as handle:
+        data = handle.read(COMPOSITE_MAX_BYTES + 1)
+    if len(data) > COMPOSITE_MAX_BYTES:
+        raise ValueError(f"provider image too large (limit {COMPOSITE_MAX_BYTES} bytes)")
+    suffix = sniff_image_suffix(data[:16])
+    if suffix not in {".png", ".jpg"}:
+        raise ValueError("provider returned an unsupported image format")
+    saved = save_image_bytes(
+        IMAGE_DIR,
+        data,
+        max_bytes=COMPOSITE_MAX_BYTES,
+        allowed=(suffix,),
+    )
+    out["image"] = str(saved)
+    out["saved_image"] = str(saved)
+    out["images"] = [str(saved)]
+    out["_studio_committed"] = True
+    out.update(actual_image_facts(saved))
+    return out
 
 
 def _run_one_job(job: Dict[str, Any]) -> Dict[str, Any]:
@@ -1198,6 +1512,12 @@ def persist_batch(rec: Dict[str, Any]) -> None:
                 "style": item.get("style"),
                 "beat": item.get("beat"),
                 "status": item.get("status"),
+                "provider": item.get("provider"),
+                "model": item.get("model"),
+                "quality": item.get("quality"),
+                "resolution": item.get("resolution"),
+                "started_at": item.get("started_at"),
+                "finished_at": item.get("finished_at"),
                 "result": (
                     redact_cli_payload(item.get("result"))
                     if isinstance(item.get("result"), dict)
@@ -1236,7 +1556,13 @@ def _set_job(batch_id: str, index: int, **fields: Any) -> None:
         rec = _BATCHES.get(batch_id)
         if not rec or index >= len(rec["jobs"]):
             return
-        rec["jobs"][index].update(fields)
+        job = rec["jobs"][index]
+        status = str(fields.get("status") or "")
+        if status == "running" and not job.get("started_at") and "started_at" not in fields:
+            fields["started_at"] = time.time()
+        if status in {"done", "failed", "interrupted"} and not job.get("finished_at") and "finished_at" not in fields:
+            fields["finished_at"] = time.time()
+        job.update(fields)
         persist_batch(rec)
 
 
@@ -1332,10 +1658,53 @@ def batch_public(rec: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def studio_runtime_status() -> Dict[str, int]:
+    ensure_batches_loaded()
+    with _BATCH_LOCK:
+        active_records = [item for item in _BATCHES.values() if item.get("status") in {"queued", "running"}]
+        active_jobs = sum(
+            1
+            for record in active_records
+            for job in record.get("jobs") or []
+            if job.get("status") in {"queued", "running"}
+        )
+    return {"active_batches": len(active_records), "active_jobs": active_jobs}
+
+
 def _normalize_batch_mode(mode: str, jobs: List[Dict[str, Any]]) -> str:
     if mode in {"series", "candidates", "variants", "parallel", "single"}:
         return mode
     return "series" if any(job.get("chain_prev") for job in jobs) else ("parallel" if len(jobs) > 1 else "single")
+
+
+def normalize_studio_jobs(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if studio_fixture_enabled():
+        return jobs
+    providers = current_studio_providers()
+    model_pairs = {
+        (str(row.get("provider") or ""), str(row.get("model") or ""))
+        for row in studio_models_payload().get("models") or []
+    }
+    normalized: List[Dict[str, Any]] = []
+    for raw in jobs:
+        row = dict(raw)
+        provider = resolve_studio_provider(row.get("provider"), providers)
+        settings = normalize_studio_generation_settings(
+            provider,
+            row.get("model"),
+            row.get("resolution"),
+            providers,
+        )
+        if settings["warning"]:
+            raise ValueError(f"confirmed job settings are no longer valid: {settings['warning']}")
+        model = settings["model"]
+        if model and (provider, model) not in model_pairs:
+            raise ValueError(f"model {model} is not available through Studio provider {provider}")
+        row["provider"] = provider
+        row["model"] = model
+        row["resolution"] = settings["resolution"]
+        normalized.append(row)
+    return normalized
 
 
 def start_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
@@ -1348,6 +1717,11 @@ def start_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
     jobs = [dict(item) for item in raw_jobs if isinstance(item, dict)]
     if not jobs:
         raise ValueError("jobs required")
+    with _BATCH_LOCK:
+        active = sum(1 for item in _BATCHES.values() if item.get("status") in {"queued", "running"})
+        if active >= MAX_ACTIVE_BATCHES:
+            raise ValueError(f"active batch limit reached ({MAX_ACTIVE_BATCHES})")
+    jobs = normalize_studio_jobs(jobs)
     mode = _normalize_batch_mode(str(body.get("mode") or jobs[0].get("mode") or "single"), jobs)
     batch_id = uuid.uuid4().hex[:12]
     session_id = str(body.get("session_id") or jobs[0].get("session_id") or uuid.uuid4().hex[:12])
@@ -1375,11 +1749,14 @@ def start_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
         "jobs": [{**job, "status": "queued", "result": None} for job in stamped],
     }
     with _BATCH_LOCK:
-        _BATCHES[batch_id] = record
-        persist_batch(record)
         stale = [key for key, item in _BATCHES.items() if time.time() - float(item.get("started") or 0) > 86400]
         for key in stale:
             _BATCHES.pop(key, None)
+        active = sum(1 for item in _BATCHES.values() if item.get("status") in {"queued", "running"})
+        if active >= MAX_ACTIVE_BATCHES:
+            raise ValueError(f"active batch limit reached ({MAX_ACTIVE_BATCHES})")
+        _BATCHES[batch_id] = record
+        persist_batch(record)
     exec_mode = "series" if mode == "series" else "parallel"
     thread = threading.Thread(target=_worker, args=(batch_id, exec_mode, stamped), daemon=True)
     thread.start()
@@ -1481,27 +1858,20 @@ def run_revise(body: Dict[str, Any]) -> Dict[str, Any]:
     if image:
         resolved = resolve_library_image(image)
         last_image = str(resolved.resolve().relative_to(OUTPUTS.resolve()).as_posix())
-    if studio_fixture_enabled():
-        message = str(body.get("message") or "").strip()
-        draft = str(body.get("draft") or "")
-        return {
-            "success": True,
-            "mode": "edit",
-            "draft": (draft + "\nConstraints: " + message).strip() if message else draft,
-            "reason": "fixture 改稿",
-            "backend": "fixture",
-            "images": [last_image] if last_image else [],
-        }
-    payload = revise_turn(
-        str(body.get("message") or ""),
-        draft=str(body.get("draft") or ""),
-        brief=str(body.get("brief") or ""),
-        critique=body.get("critique") if isinstance(body.get("critique"), dict) else None,
-        last_image=last_image,
-    )
-    if payload.get("success") and payload.get("mode") == "edit" and last_image:
-        payload["images"] = [last_image]
-    return payload
+    message = str(body.get("message") or "").strip()
+    draft = str(body.get("draft") or "").strip()
+    restart = any(token in message.lower() for token in ("从头", "重做", "重新画", "restart", "start over"))
+    mode = "generate" if restart or not last_image else "edit"
+    compiled = (draft + "\nConstraints: " + message).strip() if message else draft
+    return {
+        "success": True,
+        "preflight": "local",
+        "mode": mode,
+        "draft": compiled,
+        "reason": "本地合并改稿要求；确认前未调用外部文本模型",
+        "backend": "local",
+        "images": [last_image] if mode == "edit" and last_image else [],
+    }
 
 
 def parse_generate(body: Dict[str, Any]) -> List[str]:
@@ -1509,7 +1879,15 @@ def parse_generate(body: Dict[str, Any]) -> List[str]:
     if not prompt:
         raise ValueError("prompt is required")
     args = [prompt]
-    provider = str(body.get("provider") or "auto").strip()
+    requested_provider = str(body.get("provider") or "auto").strip()
+    if studio_fixture_enabled():
+        provider = "fixture"
+    elif requested_provider in {"", "auto"}:
+        provider = resolve_studio_provider("auto", current_studio_providers())
+    elif not studio_provider_allowed(requested_provider):
+        raise ValueError(f"Studio 暂未安全开放 {requested_provider} 通路")
+    else:
+        provider = requested_provider
     if provider:
         args.extend(["--provider", provider])
     model = str(body.get("model") or "").strip()
@@ -1547,7 +1925,7 @@ def parse_generate(body: Dict[str, Any]) -> List[str]:
         args.extend(["-i", str(path)])
     mask_raw = str(body.get("mask") or "").strip()
     if mask_raw:
-        provider = str(body.get("provider") or "auto").strip()
+        provider = str(provider or "").strip()
         if provider != "openai":
             raise ValueError("mask requires provider openai")
         mask_path = resolve_library_image(mask_raw)
@@ -1575,19 +1953,30 @@ def csrf_allows(headers: Any, host: str) -> bool:
     return True
 
 
+def routed_request_path(raw_path: str) -> Tuple[Any, str]:
+    parsed = urlparse(raw_path)
+    path = unquote(parsed.path)
+    if path == STUDIO_API_PREFIX:
+        path = "/"
+    elif path.startswith(STUDIO_API_PREFIX + "/"):
+        path = path[len(STUDIO_API_PREFIX) :]
+    return parsed, path
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "local-studio/0.1"
 
     def log_message(self, format: str, *args: Any) -> None:
         sys.stderr.write("studio: " + (format % args) + "\n")
 
-    def _guard(self, bind_host: str) -> bool:
+    def _guard(self, bind_host: str, *, request_path: str = "") -> bool:
         """Shared request guard: Host allowlist (P0-A) and LAN token (P1-6)."""
         host_header = self.headers.get("Host") or ""
         if not host_allows(host_header, bind_host):
             self._send(*json_bytes({"success": False, "error": "host not allowed"}, 403))
             return False
-        if not studio_token_ok(self.headers):
+        client_host = str(self.client_address[0] or "") if self.client_address else ""
+        if not studio_token_ok(self.headers, client_host=client_host, request_path=request_path):
             self._send(*json_bytes({"success": False, "error": "studio token required"}, 403))
             return False
         return True
@@ -1597,6 +1986,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' blob: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
+        )
         self.end_headers()
         self.wfile.write(body)
 
@@ -1614,10 +2011,9 @@ class Handler(BaseHTTPRequestHandler):
         return payload
 
     def do_GET(self) -> None:  # noqa: N802
-        if not self._guard(BIND_HOST):
+        parsed, path = routed_request_path(self.path)
+        if not self._guard(BIND_HOST, request_path=path):
             return
-        parsed = urlparse(self.path)
-        path = unquote(parsed.path)
         if "\x00" in path:
             self._send(*json_bytes({"error": "not found"}, 404))
             return
@@ -1625,12 +2021,26 @@ class Handler(BaseHTTPRequestHandler):
             self._send(204, b"", "image/x-icon")
             return
         if path in {"/", "/index.html"}:
-            target = STATIC / "index.html"
+            target = CLIENT / "index.html"
+            if not target.is_file():
+                self._send(*json_bytes({"error": "Studio client is missing; rebuild the local client"}, 503))
+                return
             self._send(200, target.read_bytes(), "text/html; charset=utf-8")
+            return
+        if path.startswith("/assets/"):
+            target = (CLIENT / path.lstrip("/")).resolve()
+            if not is_under(target, CLIENT) or not target.is_file():
+                self._send(*json_bytes({"error": "not found"}, 404))
+                return
+            mime = STATIC_MIME.get(target.suffix.lower()) or mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+            self._send(200, target.read_bytes(), mime)
             return
         if path.startswith("/static/"):
             target = (STATIC / path[len("/static/") :]).resolve()
             if not is_under(target, STATIC) or not target.is_file():
+                self._send(*json_bytes({"error": "not found"}, 404))
+                return
+            if target.suffix.lower() == ".html":
                 self._send(*json_bytes({"error": "not found"}, 404))
                 return
             # Board 2026-08-23 P2-4: historical mockups are not product surface.
@@ -1674,12 +2084,15 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         if path == "/api/models":
-            self._send(*json_bytes(run_cli(["--list-models"], timeout=15)))
+            self._send(*json_bytes(studio_models_payload()))
             return
         if path == "/api/library":
             items = list_library_cached()
             warnings = drain_sidecar_warnings()
             self._send(*json_bytes({"success": True, "items": items, "warnings": warnings}))
+            return
+        if path == "/api/runtime":
+            self._send(*json_bytes({"success": True, **studio_runtime_status()}))
             return
         if path.startswith("/thumb/"):
             rel = path[len("/thumb/") :]
@@ -1717,12 +2130,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         if not self._guard(BIND_HOST):
             return
-        parsed = urlparse(self.path)
+        parsed, path = routed_request_path(self.path)
         host = (self.headers.get("Host") or f"{HOST}:{DEFAULT_PORT}").strip()
         if not csrf_allows(self.headers, host):
             self._send(*json_bytes({"success": False, "error": "cross-origin request blocked"}, 403))
             return
-        path = parsed.path
         if path == "/api/brief":
             try:
                 body = self._read_json()
@@ -1732,18 +2144,27 @@ class Handler(BaseHTTPRequestHandler):
                     for ref in project.get("refs") or []:
                         if ref not in images:
                             images.append(ref)
+                providers = current_studio_providers()
+                provider = "fixture" if studio_fixture_enabled() else resolve_studio_provider(body.get("provider"), providers)
+                normalized = normalize_studio_generation_settings(
+                    provider,
+                    body.get("model"),
+                    body.get("resolution"),
+                    providers,
+                )
                 payload = build_brief(
                     str(body.get("prompt") or ""),
-                    provider=str(body.get("provider") or "auto"),
+                    provider=provider,
                     template_id=str(body.get("template") or ""),
                     aspect=str(body.get("aspect") or ""),
                     quality=str(body.get("quality") or "high"),
-                    resolution=str(body.get("resolution") or "2k"),
-                    model=str(body.get("model") or ""),
+                    resolution=normalized["resolution"],
+                    model=normalized["model"],
                     images=images,
                 )
                 if payload.get("success"):
-                    payload = attach_compiled_drafts(payload)
+                    if normalized["warning"]:
+                        payload.setdefault("warnings", []).append(normalized["warning"])
                     if project:
                         payload["project"] = project
                         payload["brand_constraints"] = list(project.get("brand_constraints") or [])
@@ -1876,8 +2297,8 @@ class Handler(BaseHTTPRequestHandler):
         if not csrf_allows(self.headers, host):
             self._send(*json_bytes({"success": False, "error": "cross-origin request blocked"}, 403))
             return
-        parsed = urlparse(self.path)
-        if parsed.path != "/api/snippets":
+        parsed, path = routed_request_path(self.path)
+        if path != "/api/snippets":
             self._send(*json_bytes({"error": "not found"}, 404))
             return
         snippet_id = (parse_qs(parsed.query).get("id") or [""])[0].strip()
@@ -1945,19 +2366,10 @@ class Handler(BaseHTTPRequestHandler):
                     return {"success": False, "error": str(exc)}
                 saved.append(str(path.resolve().relative_to(OUTPUTS.resolve()).as_posix()))
             return {"success": True, "items": saved}
-        INBOX.mkdir(parents=True, exist_ok=True)
-        saved = []
-        for body in bodies:
-            try:
-                path = save_image_bytes(
-                    INBOX,
-                    body,
-                    max_bytes=OVERLAY_MAX_BYTES,
-                    allowed=(".png", ".jpg"),
-                )
-            except ValueError as exc:
-                return {"success": False, "error": str(exc)}
-            saved.append(str(path.resolve().relative_to(OUTPUTS.resolve()).as_posix()))
+        try:
+            saved = save_inbox_images(bodies)
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
         return {"success": True, "items": saved}
 
 
@@ -1967,6 +2379,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--lan", action="store_true", help="Bind 0.0.0.0 so other devices on the LAN can connect.")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--no-open", action="store_true", help="Do not open a browser.")
+    parser.add_argument("--ready-file", help=argparse.SUPPRESS)
     parser.add_argument(
         "--fixture",
         action="store_true",
@@ -1985,14 +2398,30 @@ def main(argv: Optional[List[str]] = None) -> int:
             f"(header {STUDIO_TOKEN_HEADER} also accepted).",
             flush=True,
         )
-    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_private_storage_root(OUTPUTS, IMAGE_DIR)
     server = ThreadingHTTPServer((host, args.port), Handler)
+    if args.ready_file:
+        ready = Path(args.ready_file).expanduser()
+        ready.parent.mkdir(parents=True, exist_ok=True)
+        tmp = ready.with_name(f".{ready.name}.{os.getpid()}.tmp")
+        tmp.write_text(f"{os.getpid()}\n", encoding="utf-8")
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        os.replace(str(tmp), str(ready))
     print_studio_banner(host, args.port)
     maybe_open_browser(public_studio_url(host, args.port), open_browser=not args.no_open)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped", flush=True)
+    finally:
+        if args.ready_file:
+            try:
+                Path(args.ready_file).unlink()
+            except FileNotFoundError:
+                pass
     return 0
 
 

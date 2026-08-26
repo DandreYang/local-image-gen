@@ -60,9 +60,14 @@ local-image-gen doctor    # backends, Dyro, and whether main is newer
 local-image-gen update    # git pull --ff-only, then refresh the wrapper and skill links
 local-image-gen studio            # open the local Studio UI (opens a browser)
 local-image-gen studio --lan --daemon   # detach on a Linux host; then --stop
+local-image-gen studio --report --days 7  # aggregate-only local dogfood evidence
 ```
 
-Studio is a local web UI for the same CLI. `local-image-gen studio` binds `127.0.0.1:8765` by default and opens a browser after the server is listening. `--no-open` skips the browser. `--lan` binds `0.0.0.0`, prints this machine's IPv4 URL(s), and warns that LAN bind shares this machine's image backends with the network. On a host with a public IP, restrict the port with a firewall or security group; this tool does not add login or TLS. `--daemon` detaches from the terminal (implies `--no-open`); `local-image-gen studio --stop` is idempotent. Closing a foreground terminal stops Studio. There is no systemd unit.
+Studio is the future-tech local creation workspace for the same CLI. `local-image-gen studio` serves the bundled React client and API from one loopback process at `127.0.0.1:8765`, then opens the browser after bind. Building the confirmation card is local and quota-free; no search or text model runs before explicit confirmation. The UI records requested settings separately from the image's decoded MIME type and pixel dimensions.
+
+Studio currently enables direct/sandboxed paths only: Grok login, experimental Codex login, and official Gemini/OpenAI/xAI API keys when configured. Antigravity and Cursor remain available in the standalone CLI, but Studio hides them until their coding-agent workers can be restricted to an image-only permission boundary. `--fixture` runs the complete UI without model quota. `--no-open` skips the browser. `--daemon` waits for the server to bind before reporting success; `--stop` refuses to interrupt an active batch, while `--stop --force-stop` is the explicit emergency override. `--lan` requires the random Studio token printed by the server and must only be used on a trusted network; it does not add TLS.
+
+`studio --report --days 7` summarizes local dogfood completion, interruption, first-image latency, provider/model success, and actual MIME/pixel coverage. It is aggregate-only and omits prompts, paths, filenames, batch IDs, and failure text.
 
 `update` refuses a dirty checkout, a tree whose git status cannot be read, a non-git copy, a non-official `origin`, and any branch other than `main`/`master`. It only runs `git pull --ff-only origin main`. It does not run `curl | bash`. Generate commands never check GitHub for a new version. `LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` skips the doctor freshness GET (Dyro's 5s spawn should set this).
 
@@ -114,12 +119,12 @@ Agents that have the skill installed should run `scripts/local_image_gen.py` ins
 | `grok` | `grok-imagine-image-2.0` | `grok login` → `~/.grok/auth.json` | `XAI_API_KEY` |
 | `agy` / `antigravity` | `gemini-3.1-flash-image` | local `agy` | — |
 | `cursor` | `gemini-3-pro-image` | local `cursor-agent` | — |
-| `gemini` | `gemini-3.1-flash-image` | Nano Banana chain: Antigravity → Cursor → key | `GEMINI_API_KEY` |
+| `gemini` | `gemini-3.1-flash-image` | official Gemini API only | `GEMINI_API_KEY` |
 | `codex` | `gpt-image-2` | experimental `codex auth login` | — (use `openai`) |
 | `openai` | `gpt-image-2` | — | `OPENAI_API_KEY` |
 | `xai` | `grok-imagine-image-2.0` | — | `XAI_API_KEY` |
 
-`auto` without a named model family prefers Grok, then Codex, then Antigravity (`agy`), then Cursor. A named Nano Banana model still uses Antigravity → Cursor → `GEMINI_API_KEY`. The current harness login still wins when it is usable.
+`auto` without a named model family prefers Grok, then Codex, then Antigravity (`agy`), then Cursor. With `--provider auto`, a named Nano Banana model may use Antigravity → Cursor → `GEMINI_API_KEY`. Explicit `--provider gemini` is fail-closed to the official Gemini API and never falls through to a coding-agent backend. The current harness login still wins when it is usable.
 
 Parameter mapping lives in [`references/providers.md`](references/providers.md). `--list-models` is the executable catalog.
 

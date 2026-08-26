@@ -88,6 +88,30 @@ class TestCsrfHttp(unittest.TestCase):
         self.assertEqual(payload.get("success"), False)
         self.assertIn("写一句", payload.get("error", ""))
 
+    def test_brief_http_does_not_compile_or_research_before_confirmation(self):
+        local_brief = {
+            "success": True,
+            "preflight": "local",
+            "jobs": [{"id": "1", "prompt": "本地终稿"}],
+            "warnings": [],
+        }
+        with patch.object(server, "build_brief", return_value=local_brief), patch.object(
+            server, "attach_compiled_drafts", side_effect=lambda payload: payload
+        ) as compile_drafts:
+            with urlopen(
+                Request(
+                    f"http://127.0.0.1:{self.port}/api/brief",
+                    data=b'{"prompt":"private launch"}',
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                ),
+                timeout=5,
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+        self.assertTrue(payload["success"])
+        compile_drafts.assert_not_called()
+
     def _delete(self, headers):
         req = Request(
             f"http://127.0.0.1:{self.port}/api/snippets?id=missing",
@@ -107,6 +131,104 @@ class TestCsrfHttp(unittest.TestCase):
         self.assertEqual(caught.exception.code, 404)
         payload = json.loads(caught.exception.read().decode("utf-8"))
         self.assertIn("没有这句", payload.get("error", ""))
+
+
+class TestStudioProviderSafety(unittest.TestCase):
+    def test_full_permission_agent_providers_are_not_studio_enabled(self):
+        self.assertFalse(server.studio_provider_allowed("antigravity"))
+        self.assertFalse(server.studio_provider_allowed("agy"))
+        self.assertFalse(server.studio_provider_allowed("cursor"))
+        for provider in ("grok", "codex", "gemini", "openai", "xai"):
+            self.assertTrue(server.studio_provider_allowed(provider), provider)
+
+    def test_doctor_marks_unsafe_providers_without_hiding_the_reason(self):
+        providers = [
+            {"provider": "antigravity", "subscription": True},
+            {"provider": "cursor", "subscription": True},
+            {"provider": "grok", "subscription": True},
+        ]
+        with patch.object(server, "run_cli", return_value={"success": True, "providers": providers}):
+            payload = server.studio_doctor_payload()
+
+        indexed = {row["provider"]: row for row in payload["providers"]}
+        self.assertFalse(indexed["antigravity"]["studio_enabled"])
+        self.assertFalse(indexed["cursor"]["studio_enabled"])
+        self.assertIn("权限", indexed["antigravity"]["studio_disabled_reason"])
+        self.assertTrue(indexed["grok"]["studio_enabled"])
+
+    def test_auto_provider_never_resolves_to_an_unsafe_agent(self):
+        providers = [
+            {"provider": "antigravity", "subscription": True, "studio_enabled": False},
+            {"provider": "cursor", "subscription": True, "studio_enabled": False},
+            {"provider": "grok", "subscription": True, "studio_enabled": True},
+        ]
+        self.assertEqual(server.resolve_studio_provider("auto", providers), "grok")
+        with self.assertRaisesRegex(ValueError, "安全通路"):
+            server.resolve_studio_provider(
+                "auto",
+                [
+                    {"provider": "antigravity", "subscription": True, "studio_enabled": False},
+                    {"provider": "cursor", "subscription": True, "studio_enabled": False},
+                ],
+            )
+
+    def test_confirm_rejects_a_client_mutated_full_permission_provider(self):
+        providers = [
+            {"provider": "grok", "subscription": True, "studio_enabled": True},
+            {"provider": "antigravity", "subscription": True, "studio_enabled": False},
+        ]
+        with patch.object(server, "current_studio_providers", return_value=providers), patch.object(
+            server.threading, "Thread"
+        ):
+            with self.assertRaisesRegex(ValueError, "暂未安全开放"):
+                server.start_confirm_generate(
+                    {"jobs": [{"prompt": "synthetic", "provider": "antigravity"}]}
+                )
+
+    def test_direct_generate_rejects_a_full_permission_provider(self):
+        with patch.object(
+            server,
+            "current_studio_providers",
+            return_value=[{"provider": "antigravity", "subscription": True, "studio_enabled": False}],
+        ):
+            with self.assertRaisesRegex(ValueError, "暂未安全开放"):
+                server.parse_generate({"prompt": "synthetic", "provider": "antigravity"})
+
+    def test_auto_codex_does_not_carry_an_impossible_2k_request(self):
+        providers = [
+            {
+                "provider": "codex",
+                "subscription": True,
+                "studio_enabled": True,
+                "default_model": "gpt-image-2",
+            }
+        ]
+        normalized = server.normalize_studio_generation_settings(
+            "codex",
+            "",
+            "2k",
+            providers,
+        )
+        self.assertEqual(normalized["model"], "gpt-image-2")
+        self.assertEqual(normalized["resolution"], "")
+        self.assertIn("不接受 2k", normalized["warning"])
+
+    def test_official_gemini_pro_keeps_a_supported_2k_request(self):
+        providers = [
+            {
+                "provider": "gemini",
+                "api_key": True,
+                "subscription": False,
+                "studio_enabled": True,
+                "default_model": "gemini-3.1-flash-image",
+            }
+        ]
+        normalized = server.normalize_studio_generation_settings(
+            "gemini", "gemini-3-pro-image", "2k", providers
+        )
+        self.assertEqual(normalized["model"], "gemini-3-pro-image")
+        self.assertEqual(normalized["resolution"], "2k")
+        self.assertEqual(normalized["warning"], "")
 
 
 class TestHostAllowlist(unittest.TestCase):
@@ -211,6 +333,27 @@ class TestStudioToken(unittest.TestCase):
 
         self.assertTrue(server.studio_token_ok(Empty()))
 
+    def test_lan_server_exposes_only_runtime_counts_to_its_local_stop_command(self):
+        server.issue_studio_token()
+
+        class Empty:
+            def get(self, key, default=None):
+                return default
+
+        headers = Empty()
+        self.assertTrue(
+            server.studio_token_ok(headers, client_host="127.0.0.1", request_path="/api/runtime")
+        )
+        self.assertTrue(
+            server.studio_token_ok(headers, client_host="::1", request_path="/api/runtime")
+        )
+        self.assertFalse(
+            server.studio_token_ok(headers, client_host="192.168.1.9", request_path="/api/runtime")
+        )
+        self.assertFalse(
+            server.studio_token_ok(headers, client_host="127.0.0.1", request_path="/api/doctor")
+        )
+
 
 class TestBatchContainment(unittest.TestCase):
     """Board 2026-08-23 P1-1/P1-7 regressions."""
@@ -244,6 +387,55 @@ class TestBatchContainment(unittest.TestCase):
                 {"jobs": [{"id": str(i)} for i in range(server.MAX_BATCH_JOBS + 1)]}
             )
 
+    def test_active_batches_have_a_global_hard_cap(self):
+        active = {
+            "aaa111bbb222": {
+                "id": "aaa111bbb222",
+                "status": "running",
+                "started": server.time.time(),
+                "jobs": [],
+            },
+            "ccc333ddd444": {
+                "id": "ccc333ddd444",
+                "status": "queued",
+                "started": server.time.time(),
+                "jobs": [],
+            },
+        }
+        with patch.object(server, "_BATCHES", active), patch.object(server, "_BATCHES_LOADED", True):
+            with self.assertRaisesRegex(ValueError, "active batch"):
+                server.start_confirm_generate({"jobs": [{"prompt": "synthetic"}]})
+
+    def test_runtime_status_counts_only_active_batches_and_jobs(self):
+        batches = {
+            "a": {"status": "running", "jobs": [{"status": "running"}, {"status": "done"}]},
+            "b": {"status": "queued", "jobs": [{"status": "queued"}]},
+            "c": {"status": "done", "jobs": [{"status": "done"}]},
+        }
+        with patch.object(server, "_BATCHES", batches), patch.object(server, "_BATCHES_LOADED", True):
+            status = server.studio_runtime_status()
+        self.assertEqual(status["active_batches"], 2)
+        self.assertEqual(status["active_jobs"], 2)
+
+
+class TestLibraryMutationConsistency(unittest.TestCase):
+    def test_inbox_upload_invalidates_a_nonempty_library_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            inbox = images / "inbox"
+            images.mkdir()
+            (images / "existing.png").write_bytes(_png())
+            with patch.object(server, "OUTPUTS", root), patch.object(server, "IMAGE_DIR", images), patch.object(
+                server, "INBOX", inbox
+            ), patch.object(server, "INDEX_PATH", root / ".index.json"):
+                self.assertEqual(len(server.list_library_cached()), 1)
+                saved = server.save_inbox_images([_png()])
+                refreshed = server.list_library_cached()
+
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(len(refreshed), 2)
+
     def test_json_body_limit_constant(self):
         self.assertEqual(server.MAX_JSON_BYTES, 10 * 1024 * 1024)
 
@@ -271,6 +463,29 @@ class TestThumbCacheContainment(unittest.TestCase):
                  patch.object(server, "resolve_library_image", return_value=source):
                 result = server.thumb_file("pic.png")
             self.assertNotEqual(result.resolve(), escaped.resolve())
+
+    def test_symlinked_thumbnail_parent_is_rejected_before_an_encoder_can_write(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside_tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            source = images / "pic.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+            thumb_link = root / ".thumbs"
+            try:
+                thumb_link.symlink_to(Path(outside_tmp), target_is_directory=True)
+            except OSError:
+                self.skipTest("directory symlinks unavailable")
+            with patch.object(server, "OUTPUTS", root), patch.object(
+                server, "THUMB_DIR", thumb_link
+            ), patch.object(server, "resolve_library_image", return_value=source), patch.object(
+                server.sys, "platform", "linux"
+            ), patch.object(server, "_linux_jpeg_thumb") as encoder:
+                result = server.thumb_file("images/pic.png")
+
+            self.assertEqual(result, source)
+            encoder.assert_not_called()
+            self.assertEqual(list(Path(outside_tmp).iterdir()), [])
 
 
 class TestSecretShapeRedaction(unittest.TestCase):

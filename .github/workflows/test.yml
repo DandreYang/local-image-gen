@@ -2,7 +2,7 @@ name: test
 
 on:
   push:
-    branches: [main]
+    branches: [main, "prototype/**"]
   pull_request:
 
 jobs:
@@ -17,28 +17,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Unit tests
-        run: python tests/test_local_image_gen.py
-      - name: Studio backend
-        run: python tests/test_studio_job.py
-      - name: Studio frontend contracts
-        run: python tests/test_studio_frontend.py
-      - name: Studio server launch
-        run: python tests/test_studio_server.py
-      - name: Studio sidecar
-        run: python tests/test_studio_sidecar.py
-      - name: Studio CSRF and uploads
-        run: python tests/test_studio_security.py
-      - name: Studio composite
-        run: python tests/test_studio_composite.py
-      - name: Studio overlay geometry
-        run: python tests/test_studio_overlay_geom.py
-      - name: Studio phase 3
-        run: python tests/test_studio_phase3.py
-      - name: Studio phase 4
-        run: python tests/test_studio_phase4.py
-      - name: Studio snippets
-        run: python tests/test_studio_snippets.py
+      - name: Full Python suite
+        run: python -m unittest discover -s tests
       - name: CLI contract
         run: |
           python scripts/local_image_gen.py --version
@@ -48,3 +28,58 @@ jobs:
           bash -n install.sh
           ./install.sh --help
           ./install.sh --dry-run
+
+  studio-client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prototypes/future-studio-v1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: prototypes/future-studio-v1/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: npm ci
+      - run: npm run build:local
+      - run: npm test
+      - run: npm run test:sites
+      - run: npm audit --audit-level=moderate
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: studio-playwright
+          path: |
+            prototypes/future-studio-v1/playwright-report/
+            prototypes/future-studio-v1/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Generated local client is current
+        working-directory: .
+        run: git diff --exit-code -- studio/client
+
+  cross-platform:
+    name: cross-platform (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Full Python suite
+        run: python -m unittest discover -s tests
+      - name: CLI smoke
+        run: |
+          python scripts/local_image_gen.py --version
+          python scripts/local_image_gen.py --list-models
+          python scripts/local_image_gen.py --doctor

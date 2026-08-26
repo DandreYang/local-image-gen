@@ -3,13 +3,22 @@ import assert from "node:assert/strict";
 
 import {
   apiAssetUrl,
+  apiThumbUrl,
   confirmGenerate,
   createBrief,
   loadCapabilities,
+  patchReceipt,
   uploadReferences,
 } from "../src/studio-api.js";
 import { isLoopbackAddress } from "../vite.config.mjs";
-import { getRuntimeAccess, validateRuntimeMode } from "../src/studio-options.js";
+import {
+  getRuntimeAccess,
+  imageFactLabel,
+  libraryItemTitle,
+  modelMatchesProvider,
+  providerUsable,
+  validateRuntimeMode,
+} from "../src/studio-options.js";
 
 function jsonResponse(payload, status = 200) {
   return {
@@ -83,6 +92,49 @@ test("loadCapabilities combines provider availability and model metadata", async
   }
 });
 
+test("Studio hides providers that require a full-permission coding agent", () => {
+  assert.equal(providerUsable({ provider: "antigravity", subscription: true, studio_enabled: false }), false);
+  assert.equal(providerUsable({ provider: "cursor", subscription: true, studio_enabled: false }), false);
+  assert.equal(providerUsable({ provider: "grok", subscription: true, studio_enabled: true }), true);
+});
+
+test("model rows match the resolved Studio provider exactly", () => {
+  assert.equal(modelMatchesProvider("gemini", { provider: "gemini" }), true);
+  assert.equal(modelMatchesProvider("gemini", { provider: "antigravity" }), false);
+  assert.equal(modelMatchesProvider("openai", { provider: "codex" }), false);
+});
+
+test("image labels separate actual pixels from requested clarity", () => {
+  assert.equal(imageFactLabel({ size: "1024x1024", resolution_requested: "2k" }), "1024x1024 · 请求 2k");
+  assert.equal(imageFactLabel({ actual_width: 800, actual_height: 1200 }), "800x1200");
+  assert.equal(imageFactLabel({ resolution_requested: "4k" }), "请求 4k");
+});
+
+test("library titles prefer the human prompt over storage filenames", () => {
+  assert.equal(
+    libraryItemTitle({ name: "fixture-aabbcc.png", prompt_original: "未来台北雨夜海报\n第二行" }),
+    "未来台北雨夜海报",
+  );
+  assert.equal(libraryItemTitle({ name: "photo.png" }), "photo");
+  assert.equal(libraryItemTitle({ prompt_original: "一张封面。 事实：一张封面。 不要拼图" }), "一张封面。");
+});
+
+test("favorite changes use the receipt patch endpoint", async () => {
+  const originalFetch = globalThis.fetch;
+  let captured;
+  globalThis.fetch = async (url, options) => {
+    captured = { url, options };
+    return jsonResponse({ success: true, item: { id: "images/a.png", starred: true } });
+  };
+  try {
+    await patchReceipt({ id: "images/a.png", starred: true });
+    assert.equal(captured.url, "/studio-api/api/receipt");
+    assert.deepEqual(JSON.parse(captured.options.body), { id: "images/a.png", starred: true });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("uploadReferences returns persistent Studio image ids", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
@@ -109,6 +161,12 @@ test("apiAssetUrl routes media through the local Studio proxy", () => {
   assert.equal(apiAssetUrl("images/a.png"), "/studio-api/media/images/a.png");
 });
 
+test("apiThumbUrl uses the bounded thumbnail endpoint for library grids", () => {
+  assert.equal(apiThumbUrl("images/a poster.png"), "/studio-api/thumb/images/a%20poster.png");
+  assert.equal(apiThumbUrl("/media/images/a.png"), "/studio-api/thumb/images/a.png");
+  assert.equal(apiThumbUrl("/studio-api/media/images/a.png"), "/studio-api/thumb/images/a.png");
+});
+
 test("Studio proxy accepts loopback addresses and rejects LAN addresses", () => {
   assert.equal(isLoopbackAddress("127.0.0.1"), true);
   assert.equal(isLoopbackAddress("::1"), true);
@@ -123,6 +181,8 @@ test("runtime mode handshake fails closed for unknown or mismatched backends", (
   assert.match(validateRuntimeMode(false, true), /模式与 Studio 后端不一致/);
   assert.equal(validateRuntimeMode(false, false), "");
   assert.equal(validateRuntimeMode(true, true), "");
+  assert.equal(validateRuntimeMode("dynamic", true), "");
+  assert.equal(validateRuntimeMode("dynamic", false), "");
 });
 
 test("runtime access allows credential-free fixture but blocks every mismatch", () => {

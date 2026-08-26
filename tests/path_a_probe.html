@@ -23,7 +23,7 @@
     验收 #7：路径 A 回贴后，框<strong>外</strong> RGB 必须与原图逐字节相同。
     本页用的公式与 <code>studio/static/js/lib/canvas.js</code> 相同
     （<code>pctToPixels</code> = <code>Math.round</code>，羽化 2% 且只向框内）。
-    CI 不能开浏览器，所以这是本机手工探针，不是 CI 依赖。
+    本页既可手工运行，也由 Future Studio Playwright 门在 Chromium 中执行真实 PNG 编解码与逐像素检查。
   </p>
   <p>
     在 Chromium / Chrome / Edge 打开此文件：<br />

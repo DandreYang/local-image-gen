@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildVersionChain, isBatchRunning, mergeReferenceFiles, moveOptionIndex } from "../src/studio-state.js";
+import {
+  buildVersionChain,
+  isBatchRunning,
+  mergeReferenceFiles,
+  moveOptionIndex,
+  parseStudioRecovery,
+  resolveRecoveryView,
+} from "../src/studio-state.js";
 
 test("buildVersionChain reconstructs parent ancestry in order", () => {
   const v1 = { id: "v1", parent: null };
@@ -44,4 +51,26 @@ test("mergeReferenceFiles deduplicates, validates type, and fails above the limi
   const d = { name: "d.png", type: "image/png", size: 13, lastModified: 4 };
   const e = { name: "e.png", type: "image/png", size: 14, lastModified: 5 };
   assert.match(mergeReferenceFiles([a, b, c, d], [e], 4).error, /最多 4 张/);
+});
+
+test("Studio recovery rejects malformed state and keeps the minimum safe shape", () => {
+  assert.deepEqual(parseStudioRecovery("not json"), {});
+  assert.deepEqual(parseStudioRecovery(JSON.stringify({ prompt: 7, settings: [], intent: "oops" })), {});
+  const recovered = parseStudioRecovery(JSON.stringify({
+    prompt: "night city",
+    settings: { provider: "grok" },
+    intent: "revision",
+    batch: { batch_id: "abc123def456", status: "running" },
+  }));
+  assert.equal(recovered.prompt, "night city");
+  assert.equal(recovered.settings.provider, "grok");
+  assert.equal(recovered.batch.batch_id, "abc123def456");
+});
+
+test("refresh only restores views whose required context survived", () => {
+  assert.equal(resolveRecoveryView("generating", { batch: { batch_id: "abc", status: "running" } }), "generating");
+  assert.equal(resolveRecoveryView("generating", {}), "start");
+  assert.equal(resolveRecoveryView("confirm", { brief: { jobs: [{}] } }), "confirm");
+  assert.equal(resolveRecoveryView("refine", { selectedItem: { id: "images/a.png" } }), "refine");
+  assert.equal(resolveRecoveryView("export", {}), "start");
 });

@@ -14,6 +14,143 @@ import server as studio_server  # noqa: E402
 
 
 class StudioServerLaunchTests(unittest.TestCase):
+    def test_explicit_studio_output_root_bypasses_workspace_discovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ, {"LOCAL_IMAGE_GEN_STUDIO_OUTPUTS": tmp}
+        ), patch.object(studio_server.cli, "find_dyro_workspace") as discover:
+            resolved = studio_server.resolve_outputs_root()
+
+        self.assertEqual(resolved, Path(tmp).resolve())
+        discover.assert_not_called()
+
+    def test_revision_draft_is_local_until_the_image_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / "images" / "base.png"
+            image.parent.mkdir(parents=True)
+            image.write_bytes(studio_server.fixture_png_bytes())
+            with patch.object(studio_server, "OUTPUTS", root), patch.object(
+                studio_server, "revise_turn"
+            ) as remote_revise:
+                payload = studio_server.run_revise(
+                    {
+                        "image": "images/base.png",
+                        "message": "字再大一点",
+                        "draft": "原终稿",
+                    }
+                )
+
+        remote_revise.assert_not_called()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["mode"], "edit")
+        self.assertIn("Constraints: 字再大一点", payload["draft"])
+        self.assertEqual(payload["preflight"], "local")
+
+    def test_storage_root_is_private_even_when_existing_files_keep_their_modes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "store"
+            images = root / "images"
+            images.mkdir(parents=True, mode=0o755)
+            root.chmod(0o755)
+            studio_server.ensure_private_storage_root(root, images)
+            self.assertEqual(root.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(images.stat().st_mode & 0o777, 0o700)
+
+    def test_job_receipt_keeps_the_human_prompt_separate_from_the_compiled_draft(self) -> None:
+        result = studio_server.stamp_job_meta(
+            {"success": True, "prompt": {"used": "compiled provider prompt"}, "resolution": "2k"},
+            {"user_prompt": "用户的一句话", "provider": "grok", "resolution": "2k"},
+            "compiled provider prompt",
+        )
+        self.assertEqual(result["prompt"]["original"], "用户的一句话")
+        self.assertEqual(result["prompt"]["used"], "compiled provider prompt")
+        self.assertEqual(result["resolution_requested"], "2k")
+        self.assertNotIn("resolution", result)
+
+    def test_live_provider_result_is_committed_from_a_job_private_directory(self) -> None:
+        original_outputs = studio_server.OUTPUTS
+        original_images = studio_server.IMAGE_DIR
+        original_jobs = getattr(studio_server, "JOB_DIR", None)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                jobs = root / ".jobs"
+                source = jobs / "job-1" / "native.png"
+                source.parent.mkdir(parents=True)
+                source.write_bytes(studio_server.fixture_png_bytes())
+                studio_server.OUTPUTS = root
+                studio_server.IMAGE_DIR = root / "images"
+                studio_server.JOB_DIR = jobs
+
+                committed = studio_server.commit_generated_artifact(
+                    {"success": True, "image": str(source), "images": [str(source)]},
+                    source.parent,
+                )
+
+            saved = Path(committed["image"])
+            self.assertTrue(saved.is_relative_to(root / "images"))
+            self.assertFalse(source.exists())
+            self.assertEqual(committed["actual_width"], 64)
+            self.assertEqual(committed["actual_height"], 64)
+        finally:
+            studio_server.OUTPUTS = original_outputs
+            studio_server.IMAGE_DIR = original_images
+            if original_jobs is not None:
+                studio_server.JOB_DIR = original_jobs
+
+    def test_oversized_provider_artifact_is_rejected_before_reading_it_into_memory(self) -> None:
+        original_outputs = studio_server.OUTPUTS
+        original_images = studio_server.IMAGE_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                source = root / ".jobs" / "job-1" / "native.png"
+                source.parent.mkdir(parents=True)
+                source.write_bytes(studio_server.fixture_png_bytes())
+                studio_server.OUTPUTS = root
+                studio_server.IMAGE_DIR = root / "images"
+
+                with patch.object(studio_server, "COMPOSITE_MAX_BYTES", 1), patch.object(
+                    Path, "read_bytes", side_effect=AssertionError("oversized artifact was read")
+                ):
+                    with self.assertRaisesRegex(ValueError, "too large"):
+                        studio_server.commit_generated_artifact(
+                            {"success": True, "image": str(source)}, source.parent
+                        )
+        finally:
+            studio_server.OUTPUTS = original_outputs
+            studio_server.IMAGE_DIR = original_images
+
+    def test_media_item_separates_requested_and_actual_image_facts(self) -> None:
+        original_outputs = studio_server.OUTPUTS
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                image = root / "images" / "fixture.png"
+                image.parent.mkdir(parents=True)
+                image.write_bytes(studio_server.fixture_png_bytes())
+                studio_server.OUTPUTS = root
+                studio_server.write_media_receipt(
+                    image,
+                    {
+                        "success": True,
+                        "provider": "grok",
+                        "model_requested": "grok-imagine-image-2.0",
+                        "resolution_requested": "2k",
+                    },
+                )
+
+                item = studio_server.media_item(image)
+
+            self.assertEqual(item["model_requested"], "grok-imagine-image-2.0")
+            self.assertEqual(item["resolution_requested"], "2k")
+            self.assertEqual(item["actual_width"], 64)
+            self.assertEqual(item["actual_height"], 64)
+            self.assertEqual(item["actual_mime"], "image/png")
+            self.assertEqual(item["size"], "64x64")
+        finally:
+            studio_server.OUTPUTS = original_outputs
+
     def test_public_url_rewrites_wildcard(self) -> None:
         self.assertEqual(studio_server.public_studio_url("127.0.0.1", 8765), "http://127.0.0.1:8765")
         self.assertEqual(studio_server.public_studio_url("0.0.0.0", 9000), "http://127.0.0.1:9000")

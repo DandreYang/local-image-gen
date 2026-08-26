@@ -63,7 +63,7 @@ python3 scripts/local_image_gen.py "蓝白极简课程封面，无文字" --aspe
 | API base | `--base-url` / `--api-base` | API-key path only. Defaults to the official host. Also `XAI_BASE_URL`, `OPENAI_BASE_URL`, `GEMINI_BASE_URL` |
 | Diagnose | `doctor` (`--doctor`) | Backends, optional Dyro detection, and whether `main` is newer. Does not spend quota |
 | Self-update | `update` | `git pull --ff-only origin main` plus `install.sh`. Official `github.com` origin only; `main`/`master` only. Dirty / unknown / non-git fail. |
-| Studio UI | `studio` | Start the local web UI. `--lan` / `--port` / `--host` / `--no-open` / `--daemon` / `--stop`. Closing the foreground terminal stops it. |
+| Studio UI | `studio` | Start the local web UI. `--lan` / `--port` / `--host` / `--no-open` / `--daemon` / `--stop`; `--report --days N` prints aggregate-only dogfood evidence. Closing the foreground terminal stops it. |
 
 Details and mapping tables live in `references/providers.md`. Prompt grammar lives in `references/prompts.md`. The script is the source of truth — run `--list-models` rather than inventing IDs.
 
@@ -113,6 +113,7 @@ python3 scripts/local_image_gen.py "test" --dry-run --aspect-ratio 1:1
 python3 scripts/local_image_gen.py studio
 python3 scripts/local_image_gen.py studio --lan --daemon
 python3 scripts/local_image_gen.py studio --stop
+python3 scripts/local_image_gen.py studio --report --days 7
 ```
 
 Update this install:

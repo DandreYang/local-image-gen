@@ -290,18 +290,13 @@ def brief(
     chosen = pick_template(text, template_id)
     template = TEMPLATES[chosen]
     wanted_aspect = aspect or str(template["aspect"] or "1:1")
-    research = research_facts(text)
-    facts = user_facts(text) + [
-        item
-        for item in (research.get("facts") or [])
-        if keep_search_fact(str(item.get("text") or ""), text)
-    ]
-    warnings: List[str] = []
+    # The confirmation card is a consent boundary. Building it must be local:
+    # no web search, no text-model rewrite, and no cross-provider fallback.
+    facts = user_facts(text)
+    warnings: List[str] = ["确认前未调用外部文本或搜索模型"]
     warn = aspect_warning(provider, wanted_aspect)
     if warn:
         warnings.append(warn)
-    if research.get("error"):
-        warnings.append(str(research["error"]))
     if chosen in {"calendar-poster", "invite"}:
         warnings.append("二维码请后贴真码。模型画出来的码不能扫。")
     if chosen == "reel":
@@ -334,6 +329,8 @@ def brief(
                     "aspect": wanted_aspect,
                     "profile": template["profile"],
                     "prompt": job_prompt,
+                    "draft": job_prompt,
+                    "user_prompt": text,
                     "provider": provider,
                     "model": model,
                     "quality": quality,
@@ -360,6 +357,8 @@ def brief(
                         "aspect": wanted_aspect,
                         "profile": template["profile"],
                         "prompt": job_prompt,
+                        "draft": job_prompt,
+                        "user_prompt": text,
                         "provider": provider,
                         "model": model,
                         "quality": quality,
@@ -380,6 +379,8 @@ def brief(
                         "aspect": wanted_aspect,
                         "profile": template["profile"],
                         "prompt": job_prompt,
+                        "draft": job_prompt,
+                        "user_prompt": text,
                         "provider": provider,
                         "model": model,
                         "quality": quality,
@@ -393,9 +394,10 @@ def brief(
         "template_label": template["label"],
         "overlay_slot": template.get("overlay_slot"),
         "mode": mode,
+        "preflight": "local",
         "suggested_candidates": len(jobs),
-        "searched": bool(research.get("searched")),
-        "search_error": research.get("error"),
+        "searched": False,
+        "search_error": None,
         "facts": facts,
         "jobs": jobs,
         "warnings": warnings,

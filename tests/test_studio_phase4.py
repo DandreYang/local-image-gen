@@ -50,7 +50,20 @@ class TestThumbsTrashProjects(unittest.TestCase):
         self.assertIn('path.startswith("/thumb/")', source)
         self.assertIn("win32", source)
         self.assertIn("System.Drawing", source)
-        self.assertIn("Linux keeps the original", source)
+        self.assertIn("_linux_jpeg_thumb", source)
+        self.assertIn("force_original_aspect_ratio=decrease", source)
+
+    def test_linux_thumbnail_helper_creates_a_bounded_jpeg(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "wide.png"
+            dest = root / "wide.jpg"
+            source.write_bytes(_png_bytes(1024, 512))
+            if not server._linux_jpeg_thumb(source, dest):
+                self.skipTest("ffmpeg or ImageMagick unavailable")
+            width, height = server.cli.read_image_dimensions(dest)
+            self.assertLessEqual(max(width, height), 480)
+            self.assertEqual(dest.read_bytes()[:2], b"\xff\xd8")
 
     def test_index_rebuilds_when_missing(self):
         with tempfile.TemporaryDirectory() as tmp:

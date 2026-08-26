@@ -1,24 +1,27 @@
 # local studio
 
-本机 Studio。引擎仍是 `scripts/local_image_gen.py`。
+本机 Studio 的正式入口：
 
 ```bash
-python3 studio/server.py
+local-image-gen studio
 ```
 
-打开 `http://127.0.0.1:8765`。默认只绑本机回环。
+一个 Python 进程同时服务 `studio/client/` 下的 React production build 与 `/studio-api/*`。默认只绑定 `127.0.0.1:8765`。开发源位于 `prototypes/future-studio-v1/`；运行 `npm run build:local` 会把经过测试的构建原子提升到 `studio/client/`。
 
-同一 Wi-Fi 下用手机访问：
+主路径：**描述 → 确认 → 生成 → 选择 → 打磨 → 导出**。确认卡在本地确定性生成，不会提前调用搜索/文本模型。生图结果进入 job-private 临时目录，完成 MIME/像素校验后才和 receipt 一起进入本机素材库。素材库存放于 `~/.local-image-gen`，根目录权限会收紧为当前用户可访问。
+
+零额度验收：
 
 ```bash
-python3 studio/server.py --lan
+local-image-gen studio --fixture
 ```
 
-然后打开 `http://<这台电脑的局域网IP>:8765`。这会把本机订阅生图能力暴露给局域网，不要在不可信网络上开。
+内部试用证据：
 
-相纸下手艺芯片选骨架。常用句点一下写入当前这句话，确认卡里看得见；「收这句话」收藏选区，本机存 `~/.local/share/local-image-gen/snippets.json`。
+```bash
+local-image-gen studio --report --days 7
+```
 
-主路径：**整理任务** → 官方 Grok 检索补全 → 拆成单张 → 确认卡 → 每张先编译再 `--raw` 生图。出图后会用官方 Grok **看图**写评语；你再说一句，默认带着上一张改，不从零再赌。看图和改稿走官方 `api.x.ai`，没有登录/Key 时会写明，不会假装看过。
+报告只汇总完成率、中断、首张耗时、provider/model 和真实 MIME/像素覆盖率；不会输出提示词、路径、文件名、批次 ID 或失败正文。
 
-没有 `grok login` / `XAI_API_KEY` 时检索会失败，确认卡会写明，不会假装搜过。
-
+`--lan` 会把本机后端暴露给同网段，并要求随机 Studio token；只在可信网络使用。当前支持的安全 Studio 通路由 `/api/doctor` 权威返回；Antigravity/Cursor 因仍依赖全权限编程代理而不会出现在 Studio 选择器中。显式 Gemini 通路只调用官方 API，缺少 `GEMINI_API_KEY` 时直接失败，不会回退到这些代理。

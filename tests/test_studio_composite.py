@@ -142,6 +142,21 @@ class TestOverlaysApi(unittest.TestCase):
 
 
 class TestCompositeApi(unittest.TestCase):
+    def test_receipt_failure_rolls_back_the_new_composite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = root / "images"
+            images.mkdir()
+            original = images / "base.png"
+            original.write_bytes(_png_bytes(4, 4))
+            with patch.object(server, "OUTPUTS", root), patch.object(server, "IMAGE_DIR", images), patch.object(
+                server, "write_media_receipt", side_effect=OSError("synthetic receipt failure")
+            ):
+                with self.assertRaises(OSError):
+                    server.save_composite(_png_bytes(4, 4), "images/base.png", [])
+
+            self.assertEqual(list(images.glob("*-composed.png")), [])
+
     def test_writes_new_file_and_keeps_original(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -41,3 +41,42 @@ export function mergeReferenceFiles(existing, incoming, max = 4) {
   if (items.length > max) return { items: existing, error: `参考图最多 ${max} 张，请先移除一张再添加。` };
   return { items, error: "" };
 }
+
+export function parseStudioRecovery(raw) {
+  if (!raw) return {};
+  let value;
+  try {
+    value = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch (_error) {
+    return {};
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  if (value.prompt != null && typeof value.prompt !== "string") return {};
+  if (value.settings != null && (!value.settings || typeof value.settings !== "object" || Array.isArray(value.settings))) return {};
+  if (value.intent != null && !["initial", "revision"].includes(value.intent)) return {};
+  if (value.batch != null && (!value.batch || typeof value.batch !== "object" || typeof value.batch.batch_id !== "string")) return {};
+  if (value.brief != null && (!value.brief || typeof value.brief !== "object" || !Array.isArray(value.brief.jobs))) return {};
+  if (value.selectedItem != null && (!value.selectedItem || typeof value.selectedItem !== "object" || !value.selectedItem.id)) return {};
+  return {
+    prompt: value.prompt || "",
+    settings: value.settings || {},
+    brief: value.brief || null,
+    batch: value.batch || null,
+    generatedItems: Array.isArray(value.generatedItems) ? value.generatedItems : [],
+    selectedItem: value.selectedItem || null,
+    versions: Array.isArray(value.versions) ? value.versions : [],
+    critique: value.critique && typeof value.critique === "object" ? value.critique : null,
+    instruction: typeof value.instruction === "string" ? value.instruction : "",
+    intent: value.intent || "initial",
+  };
+}
+
+export function resolveRecoveryView(requested, recovered = {}) {
+  const view = String(requested || "start");
+  if (view === "generating") return recovered.batch?.batch_id ? view : "start";
+  if (view === "confirm") return recovered.brief?.jobs?.length ? view : "start";
+  if (["refine", "compare", "export"].includes(view)) return recovered.selectedItem?.id ? view : "start";
+  if (view === "candidates") return recovered.generatedItems?.length ? view : "start";
+  if (["start", "library", "error"].includes(view)) return view;
+  return "start";
+}

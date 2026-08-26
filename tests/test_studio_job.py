@@ -57,6 +57,16 @@ class CaseCatalogTests(unittest.TestCase):
 
 
 class TemplateTests(unittest.TestCase):
+    def test_brief_is_local_and_quota_free_before_confirmation(self) -> None:
+        """Opening the confirmation card must not contact a text/search model."""
+        with patch("job.research_facts") as research:
+            card = brief("内部未公开新品海报", provider="grok")
+
+        research.assert_not_called()
+        self.assertTrue(card["success"])
+        self.assertEqual(card["preflight"], "local")
+        self.assertIn("确认前未调用外部文本或搜索模型", card["warnings"])
+
     def test_calendar_and_portrait(self) -> None:
         self.assertEqual(pick_template("夏季课程日历，三种风格"), "calendar-poster")
         self.assertEqual(pick_template("帮她生成一套商务形象照"), "portrait")
@@ -130,6 +140,7 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(card["mode"], "candidates")
         self.assertEqual(card["suggested_candidates"], 2)
         self.assertEqual(len(card["jobs"]), 2)
+        self.assertEqual(card["jobs"][0]["user_prompt"], "一张封面")
         self.assertEqual(card["jobs"][0]["prompt"], card["jobs"][1]["prompt"])
         self.assertEqual(card["jobs"][0]["style"], "")
         self.assertNotIn("风格：", card["jobs"][0]["prompt"])

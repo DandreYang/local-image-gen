@@ -22,6 +22,23 @@ export function apiAssetUrl(path) {
   return `${API_ROOT}/media/${path}`;
 }
 
+export function apiThumbUrl(path) {
+  if (!path) return "";
+  if (path.startsWith(`${API_ROOT}/thumb/`)) return path;
+  let relative = path;
+  if (relative.startsWith(`${API_ROOT}/media/`)) relative = relative.slice(`${API_ROOT}/media/`.length);
+  else if (relative.startsWith("/media/")) relative = relative.slice("/media/".length);
+  else relative = relative.replace(/^\/+/, "");
+  const encoded = relative.split("/").map((segment) => {
+    try {
+      return encodeURIComponent(decodeURIComponent(segment));
+    } catch (_error) {
+      return encodeURIComponent(segment);
+    }
+  }).join("/");
+  return `${API_ROOT}/thumb/${encoded}`;
+}
+
 export async function loadCapabilities() {
   const [doctor, modelPayload] = await Promise.all([
     request("/api/doctor"),
@@ -78,6 +95,14 @@ export function lookAtImage(body) {
 
 export function reviseImage(body) {
   return request("/api/revise", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchReceipt(body) {
+  return request("/api/receipt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

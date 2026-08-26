@@ -722,12 +722,15 @@ class TestOverlayWiring(unittest.TestCase):
 
     def test_ci_runs_phase2_suites(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        self.assertIn("tests/test_studio_sidecar.py", workflow)
-        self.assertIn("tests/test_studio_security.py", workflow)
-        self.assertIn("tests/test_studio_composite.py", workflow)
-        self.assertIn("tests/test_studio_overlay_geom.py", workflow)
-        self.assertIn("tests/test_studio_server.py", workflow)
-        self.assertLess(workflow.index("Studio server launch"), workflow.index("Studio sidecar"))
+        self.assertIn("python -m unittest discover -s tests", workflow)
+        for name in (
+            "test_studio_sidecar.py",
+            "test_studio_security.py",
+            "test_studio_composite.py",
+            "test_studio_overlay_geom.py",
+            "test_studio_server.py",
+        ):
+            self.assertTrue((ROOT / "tests" / name).is_file(), name)
 
 
 class TestPhase3Flow(unittest.TestCase):
@@ -755,7 +758,8 @@ class TestPhase3Flow(unittest.TestCase):
 
     def test_ci_runs_phase3(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        self.assertIn("tests/test_studio_phase3.py", workflow)
+        self.assertIn("python -m unittest discover -s tests", workflow)
+        self.assertTrue((ROOT / "tests" / "test_studio_phase3.py").is_file())
 
 
 class TestComposeFirstRun(unittest.TestCase):
@@ -846,8 +850,8 @@ class TestPhase4Library(unittest.TestCase):
 
     def test_ci_runs_phase4(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        self.assertIn("tests/test_studio_phase4.py", workflow)
-        self.assertLess(workflow.index("Studio phase 3"), workflow.index("Studio phase 4"))
+        self.assertIn("python -m unittest discover -s tests", workflow)
+        self.assertTrue((ROOT / "tests" / "test_studio_phase4.py").is_file())
 
 
 class TestCandidatePick(unittest.TestCase):

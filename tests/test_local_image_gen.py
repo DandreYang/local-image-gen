@@ -40,6 +40,23 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(image_gen.catalog_provider("nano-banana-pro"), "antigravity")
         self.assertEqual(image_gen.catalog_provider("gpt-image-2"), "codex")
 
+    def test_gemini_legacy_and_lite_models_do_not_advertise_fake_2k_or_4k(self) -> None:
+        self.assertEqual(image_gen.MODEL_CATALOG["gemini-2.5-flash-image-preview"]["resolutions"], ("1k",))
+        self.assertEqual(image_gen.MODEL_CATALOG["gemini-3.1-flash-lite-image"]["resolutions"], ("1k",))
+
+    def test_runtime_rejects_a_resolution_the_selected_model_does_not_support(self) -> None:
+        legacy = image_gen.parse_args(
+            ["test", "--provider", "gemini", "--model", "gemini-2.5-flash-image-preview", "--resolution", "2k", "--dry-run"]
+        )
+        with self.assertRaisesRegex(image_gen.ImageGenError, "does not support resolution"):
+            image_gen.run_job(legacy)
+
+        codex = image_gen.parse_args(
+            ["test", "--provider", "codex", "--model", "gpt-image-2", "--resolution", "4k", "--dry-run"]
+        )
+        with self.assertRaisesRegex(image_gen.ImageGenError, "does not support resolution"):
+            image_gen.run_job(codex)
+
 
 class AspectAndQualityTests(unittest.TestCase):
     def test_aspect_aliases(self) -> None:
@@ -445,8 +462,55 @@ class DryRunTests(unittest.TestCase):
         self.assertEqual(result["model"], "gemini-3-pro-image")
         self.assertEqual(result["request"]["aspect_ratio"], "16:9")
 
+    def test_official_gemini_pro_dry_run_sends_uppercase_2k(self) -> None:
+        args = image_gen.parse_args(
+            [
+                "studio product square",
+                "--provider",
+                "gemini",
+                "--model",
+                "gemini-3-pro-image",
+                "--aspect-ratio",
+                "1:1",
+                "--resolution",
+                "2k",
+                "--dry-run",
+            ]
+        )
+        result = image_gen.run_job(args)
+        config = result["request"]["generationConfig"]
+        self.assertEqual(result["provider"], "gemini")
+        self.assertEqual(result["model"], "gemini-3-pro-image")
+        self.assertEqual(config["imageConfig"]["aspectRatio"], "1:1")
+        self.assertEqual(config["imageConfig"]["imageSize"], "2K")
+        self.assertTrue(result["endpoint"].endswith("/models/gemini-3-pro-image:generateContent"))
+
 
 class AgyParseTests(unittest.TestCase):
+    def test_copy_to_output_uses_magic_bytes_for_the_final_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "native-output.jpg"
+            source.write_bytes(b"\xff\xd8\xff\xe0synthetic-jpeg")
+
+            saved = image_gen.copy_to_output(source, root / "requested.png", overwrite=True)
+
+            self.assertEqual(saved.suffix, ".jpg")
+            self.assertEqual(saved.read_bytes(), source.read_bytes())
+            self.assertFalse((root / "requested.png").exists())
+
+    def test_copy_to_output_removes_a_native_file_with_the_wrong_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            native = root / "requested.png"
+            native.write_bytes(b"\xff\xd8\xff\xe0synthetic-jpeg")
+
+            saved = image_gen.copy_to_output(native, native, overwrite=True)
+
+            self.assertEqual(saved, root / "requested.jpg")
+            self.assertTrue(saved.is_file())
+            self.assertFalse(native.exists())
+
     def test_extracts_image_path_from_json(self) -> None:
         payload = {"success": True, "image": "/tmp/cover.png", "nested": {"file_path": "/tmp/other.jpg"}}
         paths = [str(path) for path in image_gen.extract_image_paths(payload)]
@@ -1858,6 +1922,11 @@ class StudioLaunchTests(unittest.TestCase):
         args = image_gen.parse_args(["studio", "--stop"])
         self.assertTrue(args.stop)
 
+    def test_parse_studio_report(self) -> None:
+        args = image_gen.parse_args(["studio", "--report", "--days", "3"])
+        self.assertTrue(args.report)
+        self.assertEqual(args.days, 3)
+
     def test_quoted_studio_prompt_is_generate(self) -> None:
         job = image_gen.parse_args(["studio poster", "--dry-run"])
         self.assertEqual(job.command, "generate")
@@ -1886,6 +1955,15 @@ class StudioLaunchTests(unittest.TestCase):
             with patch.object(image_gen, "default_share_home", return_value=Path(tmp)):
                 self.assertEqual(image_gen.studio_pid_path(), Path(tmp) / "studio.pid")
                 self.assertEqual(image_gen.studio_log_path(), Path(tmp) / "studio.log")
+
+    def test_studio_report_falls_back_to_package_outputs_without_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ,
+            {"LOCAL_IMAGE_GEN_STUDIO_OUTPUTS": "", "LOCAL_IMAGE_GEN_OUTPUTS": ""},
+        ), patch.object(image_gen, "find_dyro_workspace", return_value=None), patch.object(
+            image_gen, "package_root", return_value=Path(tmp)
+        ):
+            self.assertEqual(image_gen.studio_outputs_root(), Path(tmp) / "outputs")
 
     def test_server_path_is_under_package_root(self) -> None:
         path = image_gen.studio_server_path()
@@ -1977,6 +2055,24 @@ class StudioLaunchTests(unittest.TestCase):
             self.assertFalse((home / "studio.pid").exists())
         self.assertIn(image_gen.signal.SIGTERM, signals)
 
+    def test_stop_refuses_an_active_batch_without_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "studio.pid").write_text(
+                json.dumps({"pid": 4242, "host": "127.0.0.1", "port": 8765}) + "\n",
+                encoding="utf-8",
+            )
+            with patch.object(image_gen, "default_share_home", return_value=home), patch.object(
+                image_gen, "studio_pid_status", return_value="alive"
+            ), patch.object(
+                image_gen, "studio_runtime_status", return_value={"active_batches": 1, "active_jobs": 2}
+            ), patch.object(image_gen.os, "kill") as kill:
+                code = image_gen.stop_studio(force=False)
+
+            self.assertEqual(code, 1)
+            kill.assert_not_called()
+            self.assertTrue((home / "studio.pid").exists())
+
     def test_server_argv_daemon_implies_no_open(self) -> None:
         args = image_gen.parse_args(["studio", "--daemon", "--lan", "--port", "9000"])
         argv = image_gen.studio_server_argv(args)
@@ -1984,7 +2080,23 @@ class StudioLaunchTests(unittest.TestCase):
         self.assertTrue(str(argv[1]).endswith("studio/server.py"))
         self.assertIn("--lan", argv)
         self.assertIn("--no-open", argv)
+        self.assertIn("--ready-file", argv)
         self.assertIn("9000", argv)
+
+    def test_daemon_readiness_requires_the_spawned_child_ready_file(self) -> None:
+        class FakeProc:
+            pid = 321
+
+            def poll(self):
+                return None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ready = Path(tmp) / "studio.ready"
+            self.assertFalse(image_gen.wait_for_studio_ready(FakeProc(), ready, timeout=0))
+            ready.write_text("999\n", encoding="utf-8")
+            self.assertFalse(image_gen.wait_for_studio_ready(FakeProc(), ready, timeout=0.01))
+            ready.write_text("321\n", encoding="utf-8")
+            self.assertTrue(image_gen.wait_for_studio_ready(FakeProc(), ready, timeout=0.01))
 
     def test_server_argv_foreground_opens_browser(self) -> None:
         args = image_gen.parse_args(["studio"])
@@ -2027,7 +2139,9 @@ class StudioLaunchTests(unittest.TestCase):
             server.write_text("# fake\n", encoding="utf-8")
             with patch.object(image_gen, "default_share_home", return_value=home), patch.object(
                 image_gen, "package_root", return_value=home / "pkg"
-            ), patch.object(image_gen.subprocess, "Popen", fake_popen):
+            ), patch.object(image_gen.subprocess, "Popen", fake_popen), patch.object(
+                image_gen, "wait_for_studio_ready", return_value=True
+            ):
                 code = image_gen.run_studio(image_gen.parse_args(["studio", "--daemon"]))
             record = json.loads((home / "studio.pid").read_text(encoding="utf-8"))
             self.assertTrue((home / "studio.log").exists())
@@ -2035,6 +2149,34 @@ class StudioLaunchTests(unittest.TestCase):
         self.assertEqual(record["pid"], 321)
         self.assertTrue(captured["kwargs"].get("start_new_session"))
         self.assertIn("--no-open", captured["argv"])
+
+    def test_daemon_does_not_report_success_when_the_child_never_binds(self) -> None:
+        class FakeProc:
+            pid = 654
+
+            def poll(self):
+                return 1
+
+            def terminate(self):
+                return None
+
+            def kill(self):
+                return None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            server = home / "pkg" / "studio" / "server.py"
+            server.parent.mkdir(parents=True)
+            server.write_text("# fake\n", encoding="utf-8")
+            with patch.object(image_gen, "default_share_home", return_value=home), patch.object(
+                image_gen, "package_root", return_value=home / "pkg"
+            ), patch.object(image_gen.subprocess, "Popen", return_value=FakeProc()), patch.object(
+                image_gen, "wait_for_studio_ready", return_value=False
+            ):
+                code = image_gen.run_studio(image_gen.parse_args(["studio", "--daemon"]))
+
+            self.assertEqual(code, 1)
+            self.assertFalse((home / "studio.pid").exists())
 
     def test_missing_server_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2061,7 +2203,8 @@ class StudioLaunchTests(unittest.TestCase):
         changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
         self.assertIn("studio", changelog.lower())
         workflow = (root / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        self.assertIn("test_studio_server.py", workflow)
+        self.assertIn("python -m unittest discover -s tests", workflow)
+        self.assertTrue((root / "tests" / "test_studio_server.py").is_file())
 
 
 if __name__ == "__main__":

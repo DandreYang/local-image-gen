@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Studio productization: the selected Future Studio React build is now the only root UI served by `local-image-gen studio`; the legacy darkroom HTML is no longer a product route.
+- Studio consent boundary: building a confirmation card is local and does not call search/text models. Antigravity/Cursor are hidden from Studio until their coding-agent workers have an image-only permission boundary.
+- Studio truth receipts: requested provider/model/quality/resolution are separated from decoded MIME type and actual pixel dimensions; copied native images use a suffix that matches magic bytes.
+- Studio reliability: global active-batch cap, job-private provider directories, atomic library commit/receipt rollback, upload cache invalidation, refresh recovery, daemon readiness, security headers, and private storage roots.
+- Studio UX: advanced controls are progressively disclosed; library search/favorites use human prompt titles; original exports preserve the real file suffix.
+- Studio delivery: Node build/test/Sites/audit run in CI; `npm test` works on a clean checkout; dependency audit is clean.
+- Studio release gates: isolated Playwright fixture journeys run axe WCAG A/AA checks across start/confirm/candidates/refine/export/library and mobile reduced-motion; CI uploads failure evidence and defines macOS/Windows full-suite jobs.
+- Path A browser proof: Chromium now PNG-encodes and decodes both the original and composited canvases, then enforces zero RGB mismatches outside the edit box.
+- Accessibility reflow: the production start/settings surface has an explicit semantic group and a 720px 200%-zoom-equivalent no-overflow axe gate.
+- Studio library performance: grids use lazy 480px thumbnail URLs instead of eager full-resolution media; Linux can build private atomic JPEG thumbnails through ffmpeg or ImageMagick.
+- Provider safety: explicit `--provider gemini` is official-API-only and never falls through to Antigravity/Cursor; official Gemini Pro 2K requests preserve uppercase `imageSize: 2K`.
+- Studio dogfood evidence: `local-image-gen studio --report --days N` prints aggregate-only completion, interruption, provider/model, latency, and actual-fact coverage metrics; new jobs persist start/finish timestamps without exposing prompts, paths, ids, or failure text.
+- CI Python jobs use test discovery on every supported version and OS so newly added suites cannot be silently omitted.
 - Studio: `local-image-gen studio` starts the local UI, opens a browser after bind, and supports `--no-open`, `--lan`, `--daemon`, and `--stop`. Runtime state lives under the share home so git checkouts stay clean.
 - Studio `--lan` prints this machine's IPv4 URLs instead of `http://<this-machine-ip>:port`.
 - Studio look/revise: Grok first, then Codex login, OpenAI API key, Gemini API key.

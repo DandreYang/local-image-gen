@@ -60,9 +60,14 @@ local-image-gen doctor    # 后端、Dyro，以及 main 是否更新
 local-image-gen update    # git pull --ff-only，再刷新包装脚本和 skill 链接
 local-image-gen studio            # 打开本机 Studio（监听成功后打开浏览器）
 local-image-gen studio --lan --daemon   # 在 Linux 主机上脱离终端；停用 --stop
+local-image-gen studio --report --days 7  # 只输出本机聚合试用证据
 ```
 
-Studio 是同一套 CLI 的本机网页界面。`local-image-gen studio` 默认绑 `127.0.0.1:8765`，服务开始监听后再打开浏览器。`--no-open` 跳过浏览器。`--lan` 绑 `0.0.0.0`，打印本机 IPv4 地址，并警告：局域网绑定会把这台机器的生图后端分享给网段。机器有公网 IP 时，请用防火墙或安全组限制来源端口；本工具不加登录或 TLS。`--daemon` 脱离当前终端（隐含 `--no-open`）；`local-image-gen studio --stop` 是幂等的。关掉前台终端会停掉 Studio。没有 systemd unit。
+Studio 是同一套 CLI 的未来科技本机创作台。`local-image-gen studio` 用一个回环进程同时服务 React 客户端与 API，默认绑定 `127.0.0.1:8765`，监听成功后才打开浏览器。生成确认卡完全在本地整理；用户确认前不会调用搜索或文本模型，也不会消耗模型额度。回执会把“请求设置”和解码后的真实 MIME / 像素分开记录。
+
+Studio 当前只开放可直接调用或已隔离的安全通路：Grok 登录、实验性的 Codex 登录，以及已配置 Key 的 Gemini/OpenAI/xAI 官方 API。Antigravity 与 Cursor 仍可在独立 CLI 中使用，但在其编程代理能收敛为 image-only 权限前，Studio 不展示它们。`--fixture` 可零额度跑完整界面；`--no-open` 不打开浏览器；`--daemon` 会等到端口真正监听后才报告成功；`--stop` 遇活动批次会拒绝，只有显式 `--stop --force-stop` 才强制中断。`--lan` 必须使用服务端打印的随机 Studio token，且只能用于可信网络；当前不提供 TLS。
+
+`studio --report --days 7` 会汇总完成/中断率、首张耗时、provider/model 成功率以及真实 MIME/像素覆盖率。报告只含聚合数据，不输出提示词、路径、文件名、批次 ID 或失败正文。
 
 `update` 遇到脏工作区、读不了 git status、不是 git 仓库、origin 不是官方 GitHub、或不在 `main`/`master` 会拒绝。它只跑 `git pull --ff-only origin main`。不会再跑 `curl | bash`。生图命令不会去 GitHub 查新版本。`LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1` 会跳过 doctor 的新鲜度 GET（Dyro 的 5 秒 spawn 应设置此项）。
 
@@ -108,12 +113,12 @@ python3 scripts/local_image_gen.py "test" --dry-run --aspect-ratio 1:1
 | `grok` | `grok-imagine-image-2.0` | `grok login` | `XAI_API_KEY` |
 | `agy` / `antigravity` | `gemini-3.1-flash-image` | 本地 `agy` | — |
 | `cursor` | `gemini-3-pro-image` | 本地 `cursor-agent` | — |
-| `gemini` | `gemini-3.1-flash-image` | Nano Banana：Antigravity → Cursor → Key | `GEMINI_API_KEY` |
+| `gemini` | `gemini-3.1-flash-image` | 仅官方 Gemini API | `GEMINI_API_KEY` |
 | `codex` | `gpt-image-2` | 实验性 `codex auth login` | —（请用 `openai`） |
 | `openai` | `gpt-image-2` | — | `OPENAI_API_KEY` |
 | `xai` | `grok-imagine-image-2.0` | — | `XAI_API_KEY` |
 
-未点名模型族时，`auto` 优先 Grok，然后 Codex，再 Antigravity（`agy`），再 Cursor。点名 Nano Banana 时仍是 Antigravity → Cursor → `GEMINI_API_KEY`。当前 harness 已登录且可用时，仍优先走当前 harness。
+未点名模型族时，`auto` 优先 Grok，然后 Codex，再 Antigravity（`agy`），再 Cursor。只有使用 `--provider auto` 时，点名 Nano Banana 模型才会按 Antigravity → Cursor → `GEMINI_API_KEY` 选择可用通路；显式 `--provider gemini` 只走官方 Gemini API，缺 Key 就失败，不会暗中回退到编程代理。当前 harness 已登录且可用时，仍优先走当前 harness。
 
 参数对照见 [`references/providers.md`](references/providers.md)。模型清单以 `--list-models` 为准。
 

@@ -61,6 +61,19 @@ class TestLineageReceipt(unittest.TestCase):
 
 
 class TestBatchPersist(unittest.TestCase):
+    def test_job_transitions_persist_started_and_finished_times(self):
+        batch_id = "abc123def456"
+        record = {"id": batch_id, "status": "running", "jobs": [{"id": "1", "status": "queued"}]}
+        with patch.object(server, "_BATCHES", {batch_id: record}), patch.object(
+            server, "persist_batch"
+        ) as persist, patch.object(server.time, "time", side_effect=[101.0, 107.0]):
+            server._set_job(batch_id, 0, status="running")
+            server._set_job(batch_id, 0, status="done", result={"success": True})
+
+        self.assertEqual(record["jobs"][0]["started_at"], 101.0)
+        self.assertEqual(record["jobs"][0]["finished_at"], 107.0)
+        self.assertEqual(persist.call_count, 2)
+
     def test_running_batch_becomes_interrupted(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

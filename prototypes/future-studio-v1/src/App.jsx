@@ -11,18 +11,21 @@ import {
   Plus,
   SlidersHorizontal,
   Sparkle,
+  Star,
   UploadSimple,
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import {
   apiAssetUrl,
+  apiThumbUrl,
   confirmGenerate,
   createBrief,
   getBatch,
   loadCapabilities,
   loadLibrary,
   lookAtImage,
+  patchReceipt,
   reviseImage,
   uploadReferences,
 } from "./studio-api.js";
@@ -33,13 +36,42 @@ import {
   RESOLUTION_FALLBACK,
   TEMPLATES,
   getRuntimeAccess,
+  imageFactLabel,
+  libraryItemTitle,
+  modelMatchesProvider,
+  providerUsable,
 } from "./studio-options.js";
-import { buildVersionChain, isBatchRunning, mergeReferenceFiles, moveOptionIndex } from "./studio-state.js";
+import {
+  buildVersionChain,
+  isBatchRunning,
+  mergeReferenceFiles,
+  moveOptionIndex,
+  parseStudioRecovery,
+  resolveRecoveryView,
+} from "./studio-state.js";
+import { exportFileName } from "./export-utils.js";
 
 const DEFAULT_PROMPT = "霓虹雨夜里的未来台北，电影感，宽银幕构图，一位穿深色风衣的女生走过青色灯牌。";
+const RECOVERY_KEY = "local-studio:active-session:v1";
 
 function getViewFromUrl() {
   return new URLSearchParams(window.location.search).get("state") || "start";
+}
+
+function readRecovery() {
+  try {
+    return parseStudioRecovery(window.sessionStorage.getItem(RECOVERY_KEY));
+  } catch (_error) {
+    return {};
+  }
+}
+
+function writeRecovery(value) {
+  try {
+    window.sessionStorage.setItem(RECOVERY_KEY, JSON.stringify(value));
+  } catch (_error) {
+    // Browser privacy settings may disable session storage; the live task still works.
+  }
 }
 
 function imageName(raw) {
@@ -54,19 +86,6 @@ function cssRatio(value) {
 function ratioNumber(value) {
   const match = String(value || "16:9").match(/^(\d+):(\d+)$/);
   return match ? Number(match[1]) / Number(match[2]) : 16 / 9;
-}
-
-function providerUsable(row) {
-  return Boolean(row && (row.subscription || row.api_key));
-}
-
-function modelMatchesProvider(provider, row) {
-  if (!row) return false;
-  if (!provider || provider === "auto") return true;
-  if (provider === "agy" || provider === "cursor") return row.provider === "antigravity";
-  if (provider === "xai") return row.provider === "grok";
-  if (provider === "openai") return row.provider === "openai" || row.provider === "codex";
-  return row.provider === provider;
 }
 
 function useDialogFocus(onClose, dialogRef, enabled = true) {
@@ -248,7 +267,7 @@ function ControlStrip({
   const resolutionOptions = resolutions.map((optionValue) => ({ value: optionValue, label: optionValue || "默认" }));
   const qualityOptions = qualities.map((optionValue) => ({ value: optionValue, label: optionValue }));
   return (
-    <div className="control-strip" aria-label="生成设置">
+    <div className="control-strip" role="group" aria-label="生成设置">
       <TechSelect label="通路" value={settings.provider} options={providerOptions} onChange={onProvider} disabled={disabled} testId="provider-select" />
       <TechSelect label="模型" value={settings.model} options={modelSelectOptions} onChange={(value) => onSetting("model", value)} disabled={disabled} testId="model-select" />
       <TechSelect label="模板" value={settings.template} options={templateOptions} onChange={(value) => onSetting("template", value)} disabled={disabled} testId="template-select" />
@@ -284,6 +303,7 @@ function StartView({
 }) {
   const inputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const examples = {
     人物肖像: "电影感人物肖像，侧逆光，真实皮肤质感，深色背景，4:5。",
     产品视觉: "未来感透明耳机产品视觉，悬浮构图，冷调金属材质，1:1。",
@@ -338,16 +358,30 @@ function StartView({
             {references.length < 4 && <span>还可添加 {4 - references.length} 张 · 也可以拖到这里</span>}
           </div>
         )}
-        <ControlStrip
-          settings={settings}
-          providers={providers}
-          models={models}
-          qualities={qualities}
-          resolutions={resolutions}
-          onProvider={onProvider}
-          onSetting={onSetting}
-          disabled={loading || !canGenerate}
-        />
+        <button
+          className="settings-summary"
+          type="button"
+          aria-controls="advanced-generation-settings"
+          aria-expanded={settingsOpen}
+          onClick={() => setSettingsOpen((open) => !open)}
+          disabled={loading}
+        >
+          <SlidersHorizontal size={17} aria-hidden="true" />
+          <span>{settings.provider || "auto"} · {settings.aspect || "按模板"} · {settings.resolution || "默认清晰度"}</span>
+          <CaretDown size={14} aria-hidden="true" />
+        </button>
+        <div id="advanced-generation-settings" className="advanced-settings-panel" hidden={!settingsOpen}>
+          <ControlStrip
+            settings={settings}
+            providers={providers}
+            models={models}
+            qualities={qualities}
+            resolutions={resolutions}
+            onProvider={onProvider}
+            onSetting={onSetting}
+            disabled={loading || !canGenerate}
+          />
+        </div>
         <div className="starter-row" aria-label="快速示例">
           {Object.entries(examples).map(([label, value]) => <button key={label} type="button" onClick={() => setPrompt(value)} disabled={loading}>{label}</button>)}
         </div>
@@ -434,7 +468,7 @@ function CandidatesView({ prompt, items, onSelect, onRetry, onRegenerate, onLibr
           {items.map((item, index) => (
             <article className="candidate-card" key={item.id || item.url || index} style={{ maxWidth: ratioNumber(item.aspect_ratio) < 1 ? 460 : 650 }}>
               <div className="image-frame" style={{ aspectRatio: cssRatio(item.aspect_ratio) }}><img src={apiAssetUrl(item.url || item.id)} alt={`生成结果 ${index + 1}`} /></div>
-              <div className="candidate-meta"><span>{String(index + 1).padStart(2, "0")} · {item.model || item.provider || "生成结果"}</span><span>{item.aspect_ratio || "—"} · {item.resolution || item.size || "—"}</span></div>
+              <div className="candidate-meta"><span>{String(index + 1).padStart(2, "0")} · {item.model || item.provider || "生成结果"}</span><span>{item.aspect_ratio || "—"} · {imageFactLabel(item)}</span></div>
               <button className="select-candidate" type="button" onClick={() => onSelect(item)} disabled={loading}>选择 {String(index + 1).padStart(2, "0")}</button>
             </article>
           ))}
@@ -540,7 +574,7 @@ function ExportView({ item, onBack, onLibrary, ready, fixture }) {
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92)); if (!blob) throw new Error("无法生成导出文件");
         temporaryUrl = URL.createObjectURL(blob); href = temporaryUrl;
       }
-      const link = document.createElement("a"); link.href = href; link.download = `${item.name || "local-studio"}-${format.replaceAll(" ", "-")}.jpg`; link.click();
+      const link = document.createElement("a"); link.href = href; link.download = exportFileName(item, format); link.click();
       setMessage("已保存到下载目录");
     } catch (error) { setMessage(error instanceof Error ? error.message : "导出失败"); }
     finally { if (temporaryUrl) window.setTimeout(() => URL.revokeObjectURL(temporaryUrl), 0); setExporting(false); }
@@ -559,22 +593,41 @@ function ExportView({ item, onBack, onLibrary, ready, fixture }) {
   );
 }
 
-function LibraryView({ items, loading, onImport, onBack, onOpen, ready, pending, running, fixture, error }) {
+function LibraryView({ items, loading, onImport, onBack, onOpen, onToggleFavorite, ready, pending, running, fixture, error }) {
   const inputRef = useRef(null);
   const [preview, setPreview] = useState(null);
+  const [query, setQuery] = useState("");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const dialogRef = useRef(null);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredItems = items.filter((item) => {
+    if (favoritesOnly && !item.starred) return false;
+    if (!normalizedQuery) return true;
+    return [libraryItemTitle(item), item.prompt_original, item.prompt_used, item.provider, item.model]
+      .some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
+  });
   useDialogFocus(() => setPreview(null), dialogRef, Boolean(preview));
   return (
     <main className="studio-view library-view" data-view="library">
       <div className="library-background" inert={preview ? true : undefined} aria-hidden={preview ? "true" : undefined}>
         <Header onHome={onBack} onLibrary={() => {}} ready={ready} pending={pending} running={running} fixture={fixture} disabled={loading} compact />
-        <section className="library-stage"><div className="library-heading"><div><StageLabel>LOCAL LIBRARY</StageLabel><h1>素材库</h1></div><input ref={inputRef} className="visually-hidden" type="file" accept="image/png,image/jpeg" multiple onChange={(event) => onImport(event.target.files)} tabIndex={-1} /><button className="secondary-action" type="button" onClick={() => inputRef.current?.click()} disabled={loading}><UploadSimple size={18} aria-hidden="true" />{loading ? "正在导入…" : "导入图片"}</button></div>
+        <section className="library-stage">
+          <div className="library-heading"><div><StageLabel>LOCAL LIBRARY</StageLabel><h1>素材库</h1></div><input ref={inputRef} className="visually-hidden" type="file" accept="image/png,image/jpeg" multiple aria-label="导入图片" onChange={(event) => onImport(event.target.files)} tabIndex={-1} /><button className="secondary-action" type="button" onClick={() => inputRef.current?.click()} disabled={loading}><UploadSimple size={18} aria-hidden="true" />{loading ? "正在导入…" : "导入图片"}</button></div>
+          <div className="library-tools">
+            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索提示词、模型或通路" aria-label="搜索素材" />
+            <button type="button" className={favoritesOnly ? "active" : ""} aria-pressed={favoritesOnly} onClick={() => setFavoritesOnly((value) => !value)}><Star size={17} weight={favoritesOnly ? "fill" : "regular"} aria-hidden="true" />只看收藏</button>
+            <span>{filteredItems.length} / {items.length} 张</span>
+          </div>
           {!items.length ? <div className="library-empty"><FolderSimple size={48} weight="light" aria-hidden="true" /><h2>这里还没有作品</h2><p>生成、修改或导入的图片都会安全地留在本机。</p><button className="primary-action" type="button" onClick={onBack}>开始第一张</button></div>
-            : <div className="library-grid">{items.map((item) => <article key={item.id}><img src={apiAssetUrl(item.url || item.id)} alt={item.name || "本机图片"} /><div><strong>{item.name}</strong><span>{item.provider || "本机"} · {item.aspect_ratio || item.size || "—"}</span></div><button type="button" aria-label={`打开${item.name}`} onClick={() => onOpen(item)}><ArrowsOutSimple size={18} aria-hidden="true" /></button><button className="preview-library-item" type="button" onClick={() => setPreview(item)}>预览</button></article>)}</div>}
+            : !filteredItems.length ? <div className="library-empty"><FolderSimple size={48} weight="light" aria-hidden="true" /><h2>没有匹配的作品</h2><p>换个关键词，或关闭“只看收藏”。</p><button className="secondary-action" type="button" onClick={() => { setQuery(""); setFavoritesOnly(false); }}>清除筛选</button></div>
+              : <div className="library-grid">{filteredItems.map((item) => {
+                const title = libraryItemTitle(item);
+                return <article key={item.id}><img src={apiThumbUrl(item.url || item.id)} alt={title} loading="lazy" decoding="async" /><div><strong title={item.prompt_original || title}>{title}</strong><span>{item.provider || "本机"} · {imageFactLabel(item)}</span></div><button className={`favorite-library-item ${item.starred ? "active" : ""}`} type="button" aria-label={`${item.starred ? "取消收藏" : "收藏"}${title}`} aria-pressed={Boolean(item.starred)} onClick={() => onToggleFavorite(item)} disabled={loading}><Star size={18} weight={item.starred ? "fill" : "regular"} aria-hidden="true" /></button><button className="open-library-item" type="button" aria-label={`打开${title}`} onClick={() => onOpen(item)}><ArrowsOutSimple size={18} aria-hidden="true" /></button><button className="preview-library-item" type="button" onClick={() => setPreview(item)}>预览</button></article>;
+              })}</div>}
         </section>
         <PageAlert message={error} />
       </div>
-      {preview && <div ref={dialogRef} className="library-lightbox" role="dialog" aria-modal="true" aria-label={`预览${preview.name}`}><button className="icon-button" type="button" onClick={() => setPreview(null)} aria-label="关闭预览"><X size={22} aria-hidden="true" /></button><img src={apiAssetUrl(preview.url || preview.id)} alt={preview.name} /><p>{preview.name}</p></div>}
+      {preview && <div ref={dialogRef} className="library-lightbox" role="dialog" aria-modal="true" aria-label={`预览${libraryItemTitle(preview)}`}><button className="icon-button" type="button" onClick={() => setPreview(null)} aria-label="关闭预览"><X size={22} aria-hidden="true" /></button><img src={apiAssetUrl(preview.url || preview.id)} alt={libraryItemTitle(preview)} /><p>{libraryItemTitle(preview)}</p></div>}
     </main>
   );
 }
@@ -586,32 +639,57 @@ function ErrorView({ error, onRetry, onBack, onLibrary, ready, fixture }) {
 }
 
 export function App() {
-  const initialView = getViewFromUrl();
+  const requestedView = getViewFromUrl();
+  const [recovered] = useState(readRecovery);
+  const initialView = resolveRecoveryView(requestedView, recovered);
   const [view, setViewState] = useState(initialView);
   const viewRef = useRef(initialView);
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(recovered.prompt || "");
   const [references, setReferences] = useState([]);
   const [referenceUrls, setReferenceUrls] = useState([]);
   const [referenceIds, setReferenceIds] = useState([]);
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS, ...(recovered.settings || {}) });
   const [capabilities, setCapabilities] = useState({ providers: [], models: [], doctor: null });
   const [libraryItems, setLibraryItems] = useState([]);
-  const [brief, setBrief] = useState(null);
-  const [batch, setBatch] = useState(null);
-  const [generatedItems, setGeneratedItems] = useState([]);
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [versions, setVersions] = useState([]);
-  const [critique, setCritique] = useState(null);
-  const [instruction, setInstruction] = useState("");
-  const [intent, setIntent] = useState("initial");
+  const [brief, setBrief] = useState(recovered.brief || null);
+  const [batch, setBatch] = useState(recovered.batch || null);
+  const [generatedItems, setGeneratedItems] = useState(recovered.generatedItems || []);
+  const [selectedItem, setSelectedItem] = useState(recovered.selectedItem || null);
+  const [versions, setVersions] = useState(recovered.versions || []);
+  const [critique, setCritique] = useState(recovered.critique || null);
+  const [instruction, setInstruction] = useState(recovered.instruction || "");
+  const [intent, setIntent] = useState(recovered.intent || "initial");
   const [pendingCompletion, setPendingCompletion] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(null);
   const operationRef = useRef(0);
 
+  useEffect(() => {
+    if (requestedView === initialView) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("state", initialView);
+    window.history.replaceState({}, "", url);
+  }, []);
+
+  useEffect(() => {
+    writeRecovery({
+      prompt,
+      settings,
+      brief,
+      batch,
+      generatedItems,
+      selectedItem,
+      versions,
+      critique,
+      instruction,
+      intent,
+      view,
+    });
+  }, [prompt, settings, brief, batch, generatedItems, selectedItem, versions, critique, instruction, intent, view]);
+
   const usableProviders = useMemo(() => capabilities.providers.filter(providerUsable), [capabilities.providers]);
-  const declaredFixture = import.meta.env.VITE_STUDIO_FIXTURE === true;
+  const declaredFixture = import.meta.env.PROD ? "dynamic" : import.meta.env.VITE_STUDIO_FIXTURE === true;
   const runtimeFixture = capabilities.doctor?.studio_runtime?.fixture;
   const fixture = runtimeFixture === true;
   const runtimeAccess = getRuntimeAccess({
@@ -627,8 +705,8 @@ export function App() {
   const modelInfo = capabilities.models.find((row) => row.model === settings.model && modelMatchesProvider(settings.provider, row));
   const batchRunning = isBatchRunning(batch);
   const canGenerate = canUseStudioBackend && !batchRunning && Boolean(fixture || settings.provider === "auto" || usableProviders.some((row) => row.provider === settings.provider));
-  const qualityOptions = modelInfo?.qualities?.length ? modelInfo.qualities : QUALITY_FALLBACK;
-  const resolutionOptions = modelInfo?.resolutions?.length ? ["", ...modelInfo.resolutions] : RESOLUTION_FALLBACK;
+  const qualityOptions = modelInfo ? (modelInfo.qualities?.length ? modelInfo.qualities : ["auto"]) : QUALITY_FALLBACK;
+  const resolutionOptions = modelInfo ? ["", ...(modelInfo.resolutions || [])] : RESOLUTION_FALLBACK;
 
   function setView(next, replace = false) {
     operationRef.current += 1;
@@ -662,7 +740,14 @@ export function App() {
         if (!active) return;
         setCapabilities(caps);
         const first = caps.providers.find(providerUsable);
-        if (first) setSettings((current) => ({ ...current, provider: first.provider, model: first.default_model || "" }));
+        if (first) {
+          setSettings((current) => {
+            const currentAvailable = current.provider === "auto" || caps.providers.some(
+              (row) => row.provider === current.provider && providerUsable(row),
+            );
+            return currentAvailable ? current : { ...current, provider: first.provider, model: first.default_model || "" };
+          });
+        }
       })
       .catch((cause) => active && setError(`无法连接本机 Studio：${cause.message}`));
     loadLibrary()
@@ -742,15 +827,16 @@ export function App() {
       : `历史作品使用的 ${item.provider} 当前不可用；下一版将使用 ${settings.provider}，请在首屏确认后再生成。`;
     setSettings((current) => {
       const provider = providerAvailable && item.provider ? item.provider : current.provider;
-      const model = capabilities.models.some((row) => row.model === item.model && modelMatchesProvider(provider, row)) ? item.model : current.model;
+      const requestedModel = item.model_requested || item.model;
+      const model = capabilities.models.some((row) => row.model === requestedModel && modelMatchesProvider(provider, row)) ? requestedModel : current.model;
       return {
         ...current,
         provider,
         model,
         template: item.template || current.template,
         aspect: item.aspect_ratio || current.aspect,
-        resolution: item.resolution || current.resolution,
-        quality: item.quality || current.quality,
+        resolution: item.resolution_requested || current.resolution,
+        quality: item.quality_requested || item.quality || current.quality,
       };
     });
     return warning;
@@ -864,13 +950,14 @@ export function App() {
         profile: "edit",
         prompt: result.draft,
         draft: result.draft,
+        user_prompt: prompt,
         provider,
-        model: settings.model || selectedItem.model || "",
-        quality: settings.quality || selectedItem.quality || "high",
-        resolution: settings.resolution || selectedItem.resolution || "",
+        model: settings.model || selectedItem.model_requested || selectedItem.model || "",
+        quality: settings.quality || selectedItem.quality_requested || selectedItem.quality || "high",
+        resolution: settings.resolution || selectedItem.resolution_requested || "",
         images: result.images || [selectedItem.id],
       };
-      setBrief({ success: true, template: "edit", template_label: "继续改这张", mode: "single", jobs: [job], warnings: [] });
+      setBrief({ success: true, preflight: "local", template: "edit", template_label: "继续改这张", mode: "single", jobs: [job], warnings: ["确认前未调用外部文本或搜索模型"] });
       setIntent("revision"); setView("confirm");
     } catch (cause) { if (operationRef.current === operationId) setError(cause.message || String(cause)); }
     finally { if (operationRef.current === operationId) setLoading(false); }
@@ -885,6 +972,19 @@ export function App() {
       await refreshLibrary();
     }
     catch (cause) { if (operationRef.current === operationId) setError(cause.message || String(cause)); }
+    finally { if (operationRef.current === operationId) setLoading(false); }
+  }
+
+  async function toggleFavorite(item) {
+    if (!item?.id) return;
+    const operationId = beginOperation();
+    setLoading(true); setError("");
+    try {
+      const payload = await patchReceipt({ id: item.id, starred: !item.starred });
+      if (!operationIsCurrent(operationId, "library")) return;
+      const updated = payload.item;
+      setLibraryItems((rows) => rows.map((row) => row.id === updated.id ? updated : row));
+    } catch (cause) { if (operationRef.current === operationId) setError(cause.message || String(cause)); }
     finally { if (operationRef.current === operationId) setLoading(false); }
   }
 
@@ -930,7 +1030,7 @@ export function App() {
   if (view === "refine" && selectedItem) return <RefineView item={selectedItem} versions={versions} instruction={instruction} setInstruction={setInstruction} critique={critique} looking={loading} preparing={loading || batchRunning} canUseBackend={canUseStudioBackend} onLook={getCritique} onPrepareRevision={prepareRevision} onVersion={switchVersion} onCompare={() => setView("compare")} onExport={() => setView("export")} onNew={resetCreation} {...shared} />;
   if (view === "compare") return <CompareView versions={versions} onBack={() => setView("refine", true)} {...shared} />;
   if (view === "export" && selectedItem) return <ExportView item={selectedItem} onBack={() => setView("refine", true)} {...shared} />;
-  if (view === "library") return <LibraryView items={libraryItems} loading={loading} onImport={importFiles} onBack={leaveLibrary} onOpen={openLibraryItem} {...shared} />;
+  if (view === "library") return <LibraryView items={libraryItems} loading={loading} onImport={importFiles} onBack={leaveLibrary} onOpen={openLibraryItem} onToggleFavorite={toggleFavorite} {...shared} />;
   if (view === "error") return <ErrorView error={error} onRetry={retry || (() => setView("start", true))} onBack={() => setView("start", true)} {...shared} />;
 
   return <StartView prompt={prompt} setPrompt={setPrompt} references={references} referenceUrls={referenceUrls} onAddReferences={addReferenceFiles} onRemoveReference={removeReference} settings={settings} providers={usableProviders} models={modelOptions} qualities={qualityOptions} resolutions={resolutionOptions} onProvider={changeProvider} onSetting={(key, value) => setSettings((current) => ({ ...current, [key]: value }))} onContinue={prepareInitial} canGenerate={canGenerate} loading={loading} {...shared} />;
