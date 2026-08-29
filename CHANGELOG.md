@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Studio truth: option lists are capabilities — `auto` only shows models of usable providers (deduplicated, labelled), resolution/quality come from the selected model, and Codex/OpenAI aspects are limited to 1:1 / 3:2 / 2:3 (server fails closed, UI disables the rest). Receipts add `aspect_requested`; the library reports the aspect measured from pixels.
+- Studio drafts: the confirmation card sends exactly what it shows — no "事实：" echo, no silent "课程封面" template (unmatched prompts use 自由画面 and an aspect inferred from words like 16:9/竖版/方图); revisions rebuild one numbered 修改要求 list instead of appending `Constraints:` forever. `用 AI 改写终稿` is an explicit one-call opt-in on the card (`POST /api/optimize-draft`); the post-confirm rewrite path and other dead code were removed.
+- Studio isolation: `--fixture` writes to `<share home>/fixture-outputs` instead of the real library; `LOCAL_IMAGE_GEN_OUTPUTS` / a different `HOME` no longer re-point a workspace `outputs` link that already exists; `/api/doctor.studio_runtime.outputs_root` says where images go.
+- Studio images: WebP results are accepted, decoded (VP8/VP8L/VP8X) and recorded with real pixels and MIME.
+- Studio journey: a machine without any login gets a 接通一条通路 panel with the exact command per provider and 重新检测, instead of a dead screen; generating shows elapsed time; refine shows the work title, version count and a 生成详情 fold (requested vs actual); export crops have a 3×3 focus anchor; the library groups by day, badges revisions, shows true aspect thumbnails and can move a work to the trash; the shortcut hint follows the platform.
+- Studio code: the React client is split into views / components / hooks; the legacy darkroom `studio/static` tree and `/static/*` route are gone.
+
 - Studio brief stays local when no Grok/Codex/official key is logged in; confirm still fail-closes. Windows sidecar writes take a real interprocess lock and retry replace. Loopback Host checks no longer block on hostname/mDNS lookup.
 - Studio productization: the selected Future Studio React build is now the only root UI served by `local-image-gen studio`; the legacy darkroom HTML is no longer a product route.
 - Studio consent boundary: building a confirmation card is local and does not call search/text models. Antigravity/Cursor are hidden from Studio until their coding-agent workers have an image-only permission boundary.
