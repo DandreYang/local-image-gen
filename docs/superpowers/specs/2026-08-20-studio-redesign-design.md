@@ -1,7 +1,7 @@
 # Studio 重设计
 
 日期：2026-08-20
-状态：设计已确认，待转实施计划
+状态：已实施（Phase 1–4，2026-08-21～08-26）；最新产品定义见 `2026-08-30-studio-product-lead-design.md`。
 范围：`studio/` 目录的前端与配套后端契约。生图引擎 `scripts/local_image_gen.py` 不变。
 
 ---
