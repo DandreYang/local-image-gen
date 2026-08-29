@@ -188,12 +188,22 @@ class FixtureIsolationTests(unittest.TestCase):
             self.assertEqual(server.resolve_outputs_root(), (Path(tmp) / "fixture-outputs").resolve())
 
     def test_store_override_is_used_directly_without_workspace_link(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, patch.dict(
-            os.environ,
-            {"LOCAL_IMAGE_GEN_OUTPUTS": tmp, "LOCAL_IMAGE_GEN_STUDIO_FIXTURE": "", "LOCAL_IMAGE_GEN_STUDIO_OUTPUTS": ""},
-        ), patch.object(server.cli, "ensure_outputs_link") as link:
-            self.assertEqual(server.resolve_outputs_root(), Path(tmp).resolve())
-        link.assert_not_called()
+        # Independent of where the checkout lives (CI has no Dyro ancestor): use a temp workspace.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "ws"
+            (workspace / "repositories" / "app").mkdir(parents=True)
+            (workspace / "dyro.toml").write_text('[workspace]\nname = "demo"\n', encoding="utf-8")
+            override = root / "override"
+            with patch.dict(
+                os.environ,
+                {"LOCAL_IMAGE_GEN_OUTPUTS": str(override), "LOCAL_IMAGE_GEN_STUDIO_FIXTURE": "", "LOCAL_IMAGE_GEN_STUDIO_OUTPUTS": ""},
+            ), patch.object(server.Path, "cwd", return_value=workspace / "repositories" / "app"), patch.object(
+                server.cli, "ensure_outputs_link"
+            ) as link:
+                self.assertEqual(server.resolve_outputs_root(), override.resolve())
+            link.assert_not_called()
+            self.assertFalse((workspace / "outputs").exists())
 
     def test_fixture_report_reads_the_fixture_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.dict(
@@ -346,20 +356,22 @@ class CodexAspectTests(unittest.TestCase):
         codex = next(r for r in rows if r["provider"] == "codex")
         grok = next(r for r in rows if r["provider"] == "grok")
         openai = next(r for r in rows if r["provider"] == "openai")
-        self.assertEqual(codex["aspects"], ["1:1", "3:2", "2:3"])
+        self.assertEqual(codex["aspects"], ["1:1"])
         self.assertEqual(openai["aspects"], ["1:1", "3:2", "2:3"])
         self.assertEqual(grok["aspects"], list(cli.SUPPORTED_ASPECTS))
 
-    def test_normalize_rejects_codex_16_9_but_keeps_3_2(self) -> None:
+    def test_normalize_rejects_codex_non_square_but_keeps_1_1(self) -> None:
+        """Real Codex runs (2026-08-26 / 2026-08-30) came back 1254x1254 whatever was asked."""
         providers = [{"provider": "codex", "subscription": True, "studio_enabled": True, "default_model": "gpt-image-2"}]
         with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_STUDIO_FIXTURE": ""}), patch.object(
             server, "current_studio_providers", return_value=providers
         ):
-            with self.assertRaises(ValueError) as caught:
-                server.normalize_studio_jobs([{"provider": "codex", "model": "gpt-image-2", "aspect": "16:9", "prompt": "x"}])
-            ok = server.normalize_studio_jobs([{"provider": "codex", "model": "gpt-image-2", "aspect": "3:2", "prompt": "x"}])
-        self.assertIn("16:9", str(caught.exception))
-        self.assertEqual(ok[0]["aspect"], "3:2")
+            for aspect in ("16:9", "3:2"):
+                with self.assertRaises(ValueError) as caught:
+                    server.normalize_studio_jobs([{"provider": "codex", "model": "gpt-image-2", "aspect": aspect, "prompt": "x"}])
+                self.assertIn(aspect, str(caught.exception))
+            ok = server.normalize_studio_jobs([{"provider": "codex", "model": "gpt-image-2", "aspect": "1:1", "prompt": "x"}])
+        self.assertEqual(ok[0]["aspect"], "1:1")
 
     def test_receipt_separates_requested_aspect_from_actual(self) -> None:
         result = server.stamp_job_meta({"success": True, "aspect_ratio": "16:9"}, {"aspect": "16:9", "provider": "codex"}, "p")
@@ -384,8 +396,11 @@ class CodexAspectTests(unittest.TestCase):
     def test_brief_warns_codex_unsupported_aspect(self) -> None:
         from job import aspect_warning
 
-        self.assertIn("1:1 / 3:2 / 2:3", aspect_warning("codex", "16:9") or "")
-        self.assertIsNone(aspect_warning("codex", "3:2"))
+        self.assertIn("1:1", aspect_warning("codex", "16:9") or "")
+        self.assertIn("3:2", aspect_warning("codex", "3:2") or "")
+        self.assertIsNone(aspect_warning("codex", "1:1"))
+        self.assertIn("1:1 / 3:2 / 2:3", aspect_warning("openai", "16:9") or "")
+        self.assertIsNone(aspect_warning("openai", "3:2"))
         self.assertIsNone(aspect_warning("grok", "16:9"))
 
 

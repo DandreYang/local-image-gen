@@ -1231,6 +1231,12 @@ test("export exposes a crop focus grid and the library can trash a work", async 
 - 浏览器：素材库卡片「grok · 1280x720 · 请求 1k」；打磨态标题 = 提示词 + `V1 · 共 1 版 · 16:9`，生成详情各行与回执一致；导出预览 `object-position: 0% 50%`，画布裁切 540×720 → 1200×1600 JPEG；console 0 错误。截图：`.playwright-mcp/real-0[1-3]-*.png`。
 - 未做：改稿下一版（需第 2 次额度）；Codex / 官方 Key 通路。
 
+### 第二轮真实验证与 CI 首跑（2026-08-30，用户批准 push 与 2 次额度）
+
+- push `prototype/studio`（`b0af996..489d390`，`git ls-remote` 核对一致），CI run 33270053052：studio-client（Node 53 / Sites / audit / Chromium+axe e2e 7）通过；5 个 Python job 失败，唯一失败用例 `test_store_override_is_used_directly_without_workspace_link` 假定检出位于 Dyro 工作区内（本机成立、CI 不成立）。已改为在临时工作区内并 patch `Path.cwd` 复现；在工作区外复制整棵工作树（无任何环境覆盖）重跑 340 tests OK，工作区内 340 tests OK。
+- Grok 改稿链路（1 次额度）：`/api/revise` → 1 个 job 的 `/api/confirm-generate`（parent = V1），9.0 s 完成；V2 回执 `parent`/`session_id` 正确，发送终稿以「修改要求：\n1. 立方体改成品红色」结尾；浏览器：素材库「改稿版」徽标、打磨态 `V2 · 共 2 版`、版本栏 2 项、对比页 V1 / V2 两张 1280×720。
+- Codex（1 次额度）：16:9 在确认卡有警告且 `confirm-generate` 返回 400（免额度）；3:2 真实请求返回 **1254×1254（1:1）**，比例断言失败、批次按 failed 落账、未入库、未伪造成功。结论：非官方 Codex 通道只出 1:1（与 2026-08-26 那张 1254×1254 一致），`PROVIDER_ASPECTS["codex"]` 收成 `("1:1",)`，`aspect_warning` 按通路分别提示，文档同步。
+
 ## 自检
 
 - 规格覆盖：F1→T9；F2/F3→T1；F4→T2；F5→T4；F6→T5；F7→T6；F8→T3；F9→T7；F10→T10；F11→T12；F12→T13；F13→T14；F14→T15；F15/F16→T9；F17→T16；F18→T8；F19→T5（根解析随链接漂移由 T5 消除）；§5.3 AI 改写→T3+T11；文档→T17。

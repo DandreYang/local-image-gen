@@ -172,14 +172,21 @@ def merge_revision_draft(draft: str, message: str) -> Tuple[str, List[str]]:
     return f"{base}\n{REVISION_HEADER}\n{block}", reqs
 
 
-GPT_IMAGE_ASPECTS = ("1:1", "3:2", "2:3")
+GPT_IMAGE_ASPECTS = {
+    # Official OpenAI Images canvases.
+    "openai": ("1:1", "3:2", "2:3"),
+    # Unofficial Codex backend: real runs (2026-08-26, 2026-08-30) returned 1254x1254
+    # regardless of the requested canvas, so only 1:1 is a promise Studio can keep.
+    "codex": ("1:1",),
+}
 
 
 def aspect_warning(provider: str, aspect: str) -> Optional[str]:
-    """gpt-image canvases only come in 1:1 / 3:2 / 2:3; say so before confirmation."""
-    if provider not in {"codex", "openai"} or not aspect or aspect in GPT_IMAGE_ASPECTS:
+    """gpt-image providers only draw a few canvases; say so before confirmation."""
+    allowed = GPT_IMAGE_ASPECTS.get(provider)
+    if not allowed or not aspect or aspect in allowed:
         return None
-    return f"{provider} 只能出 {' / '.join(GPT_IMAGE_ASPECTS)}；{aspect} 会被拒绝，请在设置里换一个比例。"
+    return f"{provider} 只能出 {' / '.join(allowed)}；{aspect} 会被拒绝，请在设置里换一个比例。"
 
 
 def is_series_request(

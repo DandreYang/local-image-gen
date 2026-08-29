@@ -310,10 +310,12 @@ def studio_doctor_payload(*, skip_update_check: bool = True) -> Dict[str, Any]:
 STUDIO_UNSAFE_AGENT_PROVIDERS = {"agy", "antigravity", "cursor"}
 STUDIO_SAFE_PROVIDER_ORDER = ("grok", "codex", "gemini", "xai", "openai")
 
-# Aspects a provider can actually draw. gpt-image canvases are 1024x1024,
-# 1536x1024 and 1024x1536 only; anything else would be a cropped promise.
+# Aspects a provider can actually draw. The official OpenAI Images API offers
+# 1024x1024, 1536x1024 and 1024x1536; the unofficial Codex backend returned
+# 1254x1254 for a 3:2 request on 2026-08-30 (and on 2026-08-26), so Studio only
+# promises 1:1 there. Anything else would be a cropped promise.
 PROVIDER_ASPECTS: Dict[str, Tuple[str, ...]] = {
-    "codex": ("1:1", "3:2", "2:3"),
+    "codex": ("1:1",),
     "openai": ("1:1", "3:2", "2:3"),
 }
 
