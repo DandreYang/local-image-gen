@@ -96,7 +96,7 @@ class TestCsrfHttp(unittest.TestCase):
             "warnings": [],
         }
         with patch.object(server, "build_brief", return_value=local_brief), patch.object(
-            server, "attach_compiled_drafts", side_effect=lambda payload: payload
+            server, "run_cli"
         ) as compile_drafts:
             with urlopen(
                 Request(

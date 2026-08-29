@@ -391,6 +391,20 @@ def read_image_dimensions(path: Path) -> Tuple[int, int]:
                 break
             length = struct.unpack(">H", data[index + 2 : index + 4])[0]
             index += 2 + length
+    if len(data) >= 25 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        chunk = data[12:16]
+        if chunk == b"VP8X" and len(data) >= 30:
+            width = 1 + int.from_bytes(data[24:27], "little")
+            height = 1 + int.from_bytes(data[27:30], "little")
+            return width, height
+        if chunk == b"VP8L" and data[20] == 0x2F:
+            bits = int.from_bytes(data[21:25], "little")
+            return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+        if chunk == b"VP8 " and len(data) >= 30:
+            width = int.from_bytes(data[26:28], "little") & 0x3FFF
+            height = int.from_bytes(data[28:30], "little") & 0x3FFF
+            if width and height:
+                return width, height
     raise ImageGenError(f"Could not read image dimensions from {path}")
 
 
@@ -1089,9 +1103,13 @@ def _legacy_store_paths(bucket: str = "default") -> List[Path]:
             names.append(name)
     home = default_outputs_home()
     share_root = default_share_home() / GENERATED_IMAGES_NAME
+    # With an explicit store override only the override's own nested buckets are
+    # flattened; nothing outside the override is ever moved into it.
+    include_share = not outputs_store_overridden()
     paths: List[Path] = []
     for name in names:
-        paths.append(share_root / name)
+        if include_share:
+            paths.append(share_root / name)
         nested = home / name
         if nested != home:
             paths.append(nested)
@@ -1222,14 +1240,19 @@ def _remove_empty_dir(path: Path) -> bool:
 
 
 def ensure_outputs_link(link: Path, target: Path) -> Path:
-    """Make project `outputs` a symlink to the user-level generated_images store."""
+    """Make project `outputs` a symlink to the user-level generated_images store.
+
+    An existing link that already points at a live directory is respected as-is:
+    tests, fixtures and environment overrides must never move a user's workspace
+    link. Only a dangling link is repaired.
+    """
     target = target.expanduser()
     target.mkdir(parents=True, exist_ok=True)
     (target / "images").mkdir(parents=True, exist_ok=True)
     link = link.expanduser()
     try:
         if link.is_symlink():
-            if link.resolve() == target.resolve():
+            if link.exists():
                 return link
             link.unlink()
         elif link.is_dir():
@@ -1256,9 +1279,34 @@ def default_image_dir(explicit: Optional[Path] = None, start: Optional[Path] = N
     if workspace:
         name = dyro_workspace_name(workspace) or workspace.name
         store = generated_images_root(name)
-        outputs = ensure_outputs_link(workspace / DYRO_OUTPUTS_NAME, store)
-        return outputs / "images", workspace
+        if outputs_store_overridden():
+            # An explicit store override is a pure sink: use it as-is and never
+            # create, migrate into, or re-point the workspace `outputs` link.
+            return store / "images", workspace
+        return workspace_outputs_dir(workspace, store) / "images", workspace
     return (start or Path(".")).expanduser(), None
+
+
+def outputs_store_overridden() -> bool:
+    return bool(os.environ.get("LOCAL_IMAGE_GEN_OUTPUTS", "").strip())
+
+
+def workspace_outputs_dir(workspace: Path, store: Path) -> Path:
+    """Return the outputs directory for a Dyro workspace without hijacking its link.
+
+    ``<workspace>/outputs`` normally is a symlink to the user's store. When the
+    link already points somewhere else that exists — another store, or this
+    process runs with ``LOCAL_IMAGE_GEN_OUTPUTS`` / a different ``HOME`` — the
+    link is left alone and this process writes to its own ``store`` directly.
+    """
+    link = workspace / DYRO_OUTPUTS_NAME
+    try:
+        if link.is_symlink() and link.exists() and link.resolve() != store.expanduser().resolve():
+            store.expanduser().mkdir(parents=True, exist_ok=True)
+            return store.expanduser()
+    except OSError:
+        return store.expanduser()
+    return ensure_outputs_link(link, store)
 
 
 def strip_env_value(value: str) -> str:
@@ -3131,6 +3179,8 @@ def studio_outputs_root() -> Path:
     override = os.environ.get("LOCAL_IMAGE_GEN_STUDIO_OUTPUTS", "").strip()
     if override:
         return Path(os.path.expanduser(override)).resolve()
+    if os.environ.get("LOCAL_IMAGE_GEN_STUDIO_FIXTURE", "").strip().lower() in {"1", "true", "yes"}:
+        return (default_share_home() / "fixture-outputs").resolve()
     outputs_override = os.environ.get("LOCAL_IMAGE_GEN_OUTPUTS", "").strip()
     if outputs_override:
         return Path(os.path.expanduser(outputs_override)).resolve()
@@ -3428,6 +3478,10 @@ def wait_for_studio_ready(
 
 
 def run_studio(args: argparse.Namespace) -> int:
+    if getattr(args, "fixture", False):
+        # Fixture runs (and their reports) live in an isolated store; the child
+        # server resolves its root at import time, so the env flag must be set first.
+        os.environ["LOCAL_IMAGE_GEN_STUDIO_FIXTURE"] = "1"
     if getattr(args, "report", False):
         print_json(dogfood_report(studio_outputs_root() / ".batches", days=int(args.days or 7)))
         return 0

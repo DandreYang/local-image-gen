@@ -109,4 +109,20 @@ export function patchReceipt(body) {
   });
 }
 
+export function optimizeDraft(body) {
+  return request("/api/optimize-draft", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function trashItem(id) {
+  return request("/api/trash", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+}
+
 export { API_ROOT };

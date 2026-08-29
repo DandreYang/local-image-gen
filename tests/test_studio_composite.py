@@ -28,17 +28,6 @@ def _png_bytes(width: int = 2, height: int = 2) -> bytes:
 
 
 class TestOverlaySlot(unittest.TestCase):
-    def test_frontend_slots_only_calendar_and_invite(self):
-        text = (ROOT / "studio" / "static" / "js" / "lib" / "constants.js").read_text(encoding="utf-8")
-        self.assertIn("OVERLAY_SLOTS", text)
-        self.assertIn("calendar-poster", text)
-        self.assertIn("invite", text)
-        self.assertIn("bottom-right", text)
-        self.assertRegex(text, r"width_pct\s*:\s*16")
-        self.assertRegex(text, r"margin_pct\s*:\s*5")
-        extras = re.findall(r'["\']([a-z0-9-]+)["\']\s*:\s*\{[^}]*width_pct', text)
-        self.assertEqual(sorted(set(extras)), ["calendar-poster", "invite"])
-
     def test_python_slots_match_frontend(self):
         from templates import TEMPLATES  # noqa: E402
 

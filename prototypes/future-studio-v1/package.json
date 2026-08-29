@@ -8,7 +8,7 @@
     "build": "vite build && node scripts/prepare-sites-build.mjs",
     "build:local": "npm run build && node scripts/promote-local-studio.mjs",
     "preview": "vite preview",
-    "test": "node --test tests/prototype-contract.test.mjs tests/studio-api.test.mjs tests/studio-state.test.mjs tests/export-utils.test.mjs",
+    "test": "node --test tests/prototype-contract.test.mjs tests/studio-api.test.mjs tests/studio-state.test.mjs tests/studio-options.test.mjs tests/export-utils.test.mjs",
     "pretest:e2e": "node scripts/prepare-e2e.mjs",
     "test:e2e": "playwright test",
     "test:sites": "node --test tests/sites-worker.test.mjs"

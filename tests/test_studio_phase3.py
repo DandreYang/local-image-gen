@@ -132,8 +132,7 @@ class TestBatchPersist(unittest.TestCase):
 
 
 class TestBriefModes(unittest.TestCase):
-    @patch("job.research_facts", return_value={"searched": False, "facts": [], "error": None})
-    def test_candidates_copy_the_same_draft(self, _research):
+    def test_candidates_copy_the_same_draft(self):
         card = brief("蓝白极简课程封面", provider="grok")
         self.assertEqual(card["mode"], "candidates")
         self.assertEqual(len(card["jobs"]), 2)

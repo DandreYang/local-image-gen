@@ -1360,8 +1360,9 @@ class DyroOptionalTests(unittest.TestCase):
             with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(root / "blobs")}):
                 out_dir, workspace = image_gen.default_image_dir(None, nested)
             self.assertEqual(workspace, root.resolve())
-            self.assertEqual(out_dir, root.resolve() / "outputs" / "images")
-            self.assertTrue((root / "outputs").is_symlink())
+            # An explicit store override is a pure sink: no workspace link is created.
+            self.assertEqual(out_dir, (root / "blobs").resolve() / "images")
+            self.assertFalse((root / "outputs").exists())
 
     def test_dyro_outputs_symlink_into_share_home(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1374,7 +1375,9 @@ class DyroOptionalTests(unittest.TestCase):
             existing.mkdir(parents=True)
             kept = existing / "kept.png"
             kept.write_bytes(b"\x89PNG\r\n\x1a\n")
-            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(home)}):
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": ""}), patch.object(
+                image_gen, "default_outputs_home", return_value=home
+            ):
                 out_dir, workspace = image_gen.default_image_dir(None, nested)
             link = root / "outputs"
             store = home
@@ -1383,7 +1386,9 @@ class DyroOptionalTests(unittest.TestCase):
             self.assertEqual(link.resolve(), store.resolve())
             self.assertEqual(out_dir.resolve(), (store / "images").resolve())
             self.assertTrue((store / "images" / "kept.png").is_file())
-            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(home)}):
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": ""}), patch.object(
+                image_gen, "default_outputs_home", return_value=home
+            ):
                 again, _ = image_gen.default_image_dir(None, nested)
             self.assertTrue(link.is_symlink())
             self.assertEqual(again.resolve(), (store / "images").resolve())
@@ -1399,7 +1404,9 @@ class DyroOptionalTests(unittest.TestCase):
             existing.mkdir()
             (existing / ".DS_Store").write_bytes(b"junk")
             (existing / "images").mkdir()
-            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(home)}):
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": ""}), patch.object(
+                image_gen, "default_outputs_home", return_value=home
+            ):
                 image_gen.default_image_dir(None, nested)
             link = root / "outputs"
             self.assertTrue(link.is_symlink())
@@ -1419,11 +1426,8 @@ class DyroOptionalTests(unittest.TestCase):
             kept.write_bytes(b"\x89PNG\r\n\x1a\n")
             with patch.dict(
                 os.environ,
-                {
-                    "LOCAL_IMAGE_GEN_HOME": str(share),
-                    "LOCAL_IMAGE_GEN_OUTPUTS": str(blobs),
-                },
-            ):
+                {"LOCAL_IMAGE_GEN_HOME": str(share), "LOCAL_IMAGE_GEN_OUTPUTS": ""},
+            ), patch.object(image_gen, "default_outputs_home", return_value=blobs):
                 out_dir, workspace = image_gen.default_image_dir(None, nested)
             store = blobs
             self.assertEqual(workspace, root.resolve())
@@ -1448,8 +1452,36 @@ class DyroOptionalTests(unittest.TestCase):
                 out_dir, _ = image_gen.default_image_dir(None, nested)
             self.assertTrue((home / "images" / "old.png").is_file())
             self.assertFalse((home / "demo").exists())
-            self.assertEqual((root / "outputs").resolve(), home.resolve())
+            # The override is a sink: its own nested bucket is flattened, the workspace is untouched.
+            self.assertFalse((root / "outputs").exists())
             self.assertEqual(out_dir.resolve(), (home / "images").resolve())
+
+    def test_env_override_never_creates_or_migrates_a_workspace_link(self) -> None:
+        """Spec 2026-08-30 N3: an explicit store override must not touch <workspace>/outputs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            share = Path(tmp) / "share"
+            override = Path(tmp) / "override"
+            root = Path(tmp) / "ws"
+            nested = root / "repositories" / "app"
+            nested.mkdir(parents=True)
+            (root / "dyro.toml").write_text('[workspace]\nname = "demo"\n', encoding="utf-8")
+            plain = root / "outputs" / "images"
+            plain.mkdir(parents=True)
+            (plain / "real.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+            legacy = share / "generated_images" / "demo" / "images"
+            legacy.mkdir(parents=True)
+            (legacy / "old.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+            with patch.dict(
+                os.environ, {"LOCAL_IMAGE_GEN_HOME": str(share), "LOCAL_IMAGE_GEN_OUTPUTS": str(override)}
+            ):
+                out_dir, workspace = image_gen.default_image_dir(None, nested)
+            self.assertEqual(workspace, root.resolve())
+            self.assertEqual(out_dir.resolve(), (override / "images").resolve())
+            self.assertFalse((root / "outputs").is_symlink())
+            self.assertTrue((plain / "real.png").is_file(), "workspace images must stay where they are")
+            self.assertTrue((legacy / "old.png").is_file(), "legacy share images must not be moved into an override")
+            self.assertFalse((override / "images" / "real.png").exists())
+            self.assertFalse((override / "images" / "old.png").exists())
 
     def test_migration_keeps_both_copies_on_name_conflict(self) -> None:
         """Board 2026-08-23 P0-B: a legacy/target name clash must never delete the source."""

@@ -30,8 +30,8 @@ class StudioServerLaunchTests(unittest.TestCase):
             image.parent.mkdir(parents=True)
             image.write_bytes(studio_server.fixture_png_bytes())
             with patch.object(studio_server, "OUTPUTS", root), patch.object(
-                studio_server, "revise_turn"
-            ) as remote_revise:
+                studio_server, "run_cli"
+            ) as remote_cli:
                 payload = studio_server.run_revise(
                     {
                         "image": "images/base.png",
@@ -40,10 +40,11 @@ class StudioServerLaunchTests(unittest.TestCase):
                     }
                 )
 
-        remote_revise.assert_not_called()
+        remote_cli.assert_not_called()
         self.assertTrue(payload["success"])
         self.assertEqual(payload["mode"], "edit")
-        self.assertIn("Constraints: 字再大一点", payload["draft"])
+        self.assertEqual(payload["draft"], "原终稿\n修改要求：\n1. 字再大一点")
+        self.assertEqual(payload["requirements"], ["字再大一点"])
         self.assertEqual(payload["preflight"], "local")
 
     def test_storage_root_is_private_even_when_existing_files_keep_their_modes(self) -> None:
@@ -215,14 +216,24 @@ class StudioServerLaunchTests(unittest.TestCase):
             nested = root / "repositories" / "local-image-gen"
             nested.mkdir(parents=True)
             with patch.object(studio_server.Path, "cwd", return_value=nested), patch.dict(
-                os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(root / "blobs")}
+                os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": str(root / "blobs"), "LOCAL_IMAGE_GEN_STUDIO_FIXTURE": ""}
             ):
                 resolved = studio_server.resolve_outputs_root()
                 self.assertEqual(resolved.resolve(), (root / "blobs").resolve())
+                # Explicit store override: a pure sink, the workspace link is never created.
+                self.assertFalse((root / "outputs").exists())
+            with patch.object(studio_server.Path, "cwd", return_value=nested), patch.dict(
+                os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": "", "LOCAL_IMAGE_GEN_STUDIO_FIXTURE": ""}
+            ), patch.object(studio_server.cli, "default_outputs_home", return_value=root / "home-store"):
+                linked = studio_server.resolve_outputs_root()
+                self.assertEqual(linked, root.resolve() / "outputs")
                 self.assertTrue((root / "outputs").is_symlink())
+                self.assertEqual((root / "outputs").resolve(), (root / "home-store").resolve())
 
     def test_outputs_fallback_to_package_without_dyro(self) -> None:
-        with patch.object(studio_server.cli, "find_dyro_workspace", return_value=None):
+        with patch.object(studio_server.cli, "find_dyro_workspace", return_value=None), patch.dict(
+            os.environ, {"LOCAL_IMAGE_GEN_STUDIO_FIXTURE": "", "LOCAL_IMAGE_GEN_STUDIO_OUTPUTS": ""}
+        ):
             self.assertEqual(studio_server.resolve_outputs_root(), studio_server.WORKSPACE / "outputs")
 
     def test_fixture_generate_writes_png_without_cli(self) -> None:
@@ -241,11 +252,11 @@ class StudioServerLaunchTests(unittest.TestCase):
             studio_server.OUTPUTS = original_outputs
             studio_server.IMAGE_DIR = original_images
 
-    def test_fixture_compile_skips_cli(self) -> None:
+    def test_fixture_optimize_skips_cli(self) -> None:
         with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_STUDIO_FIXTURE": "1"}), patch.object(
             studio_server, "run_cli"
         ) as fake_cli:
-            payload = studio_server.compile_job({"prompt": "小红书封面"})
+            payload = studio_server.optimize_draft({"prompt": "小红书封面"})
         fake_cli.assert_not_called()
         self.assertTrue(payload["fixture"])
         self.assertEqual(payload["prompt"]["used"], "小红书封面")

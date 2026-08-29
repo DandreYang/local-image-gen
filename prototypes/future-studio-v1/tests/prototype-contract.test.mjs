@@ -2,69 +2,85 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const source = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
-const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
-const indexHtml = await readFile(new URL("../index.html", import.meta.url), "utf8");
-const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-const workflow = await readFile(new URL("../../../.github/workflows/test.yml", import.meta.url), "utf8");
+const read = (rel) => readFile(new URL(rel, import.meta.url), "utf8");
+const appSource = await read("../src/App.jsx");
+const startSource = await read("../src/views/StartView.jsx");
+const confirmSource = await read("../src/views/ConfirmView.jsx");
+const refineSource = await read("../src/views/RefineView.jsx");
+const librarySource = await read("../src/views/LibraryView.jsx");
+const techSelectSource = await read("../src/components/TechSelect.jsx");
+const helpersSource = await read("../src/studio-helpers.js");
+const source = [appSource, startSource, confirmSource, refineSource, librarySource, techSelectSource].join("\n");
+const styles = await read("../src/styles.css");
+const indexHtml = await read("../index.html");
+const packageJson = JSON.parse(await read("../package.json"));
+const workflow = await read("../../../.github/workflows/test.yml");
+
+test("App.jsx stays a state machine; views live in their own modules", () => {
+  assert.ok(appSource.split("\n").length <= 420, "App.jsx must not grow back into a monolith");
+  for (const name of ["StartView", "ConfirmView", "GeneratingView", "CandidatesView", "RefineView", "CompareView", "ExportView", "LibraryView", "ErrorView"]) {
+    assert.match(appSource, new RegExp(`import \\{ ${name} \\} from "./views/${name}.jsx"`));
+    assert.doesNotMatch(appSource, new RegExp(`function ${name}\\(`));
+  }
+});
 
 test("every quota-capable entry point asserts the authoritative runtime mode", () => {
   for (const name of ["prepareInitial", "startCurrentBrief", "getCritique", "prepareRevision"]) {
-    const start = source.indexOf(`async function ${name}`);
+    const start = appSource.indexOf(`async function ${name}`);
     assert.notEqual(start, -1, `${name} must exist`);
-    const body = source.slice(start, start + 420);
+    const body = appSource.slice(start, start + 420);
     assert.match(body, /assertRuntimeSafe\(\)/, `${name} must call assertRuntimeSafe()`);
   }
 });
 
 test("single-batch and version-switch handlers are wired into the rendered flow", () => {
-  assert.match(source, /const batchRunning = isBatchRunning\(batch\)/);
-  assert.match(source, /onVersion=\{switchVersion\}/);
-  assert.match(source, /loading=\{loading \|\| batchRunning \|\| !canUseStudioBackend\}/);
+  assert.match(appSource, /const batchRunning = isBatchRunning\(batch\)/);
+  assert.match(appSource, /onVersion=\{switchVersion\}/);
+  assert.match(appSource, /loading=\{loading \|\| batchRunning \|\| !canUseStudioBackend\}/);
 });
 
 test("generation controls use the custom listbox and visible multi-reference surface", () => {
   assert.doesNotMatch(source, /<select\b/);
-  assert.match(source, /function TechSelect/);
-  assert.match(source, /className="reference-file-input"/);
-  assert.match(source, /multiple onChange=/);
-  assert.match(source, /onDrop=\{/);
-  assert.match(source, /onRemoveReference/);
-  assert.match(source, /aria-activedescendant=/);
-  assert.match(source, /role="combobox"/);
-  assert.match(source, /role="option"/);
-  assert.match(source, /tabIndex=\{-1\}/);
-  assert.match(source, /if \(!loading\) onAddReferences/);
-  assert.match(source, /移除参考图.*disabled=\{loading\}/s);
+  assert.match(techSelectSource, /export function TechSelect/);
+  assert.match(startSource, /className="reference-file-input"/);
+  assert.match(startSource, /multiple onChange=/);
+  assert.match(startSource, /onDrop=\{/);
+  assert.match(startSource, /onRemoveReference/);
+  assert.match(techSelectSource, /aria-activedescendant=/);
+  assert.match(techSelectSource, /role="combobox"/);
+  assert.match(techSelectSource, /role="option"/);
+  assert.match(techSelectSource, /tabIndex=\{-1\}/);
+  assert.match(startSource, /if \(!loading\) onAddReferences/);
+  assert.match(startSource, /移除参考图.*disabled=\{loading\}/s);
   assert.match(styles, /\.tech-select-menu \[role="option"\]/);
   assert.doesNotMatch(styles, /\.tech-select-menu button/);
 });
 
 test("advanced generation controls are progressively disclosed", () => {
-  assert.match(source, /aria-controls="advanced-generation-settings"/);
-  assert.match(source, /aria-expanded=\{settingsOpen\}/);
-  assert.match(source, /id="advanced-generation-settings"/);
-  assert.match(source, /settings-summary/);
+  assert.match(startSource, /aria-controls="advanced-generation-settings"/);
+  assert.match(startSource, /aria-expanded=\{settingsOpen\}/);
+  assert.match(startSource, /id="advanced-generation-settings"/);
+  assert.match(startSource, /settings-summary/);
 });
 
 test("active creation state survives a browser refresh", () => {
-  assert.match(source, /RECOVERY_KEY/);
-  assert.match(source, /sessionStorage\.getItem/);
-  assert.match(source, /sessionStorage\.setItem/);
-  assert.match(source, /resolveRecoveryView/);
-  assert.match(source, /recovered\.batch/);
-  assert.match(source, /recovered\.selectedItem/);
+  assert.match(helpersSource, /RECOVERY_KEY/);
+  assert.match(helpersSource, /sessionStorage\.getItem/);
+  assert.match(helpersSource, /sessionStorage\.setItem/);
+  assert.match(appSource, /resolveRecoveryView/);
+  assert.match(appSource, /recovered\.batch/);
+  assert.match(appSource, /recovered\.selectedItem/);
 });
 
 test("the local library supports human search and favorites", () => {
-  assert.match(source, /type="search"/);
-  assert.match(source, /aria-label="搜索素材"/);
-  assert.match(source, /只看收藏/);
-  assert.match(source, /onToggleFavorite/);
-  assert.match(source, /libraryItemTitle/);
-  assert.match(source, /apiThumbUrl\(item\.url \|\| item\.id\)/);
-  assert.match(source, /loading="lazy"/);
-  assert.match(source, /decoding="async"/);
+  assert.match(librarySource, /type="search"/);
+  assert.match(librarySource, /aria-label="搜索素材"/);
+  assert.match(librarySource, /只看收藏/);
+  assert.match(librarySource, /onToggleFavorite/);
+  assert.match(librarySource, /libraryItemTitle/);
+  assert.match(librarySource, /apiThumbUrl\(item\.url \|\| item\.id\)/);
+  assert.match(librarySource, /loading="lazy"/);
+  assert.match(librarySource, /decoding="async"/);
 });
 
 test("clean tests do not depend on a pre-existing Sites build", () => {

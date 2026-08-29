@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -18,11 +17,11 @@ import local_image_gen as cli  # noqa: E402
 from templates import (  # noqa: E402
     TEMPLATES,
     default_styles,
+    infer_aspect_from_prompt,
     pick_template,
     split_count,
 )
 
-RESEARCH_TIMEOUT = 90
 OFFICIAL_GROK = "https://api.x.ai/v1"
 
 
@@ -35,62 +34,6 @@ def _research_token() -> Optional[Dict[str, str]]:
     if not key:
         return None
     return {"token": key, "base_url": OFFICIAL_GROK}
-
-
-def research_facts(prompt: str) -> Dict[str, Any]:
-    if os.environ.get("LOCAL_IMAGE_GEN_STUDIO_FIXTURE", "").strip().lower() in {"1", "true", "yes"}:
-        return {"searched": False, "error": None, "facts": []}
-    auth = _research_token()
-    if not auth:
-        return {
-            "searched": False,
-            "error": "没有可用的官方 Grok 文本（需要 grok login 或 XAI_API_KEY）。未检索，请在确认卡补全事实。",
-            "facts": [],
-        }
-    body = {
-        "model": "grok-4.6",
-        "tools": [{"type": "web_search"}],
-        "input": [
-            {
-                "role": "system",
-                "content": (
-                    "You research facts to complete an image brief. "
-                    "Search the official web. Return ONLY JSON: "
-                    '{"facts":[{"text":"...","source":"search"}]} . '
-                    "Only complete dates, places, and wording the user already referred to. "
-                    "Never add a person, company, product, or brand the user did not write. "
-                    "Never add founder bios or wordmarks to paint. "
-                    "If unknown, omit. Do not invent URLs, QR codes, or prices. "
-                    "If the user names a color, treat it as a palette, not a trademark lecture. "
-                    "Keep the user's language."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
-    }
-    try:
-        _, payload, _ = cli.http_request(
-            f"{auth['base_url']}/responses",
-            headers={
-                "Authorization": f"Bearer {auth['token']}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            body=json.dumps(body).encode("utf-8"),
-            timeout=RESEARCH_TIMEOUT,
-        )
-    except cli.ImageGenError as exc:
-        return {"searched": False, "error": str(exc), "facts": []}
-    text = _response_text(payload)
-    parsed = _extract_json_object(text)
-    facts = []
-    if parsed and isinstance(parsed.get("facts"), list):
-        for item in parsed["facts"]:
-            if isinstance(item, dict) and item.get("text"):
-                facts.append({"text": str(item["text"]), "source": "search"})
-            elif isinstance(item, str) and item.strip():
-                facts.append({"text": item.strip(), "source": "search"})
-    return {"searched": True, "error": None, "facts": facts, "raw": text[:1200]}
 
 
 def _response_text(payload: Any) -> str:
@@ -174,17 +117,69 @@ def keep_search_fact(text: str, user: str) -> bool:
     return True
 
 
+REVISION_HEADER = "修改要求："
+_LEGACY_CONSTRAINT = re.compile(r"^\s*Constraints:\s*(.+?)\s*$")
+_NUMBERED = re.compile(r"^\s*\d+[.、)]\s*(.+?)\s*$")
+
+
+def split_revision_draft(draft: str) -> Tuple[str, List[str]]:
+    """Split a draft into its base text and the accumulated revision requirements.
+
+    Understands both the numbered "修改要求：" block written by
+    ``merge_revision_draft`` and legacy ``Constraints: …`` lines.
+    """
+    base_lines: List[str] = []
+    reqs: List[str] = []
+    in_block = False
+    for line in (draft or "").splitlines():
+        stripped = line.strip()
+        legacy = _LEGACY_CONSTRAINT.match(line)
+        if legacy:
+            reqs.append(legacy.group(1))
+            continue
+        if stripped == REVISION_HEADER:
+            in_block = True
+            continue
+        if in_block:
+            numbered = _NUMBERED.match(line)
+            if numbered:
+                reqs.append(numbered.group(1))
+            elif stripped:
+                reqs.append(stripped)
+            continue
+        base_lines.append(line)
+    base = "\n".join(base_lines).rstrip()
+    deduped: List[str] = []
+    for item in reqs:
+        if item and item not in deduped:
+            deduped.append(item)
+    return base, deduped
+
+
+def merge_revision_draft(draft: str, message: str) -> Tuple[str, List[str]]:
+    """Rebuild the next-version draft: base text + one numbered requirement list.
+
+    Requirements never repeat and never nest, so the Nth revision is the base
+    plus N lines — not N copies of the previous draft.
+    """
+    base, reqs = split_revision_draft(draft)
+    text = (message or "").strip()
+    if text and text not in reqs:
+        reqs.append(text)
+    if not reqs:
+        return base, []
+    block = "\n".join(f"{index}. {item}" for index, item in enumerate(reqs, start=1))
+    return f"{base}\n{REVISION_HEADER}\n{block}", reqs
+
+
+GPT_IMAGE_ASPECTS = ("1:1", "3:2", "2:3")
+
+
 def aspect_warning(provider: str, aspect: str) -> Optional[str]:
-    if provider != "codex" or not aspect:
+    """gpt-image canvases only come in 1:1 / 3:2 / 2:3; say so before confirmation."""
+    if provider not in {"codex", "openai"} or not aspect or aspect in GPT_IMAGE_ASPECTS:
         return None
-    mapped = cli.CODEX_ASPECT_TO_SIZE.get(aspect)
-    if not mapped:
-        return f"Codex 不认识 {aspect}，会按 1024×1024 去要。"
-    return (
-        f"你要 {aspect}。Codex 实验通道只会按 {mapped} 去要，"
-        "实际常画成 9:16。出图后会尽量顶对齐裁回目标比例，标题在上方时更安全。"
-        "人像保真和中文排版要更好，换 Grok 或官方 OpenAI Images。"
-    )
+    return f"{provider} 只能出 {' / '.join(GPT_IMAGE_ASPECTS)}；{aspect} 会被拒绝，请在设置里换一个比例。"
 
 
 def is_series_request(
@@ -242,17 +237,13 @@ def build_job_prompt(
 ) -> str:
     template = TEMPLATES[template_id]
     headlines = extract_headlines(user)
-    usable_facts = [
-        item["text"]
-        for item in facts[:8]
-        if item.get("source") == "user" or keep_search_fact(str(item.get("text") or ""), user)
-    ]
-    fact_lines = "；".join(usable_facts)
+    # `facts` stays in the signature for callers, but the draft never echoes the
+    # user's own lines back as "事实：" — the draft is exactly what gets sent.
+    del facts
     parts = [
         user.strip(),
         f"风格：{style}。" if style and style != "主风格" else "",
-        f"事实：{fact_lines}。" if fact_lines else "",
-        str(template["ban"]),
+        str(template.get("ban") or ""),
     ]
     if beat and series_total:
         parts.append(
@@ -289,7 +280,15 @@ def brief(
         return {"success": False, "error": "请先写一句要画什么。"}
     chosen = pick_template(text, template_id)
     template = TEMPLATES[chosen]
-    wanted_aspect = aspect or str(template["aspect"] or "1:1")
+    prompt_aspect = infer_aspect_from_prompt(text)
+    if aspect:
+        wanted_aspect, aspect_source = aspect, "user"
+    elif template.get("aspect"):
+        wanted_aspect, aspect_source = str(template["aspect"]), "template"
+    elif prompt_aspect:
+        wanted_aspect, aspect_source = prompt_aspect, "prompt"
+    else:
+        wanted_aspect, aspect_source = "1:1", "default"
     # The confirmation card is a consent boundary. Building it must be local:
     # no web search, no text-model rewrite, and no cross-provider fallback.
     facts = user_facts(text)
@@ -394,6 +393,7 @@ def brief(
         "template_label": template["label"],
         "overlay_slot": template.get("overlay_slot"),
         "mode": mode,
+        "aspect_source": aspect_source,
         "preflight": "local",
         "suggested_candidates": len(jobs),
         "searched": False,

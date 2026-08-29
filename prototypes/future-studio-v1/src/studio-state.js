@@ -68,6 +68,7 @@ export function parseStudioRecovery(raw) {
     critique: value.critique && typeof value.critique === "object" ? value.critique : null,
     instruction: typeof value.instruction === "string" ? value.instruction : "",
     intent: value.intent || "initial",
+    batchStartedAt: Number(value.batchStartedAt) > 0 ? Number(value.batchStartedAt) : null,
   };
 }
 
@@ -79,4 +80,18 @@ export function resolveRecoveryView(requested, recovered = {}) {
   if (view === "candidates") return recovered.generatedItems?.length ? view : "start";
   if (["start", "library", "error"].includes(view)) return view;
   return "start";
+}
+
+export function jumpOptionIndex(options, edge) {
+  if (!options?.length) return 0;
+  const order = edge === "end" ? [...options.keys()].reverse() : [...options.keys()];
+  const hit = order.find((index) => !options[index]?.disabled);
+  return hit ?? 0;
+}
+
+export function formatElapsed(ms) {
+  const total = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }

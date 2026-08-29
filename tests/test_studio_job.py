@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "studio"))
 
 import director as director_mod  # noqa: E402
-from director import look_at_image, parse_look_payload, parse_revise_payload, revise_turn  # noqa: E402
+from director import look_at_image, parse_look_payload  # noqa: E402
 from cases import list_cases, passes_engagement  # noqa: E402
 from job import (  # noqa: E402
     brief,
@@ -59,10 +59,8 @@ class CaseCatalogTests(unittest.TestCase):
 class TemplateTests(unittest.TestCase):
     def test_brief_is_local_and_quota_free_before_confirmation(self) -> None:
         """Opening the confirmation card must not contact a text/search model."""
-        with patch("job.research_facts") as research:
-            card = brief("内部未公开新品海报", provider="grok")
+        card = brief("内部未公开新品海报", provider="grok")
 
-        research.assert_not_called()
         self.assertTrue(card["success"])
         self.assertEqual(card["preflight"], "local")
         self.assertIn("确认前未调用外部文本或搜索模型", card["warnings"])
@@ -116,8 +114,7 @@ class TemplateTests(unittest.TestCase):
         )
         self.assertEqual(parse_beats("小视频配图三张", "reel")[0], "开场静帧")
 
-    @patch("job.research_facts", return_value={"searched": False, "facts": [], "error": None})
-    def test_brief_series_and_parallel(self, _research) -> None:
+    def test_brief_series_and_parallel(self) -> None:
         series = brief("帮她生成一套商务形象照", provider="grok")
         self.assertEqual(series["mode"], "series")
         self.assertEqual(len(series["jobs"]), 3)
@@ -134,8 +131,7 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(parallel["template"], "calendar-poster")
         self.assertEqual(parallel["suggested_candidates"], 3)
 
-    @patch("job.research_facts", return_value={"searched": False, "facts": [], "error": None})
-    def test_brief_candidates_are_identical_samples(self, _research) -> None:
+    def test_brief_candidates_are_identical_samples(self) -> None:
         card = brief("一张封面", provider="grok")
         self.assertEqual(card["mode"], "candidates")
         self.assertEqual(card["suggested_candidates"], 2)
@@ -237,28 +233,6 @@ class DirectorTests(unittest.TestCase):
         self.assertIn("副标题", parsed["issues"][0]["detail"])
         self.assertEqual(parsed["next"], "把字上移")
 
-    def test_revise_defaults_to_edit(self) -> None:
-        parsed = parse_revise_payload(
-            '{"mode":"edit","draft":"Use case: ads-marketing\\nKeep the face","reason":"只改字"}',
-            message="字大一点",
-            draft="old",
-            last_image="images/a.png",
-        )
-        self.assertEqual(parsed["mode"], "edit")
-        self.assertEqual(parsed["images"], ["images/a.png"])
-        self.assertIn("字大一点", parsed["draft"])
-
-    def test_revise_restart_is_generate(self) -> None:
-        parsed = parse_revise_payload(
-            '{"mode":"edit","draft":"new","reason":"x"}',
-            message="不要这张，从零再来",
-            draft="old",
-            last_image="images/a.png",
-        )
-        self.assertEqual(parsed["mode"], "generate")
-        self.assertEqual(parsed["images"], [])
-
-
 def _minimal_png(width: int, height: int) -> bytes:
     import struct
     import zlib
@@ -341,29 +315,6 @@ class LookBackendTests(unittest.TestCase):
         self.assertTrue(result["looked"])
         self.assertEqual(result["backend"], "codex")
         self.assertTrue(any("chatgpt.com" in url for url in captured))
-
-    def test_revise_falls_back_without_image(self) -> None:
-        with patch.object(
-            director_mod,
-            "list_look_backends",
-            return_value=[
-                {
-                    "provider": "openai",
-                    "auth": "api_key",
-                    "token": "sk",
-                    "base_url": "https://api.openai.com/v1",
-                }
-            ],
-        ), patch.object(
-            director_mod.cli,
-            "http_request",
-            return_value=(200, {"choices": [{"message": {"content": '{"mode":"edit","draft":"keep face","reason":"只改字"}'}}]}, {}),
-        ):
-            result = revise_turn("字大一点", draft="old", last_image="images/a.png")
-        self.assertTrue(result["success"])
-        self.assertEqual(result["backend"], "openai")
-        self.assertEqual(result["mode"], "edit")
-
 
 class ReceiptTests(unittest.TestCase):
     def test_crop_receipt_merges_parent_prompt(self) -> None:

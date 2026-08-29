@@ -16,8 +16,6 @@ generated_images/
 *.webp
 !docs/*.png
 !docs/*.jpg
-!studio/static/templates/*.svg
-!studio/static/templates/*.jpg
 prototypes/future-studio-v1/node_modules/
 prototypes/future-studio-v1/dist/
 prototypes/future-studio-v1/playwright-report/

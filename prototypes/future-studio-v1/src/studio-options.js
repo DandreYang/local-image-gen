@@ -77,9 +77,174 @@ export function validateRuntimeMode(declaredFixture, runtimeFixture) {
 export function getRuntimeAccess({ doctorSuccess, declaredFixture, runtimeFixture, usableProviderCount }) {
   const modeError = doctorSuccess ? validateRuntimeMode(declaredFixture, runtimeFixture) : "";
   const backendReady = Boolean(doctorSuccess && (runtimeFixture === true || usableProviderCount > 0));
+  const backendState = !doctorSuccess ? "offline" : backendReady ? "ready" : "no-provider";
   return {
     backendReady,
+    backendState,
     modeError,
     canUse: backendReady && !modeError,
   };
+}
+
+/**
+ * Settings to reuse when the user picks up a finished work again.
+ * Returns a warning when the work's provider is no longer usable, plus an
+ * updater for React state that keeps every unrelated field as-is.
+ */
+/**
+ * The aspect a next version should request for an existing work: the measured
+ * ratio when it is one the providers understand, else the ratio that was
+ * requested, else "" (按模板). Odd uploads never leak "1000x700"-style values.
+ */
+export function supportedAspect(item = {}) {
+  for (const candidate of [item.aspect_ratio, item.aspect_requested]) {
+    if (candidate && ASPECTS.includes(candidate)) return candidate;
+  }
+  return "";
+}
+
+export function settingsFromItem(item, { fixture, usableProviders, models, fallbackProvider }) {
+  const providerAvailable = fixture || !item.provider || (usableProviders || []).some((row) => row.provider === item.provider);
+  const warning = providerAvailable
+    ? ""
+    : `历史作品使用的 ${item.provider} 当前不可用；下一版将使用 ${fallbackProvider}，请在首屏确认后再生成。`;
+  const apply = (current) => {
+    const provider = providerAvailable && item.provider ? item.provider : current.provider;
+    const requestedModel = item.model_requested || item.model;
+    const model = (models || []).some((row) => row.model === requestedModel && modelMatchesProvider(provider, row)) ? requestedModel : current.model;
+    return {
+      ...current,
+      provider,
+      model,
+      template: item.template || current.template,
+      aspect: supportedAspect(item) || current.aspect,
+      resolution: item.resolution_requested || current.resolution,
+      quality: item.quality_requested || item.quality || current.quality,
+    };
+  };
+  return { warning, apply };
+}
+
+// ---- Truth: options are capabilities (2026-08-30 spec N1) ----------------------
+
+/**
+ * Models the user may actually pick: only providers `doctor` reports usable,
+ * deduplicated in `auto` mode and labelled with the provider that serves them.
+ */
+export function usableModelOptions(models, providers, provider) {
+  const usable = new Set((providers || []).filter(providerUsable).map((row) => row.provider));
+  const wanted = !provider || provider === "auto" ? null : provider;
+  const seen = new Set();
+  const rows = [];
+  for (const row of models || []) {
+    if (!usable.has(row.provider)) continue;
+    if (wanted && row.provider !== wanted) continue;
+    if (!wanted && seen.has(row.model)) continue;
+    seen.add(row.model);
+    rows.push({ value: row.model, label: wanted ? row.model : `${row.model} · ${row.provider}`, provider: row.provider, row });
+  }
+  return rows;
+}
+
+export function resolutionOptionsFor(modelRow) {
+  return ["", ...((modelRow && modelRow.resolutions) || [])];
+}
+
+export function qualityOptionsFor(modelRow) {
+  const list = (modelRow && modelRow.qualities) || [];
+  return list.length ? [...list] : ["auto"];
+}
+
+export function aspectOptionsFor(models, provider, model) {
+  const wanted = !provider || provider === "auto" ? null : provider;
+  // In auto mode the chosen model decides (its first row carries the provider's aspects);
+  // with no model chosen yet nothing is known, so nothing is disabled.
+  const row = (models || []).find((item) => (wanted ? item.provider === wanted : Boolean(model)) && (!model || item.model === model));
+  const allowed = row && Array.isArray(row.aspects) && row.aspects.length ? new Set(row.aspects) : null;
+  return ASPECTS.map((value) => ({ value, label: value || "按模板", disabled: Boolean(allowed && value && !allowed.has(value)) }));
+}
+
+export function platformShortcutLabel(platform = typeof navigator !== "undefined" ? navigator.platform : "") {
+  return /mac|iphone|ipad/i.test(String(platform || "")) ? "⌘↩" : "Ctrl+Enter";
+}
+
+// ---- Flow: first run, refine details, library organisation -------------------
+
+const CONNECT_HELP = {
+  grok: { title: "Grok（xAI 订阅）", command: "grok login" },
+  codex: { title: "Codex（ChatGPT 登录 · 实验）", command: "codex auth login" },
+  gemini: { title: "官方 Gemini API", command: "echo 'GEMINI_API_KEY=…' >> ~/.local-image-gen.env" },
+  openai: { title: "官方 OpenAI API", command: "echo 'OPENAI_API_KEY=…' >> ~/.local-image-gen.env" },
+  xai: { title: "官方 xAI API", command: "echo 'XAI_API_KEY=…' >> ~/.local-image-gen.env" },
+  antigravity: { title: "Antigravity（agy）", command: "" },
+  cursor: { title: "Cursor Agent", command: "" },
+};
+
+/** One row per connectable provider: what it is, the exact command, and its state. */
+export function connectRows(providers) {
+  return (providers || [])
+    .filter((row) => CONNECT_HELP[row.provider] || row.studio_enabled === false)
+    .map((row) => {
+      const help = CONNECT_HELP[row.provider] || { title: row.provider, command: "" };
+      const state = row.studio_enabled === false ? "blocked" : row.subscription || row.api_key ? "ready" : "missing";
+      return {
+        provider: row.provider,
+        title: help.title,
+        command: help.command,
+        state,
+        note: state === "blocked" ? row.studio_disabled_reason || "" : "",
+      };
+    });
+}
+
+export function versionLabel(versions, item) {
+  const list = versions || [];
+  const index = Math.max(0, list.findIndex((row) => row.id === item?.id));
+  return `V${index + 1} · 共 ${Math.max(1, list.length)} 版`;
+}
+
+function withRequested(actual, requested) {
+  if (actual && requested && actual !== requested) return `${actual}（请求 ${requested}）`;
+  return actual || (requested ? `请求 ${requested}` : "—");
+}
+
+/** Requested vs measured facts for the details fold. */
+export function itemFactRows(item = {}) {
+  const pixels = item.actual_width && item.actual_height ? `${item.actual_width}x${item.actual_height}` : item.size || "";
+  return [
+    { label: "通路 / 模型", value: `${item.provider || item.provider_requested || "—"} · ${item.model || item.model_requested || "默认"}` },
+    { label: "比例", value: withRequested(item.aspect_ratio, item.aspect_requested) },
+    { label: "像素", value: withRequested(pixels, item.resolution_requested) },
+    { label: "格式", value: item.actual_mime || "—" },
+    { label: "质量", value: withRequested(item.quality, item.quality_requested) },
+    { label: "文件", value: item.name || "—" },
+  ];
+}
+
+function itemTimestamp(item) {
+  const iso = item?.created_at ? Date.parse(item.created_at) : NaN;
+  if (Number.isFinite(iso)) return iso;
+  const mtime = Number(item?.mtime);
+  return Number.isFinite(mtime) && mtime > 0 ? mtime * 1000 : 0;
+}
+
+const GROUP_TITLES = { today: "今天", yesterday: "昨天", week: "本周", older: "更早" };
+
+/** Newest first, bucketed by local calendar day: 今天 / 昨天 / 本周 / 更早. */
+export function groupLibraryItems(items, now = Date.now()) {
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const buckets = { today: [], yesterday: [], week: [], older: [] };
+  const sorted = [...(items || [])].sort((a, b) => itemTimestamp(b) - itemTimestamp(a));
+  for (const item of sorted) {
+    const stamp = itemTimestamp(item);
+    if (stamp >= today.getTime()) buckets.today.push(item);
+    else if (stamp >= today.getTime() - dayMs) buckets.yesterday.push(item);
+    else if (stamp >= today.getTime() - 6 * dayMs) buckets.week.push(item);
+    else buckets.older.push(item);
+  }
+  return Object.keys(buckets)
+    .filter((key) => buckets[key].length)
+    .map((key) => ({ key, title: GROUP_TITLES[key], items: buckets[key] }));
 }

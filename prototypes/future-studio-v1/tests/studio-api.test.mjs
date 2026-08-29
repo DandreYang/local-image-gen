@@ -7,7 +7,9 @@ import {
   confirmGenerate,
   createBrief,
   loadCapabilities,
+  optimizeDraft,
   patchReceipt,
+  trashItem,
   uploadReferences,
 } from "../src/studio-api.js";
 import { isLoopbackAddress } from "../vite.config.mjs";
@@ -188,7 +190,7 @@ test("runtime mode handshake fails closed for unknown or mismatched backends", (
 test("runtime access allows credential-free fixture but blocks every mismatch", () => {
   assert.deepEqual(
     getRuntimeAccess({ doctorSuccess: true, declaredFixture: true, runtimeFixture: true, usableProviderCount: 0 }),
-    { backendReady: true, modeError: "", canUse: true },
+    { backendReady: true, backendState: "ready", modeError: "", canUse: true },
   );
   assert.equal(
     getRuntimeAccess({ doctorSuccess: true, declaredFixture: true, runtimeFixture: false, usableProviderCount: 4 }).canUse,
@@ -198,4 +200,50 @@ test("runtime access allows credential-free fixture but blocks every mismatch", 
     getRuntimeAccess({ doctorSuccess: true, declaredFixture: false, runtimeFixture: undefined, usableProviderCount: 4 }).canUse,
     false,
   );
+});
+
+test("optimizeDraft posts the current draft to the explicit opt-in route", async () => {
+  const originalFetch = globalThis.fetch;
+  let captured;
+  globalThis.fetch = async (url, options) => {
+    captured = { url, options };
+    return jsonResponse({ success: true, draft: "改写后", backend: { provider: "grok", model: "grok-4.6" }, calls: 1 });
+  };
+  try {
+    const payload = await optimizeDraft({ prompt: "原稿", provider: "grok", aspect: "16:9" });
+    assert.equal(captured.url, "/studio-api/api/optimize-draft");
+    assert.equal(captured.options.method, "POST");
+    assert.deepEqual(JSON.parse(captured.options.body), { prompt: "原稿", provider: "grok", aspect: "16:9" });
+    assert.equal(payload.draft, "改写后");
+    assert.equal(payload.calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("optimizeDraft surfaces a failed rewrite as an error, never as a silent fallback", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => jsonResponse({ success: false, error: "no text backend" }, 502);
+  try {
+    await assert.rejects(optimizeDraft({ prompt: "原稿" }), /no text backend/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("trashItem posts the library id to /api/trash", async () => {
+  const originalFetch = globalThis.fetch;
+  let captured;
+  globalThis.fetch = async (url, options) => {
+    captured = { url, options };
+    return jsonResponse({ success: true, moved: ["images/a.png"] });
+  };
+  try {
+    const payload = await trashItem("images/a.png");
+    assert.equal(captured.url, "/studio-api/api/trash");
+    assert.deepEqual(JSON.parse(captured.options.body), { id: "images/a.png" });
+    assert.deepEqual(payload.moved, ["images/a.png"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

@@ -34,6 +34,7 @@ GROUPS = {
     "isometric", "environment", "graphic", "habitat", "void",
     "beads", "paper", "sketch",
     "edit",
+    "free",
 }
 
 

@@ -21,7 +21,7 @@
   <h1>Path A 框外像素探针</h1>
   <p>
     验收 #7：路径 A 回贴后，框<strong>外</strong> RGB 必须与原图逐字节相同。
-    本页用的公式与 <code>studio/static/js/lib/canvas.js</code> 相同
+    本页用的公式与 Studio 导出裁切（prototypes/future-studio-v1/src/export-utils.js）同源
     （<code>pctToPixels</code> = <code>Math.round</code>，羽化 2% 且只向框内）。
     本页既可手工运行，也由 Future Studio Playwright 门在 Chromium 中执行真实 PNG 编解码与逐像素检查。
   </p>
@@ -52,7 +52,7 @@
   <pre id="report">还没跑。</pre>
 
   <script>
-    // Keep these bodies identical to studio/static/js/lib/canvas.js.
+    // Keep these bodies identical to the Studio export crop helpers.
     function pctToPixels(pct, size) {
       return Math.round((Number(pct) / 100) * size);
     }

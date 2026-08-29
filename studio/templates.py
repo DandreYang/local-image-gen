@@ -289,7 +289,25 @@ TEMPLATES: Dict[str, Dict[str, object]] = {
             "单张速写，不要精修写真，不要九宫格。"
         ),
     },
+    # No keyword matched and the user picked nothing: send their words untouched.
+    "free": {
+        "label": "自由画面",
+        "profile": "",
+        "aspect": "",
+        "ban": "",
+    },
 }
+
+# Deterministic aspect hints read from the user's own words (free template only).
+ASPECT_HINTS = (
+    (("16:9", "宽银幕", "横版", "横幅", "banner", "横图"), "16:9"),
+    (("9:16", "竖屏", "手机壁纸", "竖视频"), "9:16"),
+    (("3:4", "竖版", "竖图"), "3:4"),
+    (("4:3",), "4:3"),
+    (("1:1", "方图", "正方形", "方形"), "1:1"),
+    (("3:2",), "3:2"),
+    (("2:3",), "2:3"),
+)
 
 KEYWORD_TO_TEMPLATE = (
     (("小视频", "视频封面", "视频配图", "首帧", "抖音封面", "短视频", "竖视频"), "reel"),
@@ -337,7 +355,16 @@ def pick_template(prompt: str, explicit: str = "") -> str:
     for keys, template_id in KEYWORD_TO_TEMPLATE:
         if any(key in text for key in keys):
             return template_id
-    return "cover"
+    return "free"
+
+
+def infer_aspect_from_prompt(prompt: str) -> str:
+    """Return an aspect named in the prompt (`16:9`, 竖版, 方图…) or "" when none is."""
+    text = (prompt or "").lower()
+    for keys, aspect in ASPECT_HINTS:
+        if any(key.lower() in text for key in keys):
+            return aspect
+    return ""
 
 
 def split_count(prompt: str) -> int:

@@ -25,29 +25,53 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
-from director import look_at_image, revise_turn
-from job import brief as build_brief
+from director import look_at_image
+from job import brief as build_brief, merge_revision_draft
 from snippets import add_snippet, color_sentence, delete_snippet, list_snippets as load_snippets
 import local_image_gen as cli
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 CLI = WORKSPACE / "scripts" / "local_image_gen.py"
-STATIC = Path(__file__).resolve().parent / "static"
 CLIENT = Path(__file__).resolve().parent / "client"
 STUDIO_API_PREFIX = "/studio-api"
 
 
+def studio_fixture_enabled() -> bool:
+    return os.environ.get("LOCAL_IMAGE_GEN_STUDIO_FIXTURE", "").strip().lower() in {"1", "true", "yes"}
+
+
+def fixture_outputs_root() -> Path:
+    """Fixture runs get their own store so canned images never touch the real library."""
+    return (cli.default_share_home() / "fixture-outputs").resolve()
+
+
+def _fixture_requested_before_import() -> bool:
+    if studio_fixture_enabled():
+        return True
+    return Path(sys.argv[0]).name == "server.py" and "--fixture" in sys.argv[1:]
+
+
 def resolve_outputs_root() -> Path:
-    """Studio storage follows the CLI: workspace/outputs → ~/.local-image-gen store."""
+    """Studio storage follows the CLI: workspace/outputs → ~/.local-image-gen store.
+
+    Priority: explicit Studio override > fixture store > CLI store override >
+    Dyro workspace store > package-local ``outputs``. Overrides are used as-is
+    and never re-point a workspace ``outputs`` link.
+    """
     override = os.environ.get("LOCAL_IMAGE_GEN_STUDIO_OUTPUTS", "").strip()
     if override:
         return Path(os.path.expanduser(override)).resolve()
+    if _fixture_requested_before_import():
+        return fixture_outputs_root()
     for start in (Path.cwd(), WORKSPACE):
         found = cli.find_dyro_workspace(start)
         if found is not None:
             name = cli.dyro_workspace_name(found) or found.name
             store = cli.generated_images_root(name)
-            return cli.ensure_outputs_link(found / "outputs", store)
+            if cli.outputs_store_overridden():
+                # Explicit store override: a pure sink, never touches the workspace link.
+                return store
+            return cli.workspace_outputs_dir(found, store)
     return WORKSPACE / "outputs"
 
 
@@ -64,10 +88,6 @@ def ensure_private_storage_root(root: Path, images: Path) -> None:
             os.chmod(path, 0o700)
         except OSError:
             pass
-
-
-def studio_fixture_enabled() -> bool:
-    return os.environ.get("LOCAL_IMAGE_GEN_STUDIO_FIXTURE", "").strip().lower() in {"1", "true", "yes"}
 
 
 def fixture_png_bytes() -> bytes:
@@ -240,7 +260,7 @@ def print_studio_banner(host: str, port: int) -> None:
     else:
         print(f"outputs      {OUTPUTS}", flush=True)
     if studio_fixture_enabled():
-        print("fixture      on  (no model quota)", flush=True)
+        print("fixture      on  (no model quota; canned images stay in the fixture store above)", flush=True)
 
 
 def maybe_open_browser(url: str, *, open_browser: bool) -> None:
@@ -282,12 +302,24 @@ def studio_doctor_payload(*, skip_update_check: bool = True) -> Dict[str, Any]:
     payload["studio_runtime"] = {
         "fixture": studio_fixture_enabled(),
         "bind_host": BIND_HOST,
+        "outputs_root": str(OUTPUTS),
     }
     return payload
 
 
 STUDIO_UNSAFE_AGENT_PROVIDERS = {"agy", "antigravity", "cursor"}
 STUDIO_SAFE_PROVIDER_ORDER = ("grok", "codex", "gemini", "xai", "openai")
+
+# Aspects a provider can actually draw. gpt-image canvases are 1024x1024,
+# 1536x1024 and 1024x1536 only; anything else would be a cropped promise.
+PROVIDER_ASPECTS: Dict[str, Tuple[str, ...]] = {
+    "codex": ("1:1", "3:2", "2:3"),
+    "openai": ("1:1", "3:2", "2:3"),
+}
+
+
+def provider_aspects(provider: Any) -> Tuple[str, ...]:
+    return PROVIDER_ASPECTS.get(str(provider or ""), tuple(cli.SUPPORTED_ASPECTS))
 
 
 def studio_provider_allowed(provider: Any) -> bool:
@@ -365,16 +397,20 @@ def studio_models_payload() -> Dict[str, Any]:
             "qualities": list(meta.get("qualities") or ()),
         }
         catalog_provider = str(meta.get("provider") or "")
+
+        def row_for(provider: str) -> Dict[str, Any]:
+            return {**base, "provider": provider, "aspects": list(provider_aspects(provider))}
+
         if catalog_provider == "antigravity":
-            rows.append({**base, "provider": "gemini"})
+            rows.append(row_for("gemini"))
         elif catalog_provider == "grok":
-            rows.append({**base, "provider": "grok"})
-            rows.append({**base, "provider": "xai"})
+            rows.append(row_for("grok"))
+            rows.append(row_for("xai"))
         elif catalog_provider == "codex":
-            rows.append({**base, "provider": "codex"})
-            rows.append({**base, "provider": "openai"})
+            rows.append(row_for("codex"))
+            rows.append(row_for("openai"))
         elif studio_provider_allowed(catalog_provider):
-            rows.append({**base, "provider": catalog_provider})
+            rows.append(row_for(catalog_provider))
     return {"success": True, "models": rows}
 
 
@@ -701,6 +737,7 @@ def write_media_receipt(path: Path, payload: Dict[str, Any]) -> None:
             "model": payload.get("model"),
             "model_requested": payload.get("model_requested"),
             "aspect_ratio": payload.get("aspect_ratio"),
+            "aspect_requested": payload.get("aspect_requested"),
             "quality": payload.get("quality"),
             "quality_requested": payload.get("quality_requested"),
             "resolution": payload.get("resolution"),
@@ -769,6 +806,8 @@ def stamp_job_meta(result: Dict[str, Any], job: Dict[str, Any], used: str) -> Di
     aspect = job.get("aspect") or result.get("aspect_ratio")
     if aspect:
         result["aspect_ratio"] = aspect
+    if job.get("aspect"):
+        result["aspect_requested"] = job["aspect"]
     prompt = result.get("prompt") if isinstance(result.get("prompt"), dict) else {}
     if used:
         result["prompt"] = {
@@ -843,6 +882,8 @@ def sniff_image_suffix(data: bytes) -> Optional[str]:
         return ".png"
     if data.startswith(JPEG_MAGIC):
         return ".jpg"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
     return None
 
 
@@ -853,7 +894,7 @@ def actual_image_facts(path: Path) -> Dict[str, Any]:
     except OSError:
         return {}
     suffix = sniff_image_suffix(head)
-    mime = {".png": "image/png", ".jpg": "image/jpeg"}.get(suffix or "")
+    mime = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp"}.get(suffix or "")
     try:
         width, height = cli.read_image_dimensions(path)
     except (OSError, ValueError, cli.ImageGenError):
@@ -929,6 +970,17 @@ def load_receipt(path: Path) -> Optional[Dict[str, Any]]:
     return merged
 
 
+def aspect_from_pixels(width: int, height: int) -> str:
+    """Nearest supported ratio within tolerance, else the exact reduced ratio."""
+    described = cli.describe_dimensions(width, height)
+    if ":" in described:
+        return described
+    from math import gcd
+
+    factor = gcd(int(width), int(height)) or 1
+    return f"{int(width) // factor}:{int(height) // factor}"
+
+
 def peek_png_size(path: Path) -> Optional[Tuple[int, int]]:
     try:
         with path.open("rb") as handle:
@@ -953,18 +1005,19 @@ def media_item(path: Path) -> Dict[str, Any]:
             cropped_from = str(parent_path)
     aspect = None
     raw_aspect = (receipt or {}).get("aspect_ratio")
-    if crop_match:
-        aspect = f"{crop_match.group(1)}:{crop_match.group(2)}"
-    elif isinstance(raw_aspect, str) and raw_aspect and " or " not in raw_aspect:
-        aspect = raw_aspect
     actual = actual_image_facts(path)
     pixels = (
         (int(actual["actual_width"]), int(actual["actual_height"]))
         if actual.get("actual_width") and actual.get("actual_height")
         else None
     )
-    if not aspect and pixels:
-        aspect = cli.describe_dimensions(*pixels)
+    if crop_match:
+        aspect = f"{crop_match.group(1)}:{crop_match.group(2)}"
+    elif pixels:
+        # The picture on disk is the truth; the requested ratio stays in aspect_requested.
+        aspect = aspect_from_pixels(*pixels)
+    elif isinstance(raw_aspect, str) and raw_aspect and " or " not in raw_aspect:
+        aspect = raw_aspect
     size = f"{pixels[0]}x{pixels[1]}" if pixels else (receipt or {}).get("size")
     created = (receipt or {}).get("created_at")
     if not created:
@@ -983,6 +1036,7 @@ def media_item(path: Path) -> Dict[str, Any]:
         "model": (receipt or {}).get("model"),
         "model_requested": (receipt or {}).get("model_requested"),
         "aspect_ratio": aspect,
+        "aspect_requested": (receipt or {}).get("aspect_requested"),
         "quality": (receipt or {}).get("quality"),
         "quality_requested": (receipt or {}).get("quality_requested"),
         "resolution": size,
@@ -1379,7 +1433,12 @@ def save_composite(png: bytes, composed_from: str, overlays: Any) -> Dict[str, A
     return media_item(path)
 
 
-def compile_job(job: Dict[str, Any]) -> Dict[str, Any]:
+def optimize_draft(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Rewrite one draft with the family-matched text model via the CLI dry-run.
+
+    Only reachable through the explicit ``POST /api/optimize-draft`` action on the
+    confirmation card; nothing calls it automatically.
+    """
     prompt = str(job.get("prompt") or "")
     if studio_fixture_enabled():
         return {
@@ -1409,27 +1468,39 @@ def compile_job(job: Dict[str, Any]) -> Dict[str, Any]:
     return run_cli(args, timeout=90)
 
 
-def attach_compiled_drafts(payload: Dict[str, Any]) -> Dict[str, Any]:
-    jobs = payload.get("jobs")
-    if not isinstance(jobs, list):
-        return payload
-    warnings = list(payload.get("warnings") or [])
-    for job in jobs:
-        if not isinstance(job, dict):
-            continue
-        compiled = compile_job(job)
-        prompt_meta = compiled.get("prompt") if isinstance(compiled.get("prompt"), dict) else {}
-        used = str(prompt_meta.get("used") or "").strip()
-        job["draft"] = used or str(job.get("prompt") or "")
-        optimize = prompt_meta.get("optimize") if isinstance(prompt_meta.get("optimize"), dict) else {}
-        job["family"] = optimize.get("family")
-        if compiled.get("success") is False:
-            job["compile_error"] = compiled.get("error")
-            warnings.append("终稿编译失败，下面是未按家族改写的任务说明，可先改再出图。")
-        elif job.get("family") == "gpt_image" and "Use case:" not in job["draft"]:
-            warnings.append("Codex / gpt-image-2 终稿里没有 $imagegen 标签，请改稿或换官方 OpenAI。")
-    payload["warnings"] = warnings
-    return payload
+def run_optimize_draft(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Explicit, user-triggered rewrite of the confirmation-card draft (one text call)."""
+    prompt = str(body.get("prompt") or "").strip()
+    if not prompt:
+        raise ValueError("draft required")
+    if studio_fixture_enabled():
+        return {
+            "success": True,
+            "draft": prompt,
+            "backend": {"provider": "fixture", "model": None},
+            "calls": 0,
+            "family": "fixture",
+        }
+    job = {
+        "prompt": prompt,
+        "provider": str(body.get("provider") or "auto"),
+        "model": str(body.get("model") or ""),
+        "aspect": str(body.get("aspect") or ""),
+        "profile": str(body.get("profile") or ""),
+    }
+    compiled = optimize_draft(job)
+    if compiled.get("success") is False:
+        return {"success": False, "error": str(compiled.get("error") or "改写失败")}
+    meta = compiled.get("prompt") if isinstance(compiled.get("prompt"), dict) else {}
+    optimize = meta.get("optimize") if isinstance(meta.get("optimize"), dict) else {}
+    used = str(meta.get("used") or "").strip() or prompt
+    return {
+        "success": True,
+        "draft": used,
+        "backend": {"provider": optimize.get("text_provider"), "model": optimize.get("text_model")},
+        "calls": 1,
+        "family": optimize.get("family"),
+    }
 
 
 def saved_image_path(result: Dict[str, Any]) -> Optional[str]:
@@ -1515,7 +1586,7 @@ def commit_generated_artifact(result: Dict[str, Any], job_dir: Path) -> Dict[str
     if len(data) > COMPOSITE_MAX_BYTES:
         raise ValueError(f"provider image too large (limit {COMPOSITE_MAX_BYTES} bytes)")
     suffix = sniff_image_suffix(data[:16])
-    if suffix not in {".png", ".jpg"}:
+    if suffix not in {".png", ".jpg", ".webp"}:
         raise ValueError("provider returned an unsupported image format")
     saved = save_image_bytes(
         IMAGE_DIR,
@@ -1758,6 +1829,9 @@ def normalize_studio_jobs(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         model = settings["model"]
         if model and (provider, model) not in model_pairs:
             raise ValueError(f"model {model} is not available through Studio provider {provider}")
+        aspect = str(row.get("aspect") or "")
+        if aspect and aspect not in provider_aspects(provider):
+            raise ValueError(f"{provider} 只能出 {' / '.join(provider_aspects(provider))}，不支持 {aspect}")
         row["provider"] = provider
         row["model"] = model
         row["resolution"] = settings["resolution"]
@@ -1920,12 +1994,13 @@ def run_revise(body: Dict[str, Any]) -> Dict[str, Any]:
     draft = str(body.get("draft") or "").strip()
     restart = any(token in message.lower() for token in ("从头", "重做", "重新画", "restart", "start over"))
     mode = "generate" if restart or not last_image else "edit"
-    compiled = (draft + "\nConstraints: " + message).strip() if message else draft
+    compiled, requirements = merge_revision_draft(draft, message)
     return {
         "success": True,
         "preflight": "local",
         "mode": mode,
         "draft": compiled,
+        "requirements": requirements,
         "reason": "本地合并改稿要求；确认前未调用外部文本模型",
         "backend": "local",
         "images": [last_image] if mode == "edit" and last_image else [],
@@ -2094,19 +2169,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, target.read_bytes(), mime)
             return
         if path.startswith("/static/"):
-            target = (STATIC / path[len("/static/") :]).resolve()
-            if not is_under(target, STATIC) or not target.is_file():
-                self._send(*json_bytes({"error": "not found"}, 404))
-                return
-            if target.suffix.lower() == ".html":
-                self._send(*json_bytes({"error": "not found"}, 404))
-                return
-            # Board 2026-08-23 P2-4: historical mockups are not product surface.
-            if "mockup" in target.relative_to(STATIC).parts:
-                self._send(*json_bytes({"error": "not found"}, 404))
-                return
-            mime = STATIC_MIME.get(target.suffix.lower()) or mimetypes.guess_type(str(target))[0] or "application/octet-stream"
-            self._send(200, target.read_bytes(), mime)
+            # The legacy darkroom UI was removed on 2026-08-30; nothing is served here.
+            self._send(*json_bytes({"error": "not found"}, 404))
             return
         if path.startswith("/media/"):
             rel = path[len("/media/") :]
@@ -2257,6 +2321,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*json_bytes({"success": False, "error": str(exc)}, 400))
                 return
             self._send(*json_bytes(payload))
+            return
+        if path == "/api/optimize-draft":
+            try:
+                body = self._read_json()
+                payload = run_optimize_draft(body)
+            except (ValueError, json.JSONDecodeError) as exc:
+                self._send(*json_bytes({"success": False, "error": str(exc)}, 400))
+                return
+            self._send(*json_bytes(payload, 200 if payload.get("success") else 502))
             return
         if path == "/api/preview":
             try:

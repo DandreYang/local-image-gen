@@ -40,18 +40,6 @@ LOOK_INSTRUCTIONS = (
     "Do not offer to write code or run tools. Chinese if the user wrote Chinese."
 )
 
-REVISE_INSTRUCTIONS = (
-    "You rewrite the image prompt for the next turn of a local image studio. "
-    "The user will send a short follow-up. Default mode is edit: keep identity, composition, "
-    "and the previous picture as the base. Use generate only if they ask to start over. "
-    "If the previous draft used $imagegen labels (Use case:, Asset type:), keep that format. "
-    "Do not add a person, company, or brand the user did not write. "
-    "Return ONLY JSON: "
-    '{"mode":"edit"|"generate","draft":"...","reason":"one sentence"} .'
-    "Chinese reason if the user wrote Chinese."
-)
-
-
 def data_url_for_look(path: Path) -> str:
     src = path
     if sys.platform == "darwin" and path.is_file():
@@ -90,27 +78,6 @@ def parse_look_payload(text: str) -> Dict[str, Any]:
         "issues": issues[:8],
         "keep": keep[:6],
         "next": str(parsed.get("next") or "").strip(),
-    }
-
-
-def parse_revise_payload(text: str, *, message: str, draft: str, last_image: str) -> Dict[str, Any]:
-    parsed = _extract_json_object(text) or {}
-    mode = str(parsed.get("mode") or "edit").strip().lower()
-    restart = any(token in (message or "") for token in ("重来", "从零", "不要这张", "另画", "重新生成"))
-    if restart:
-        mode = "generate"
-    if mode not in {"edit", "generate"}:
-        mode = "edit"
-    new_draft = str(parsed.get("draft") or "").strip() or (draft or "").strip()
-    if (message or "").strip() and message.strip() not in new_draft:
-        new_draft = new_draft.rstrip() + "\nConstraints: " + message.strip()
-    images = [last_image] if mode == "edit" and last_image else []
-    return {
-        "success": True,
-        "mode": mode,
-        "draft": new_draft,
-        "reason": str(parsed.get("reason") or "").strip(),
-        "images": images,
     }
 
 
@@ -311,48 +278,4 @@ def look_at_image(path: Path, *, draft: str = "", brief: str = "") -> Dict[str, 
     payload["looked"] = True
     payload["backend"] = backend.get("provider")
     payload["raw"] = text[:1500]
-    return payload
-
-
-def revise_turn(
-    message: str,
-    *,
-    draft: str = "",
-    brief: str = "",
-    critique: Optional[Dict[str, Any]] = None,
-    last_image: str = "",
-) -> Dict[str, Any]:
-    text = (message or "").strip()
-    if not text:
-        return {"success": False, "error": "请写一句要改什么。"}
-    critique_blob = ""
-    if isinstance(critique, dict):
-        critique_blob = json.dumps(
-            {
-                "summary": critique.get("summary"),
-                "issues": critique.get("issues"),
-                "keep": critique.get("keep"),
-            },
-            ensure_ascii=False,
-        )
-    user_text = (
-        "用户原话：\n"
-        + (brief or "（无）")
-        + "\n\n上一份终稿：\n"
-        + (draft or "（无）")
-        + "\n\n看图评语：\n"
-        + (critique_blob or "（还没看图）")
-        + "\n\n用户这一句：\n"
-        + text
-        + ("\n\n有上一张图，默认改图。" if last_image else "\n\n没有上一张图，只能新画。")
-    )
-    try:
-        raw, backend = _call_director_with_fallback(REVISE_INSTRUCTIONS, user_text)
-    except cli.ImageGenError as exc:
-        return {"success": False, "error": str(exc)}
-    if not raw.strip():
-        return {"success": False, "error": "改稿没有返回文字。"}
-    payload = parse_revise_payload(raw, message=text, draft=draft, last_image=last_image)
-    payload["backend"] = backend.get("provider")
-    payload["raw"] = raw[:1200]
     return payload
