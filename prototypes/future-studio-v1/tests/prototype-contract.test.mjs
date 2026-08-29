@@ -42,7 +42,8 @@ test("single-batch and version-switch handlers are wired into the rendered flow"
 test("generation controls use the custom listbox and visible multi-reference surface", () => {
   assert.doesNotMatch(source, /<select\b/);
   assert.match(techSelectSource, /export function TechSelect/);
-  assert.match(startSource, /className="reference-file-input"/);
+  assert.match(startSource, /className="reference-file-input/);
+  assert.match(startSource, /fileInputRef\.current\?\.click\(\)/);
   assert.match(startSource, /multiple onChange=/);
   assert.match(startSource, /onDrop=\{/);
   assert.match(startSource, /onRemoveReference/);

@@ -1236,6 +1236,13 @@ test("export exposes a crop focus grid and the library can trash a work", async 
 - push `prototype/studio`（`b0af996..489d390`，`git ls-remote` 核对一致），CI run 33270053052：studio-client（Node 53 / Sites / audit / Chromium+axe e2e 7）通过；5 个 Python job 失败，唯一失败用例 `test_store_override_is_used_directly_without_workspace_link` 假定检出位于 Dyro 工作区内（本机成立、CI 不成立）。已改为在临时工作区内并 patch `Path.cwd` 复现；在工作区外复制整棵工作树（无任何环境覆盖）重跑 340 tests OK，工作区内 340 tests OK。
 - Grok 改稿链路（1 次额度）：`/api/revise` → 1 个 job 的 `/api/confirm-generate`（parent = V1），9.0 s 完成；V2 回执 `parent`/`session_id` 正确，发送终稿以「修改要求：\n1. 立方体改成品红色」结尾；浏览器：素材库「改稿版」徽标、打磨态 `V2 · 共 2 版`、版本栏 2 项、对比页 V1 / V2 两张 1280×720。
 - Codex（1 次额度）：16:9 在确认卡有警告且 `confirm-generate` 返回 400（免额度）；3:2 真实请求返回 **1254×1254（1:1）**，比例断言失败、批次按 failed 落账、未入库、未伪造成功。结论：非官方 Codex 通道只出 1:1（与 2026-08-26 那张 1254×1254 一致），`PROVIDER_ASPECTS["codex"]` 收成 `("1:1",)`，`aspect_warning` 按通路分别提示，文档同步。
+- Codex 1:1 复验（2026-08-30，用户批准 1 次额度，代码 `db16b66`）：3:2 在确认卡有「codex 只能出 1:1」警告且 `confirm-generate` 返回 400（免额度）；1:1 真实请求 24.1 s 完成，PNG 1254×1254，`aspect_requested=1:1` = 实际 `1:1`，`actual_mime=image/png`，回执与素材库一致，`/thumb/` 480×480；报告 codex 行 done 1 / failed 1（失败为此前 3:2 那次，真实落账）。
+
+### 用户反馈三项（2026-08-30 04:34）
+
+- 根因排查：`~/.local/bin/local-image-gen` 指向 `~/.local/share/local-image-gen`（`main` @ 166fd76，无 `studio` 命令）；share home 的 `studio.log` 最后一次会话为 8/27 13:33、服务旧构建 `index-FhCWaJ17.js`，`studio.pid` 无 8/26 之后的启动记录——反馈来自旧构建。
+- 下拉框底部超出屏幕：真实缺陷（菜单固定向下 + 页面 `overflow:hidden`），`TechSelect` 改为按可用空间决定向上/向下并限高；Chromium/WebKit 1440×800 复测菜单上翻、底边 601 ≤ 800。
+- 参考图无法选择 / 素材库图片无法显示：以真实素材库副本（72 张）在 Chromium 与 WebKit 复测均未复现（文件框可弹出、参考条正常、可见区缩略图全部加载、`/thumb/` 全 200）。仍加固：参考图改为按钮触发隐藏 input；缩略图改为比例盒内绝对定位填充并移除旧 16:9 规则。Node 53/53、e2e 7/7、Python 340 OK。
 
 ## 自检
 

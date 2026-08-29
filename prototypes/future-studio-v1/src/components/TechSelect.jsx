@@ -1,11 +1,27 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { CaretDown, Check } from "@phosphor-icons/react";
 import { jumpOptionIndex, moveOptionIndex } from "../studio-state.js";
 
+const MENU_MAX = 270;
+const MENU_MIN = 132;
+const MENU_GAP = 6;
+
+/** Decide whether the menu opens below or above the trigger and how tall it may be. */
+export function placeMenu(triggerRect, viewportHeight, preferred = MENU_MAX) {
+  const below = viewportHeight - triggerRect.bottom - MENU_GAP - 8;
+  const above = triggerRect.top - MENU_GAP - 8;
+  if (below >= Math.min(preferred, MENU_MIN) && (below >= preferred || below >= above)) {
+    return { direction: "down", maxHeight: Math.max(MENU_MIN, Math.min(preferred, below)) };
+  }
+  return { direction: "up", maxHeight: Math.max(MENU_MIN, Math.min(preferred, above)) };
+}
+
 export function TechSelect({ label, value, options, onChange, disabled, testId }) {
   const [open, setOpen] = useState(false);
+  const [placement, setPlacement] = useState({ direction: "down", maxHeight: MENU_MAX });
   const [activeIndex, setActiveIndex] = useState(Math.max(0, options.findIndex((option) => option.value === value)));
   const rootRef = useRef(null);
+  const triggerRef = useRef(null);
   const listId = useId();
   const labelId = useId();
   const selected = options.find((option) => option.value === value) || options[0];
@@ -21,6 +37,22 @@ export function TechSelect({ label, value, options, onChange, disabled, testId }
     }
     document.addEventListener("pointerdown", onPointer);
     return () => document.removeEventListener("pointerdown", onPointer);
+  }, [open]);
+
+  // The page clips overflow, so a menu near the bottom must open upwards (or shrink)
+  // instead of running off screen where it can never be scrolled into view.
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return undefined;
+    function measure() {
+      setPlacement(placeMenu(triggerRef.current.getBoundingClientRect(), window.innerHeight));
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
   }, [open]);
 
   function move(delta) {
@@ -54,9 +86,10 @@ export function TechSelect({ label, value, options, onChange, disabled, testId }
   }
 
   return (
-    <div className={`tech-select ${open ? "is-open" : ""}`} ref={rootRef}>
+    <div className={`tech-select ${open ? "is-open" : ""} ${open && placement.direction === "up" ? "is-up" : ""}`} ref={rootRef}>
       <span className="tech-select-label" id={labelId}>{label}</span>
       <button
+        ref={triggerRef}
         type="button"
         role="combobox"
         className="tech-select-trigger"
@@ -76,7 +109,7 @@ export function TechSelect({ label, value, options, onChange, disabled, testId }
         <CaretDown size={14} weight="bold" aria-hidden="true" />
       </button>
       {open && (
-        <div className="tech-select-menu" id={listId} role="listbox" aria-labelledby={labelId}>
+        <div className="tech-select-menu" id={listId} role="listbox" aria-labelledby={labelId} style={{ maxHeight: placement.maxHeight }} data-direction={placement.direction}>
           {options.map((option, index) => (
             <div
               key={`${option.value}:${option.label}`}

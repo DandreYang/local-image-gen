@@ -36,6 +36,7 @@ export function StartView({
   error,
 }) {
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const noProvider = backendState === "no-provider";
@@ -58,12 +59,14 @@ export function StartView({
         <StageLabel>CREATE 01</StageLabel>
         <h1 id="create-title">描述你想看到的画面</h1>
         <div className="command-shell">
-          <label className="attach-control" aria-label="添加参考图">
-            <input className="reference-file-input" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" multiple onChange={(event) => { onAddReferences(event.target.files); event.target.value = ""; }} disabled={loading} />
+          {/* A real button opens the chooser from a user gesture in every browser
+              (Safari does not reliably forward clicks through an overlaid, transparent input). */}
+          <input ref={fileInputRef} className="reference-file-input visually-hidden" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" multiple onChange={(event) => { onAddReferences(event.target.files); event.target.value = ""; }} disabled={loading} tabIndex={-1} aria-hidden="true" />
+          <button className="attach-control" type="button" aria-label="添加参考图" onClick={() => fileInputRef.current?.click()} disabled={loading}>
             <Plus size={23} weight="light" aria-hidden="true" />
             <span>{references.length ? `${references.length}/4` : "参考图"}</span>
             <small>PNG/JPG</small>
-          </label>
+          </button>
           <textarea
             ref={inputRef}
             value={prompt}
