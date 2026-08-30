@@ -2,6 +2,7 @@ export const ASPECTS = ["", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "
 
 export const TEMPLATES = [
   ["", "自动模板"],
+  ["free", "自由画面"],
   ["xiaohongshu", "小红书封面"],
   ["cover", "课程封面"],
   ["social", "社媒视觉"],
@@ -182,6 +183,15 @@ export function aspectOptionsFor(models, provider, model) {
   const row = (models || []).find((item) => (wanted ? item.provider === wanted : Boolean(model)) && (!model || item.model === model));
   const allowed = row && Array.isArray(row.aspects) && row.aspects.length ? new Set(row.aspects) : null;
   return ASPECTS.map((value) => ({ value, label: value || "按模板", disabled: Boolean(allowed && value && !allowed.has(value)) }));
+}
+
+/** Map a stored or requested canvas onto what the current provider can actually draw. */
+export function coerceAspectToCapability(aspect, aspectOptions) {
+  const enabled = (aspectOptions || []).filter((row) => row.value && !row.disabled).map((row) => row.value);
+  if (!aspect) return { aspect: "", note: "" };
+  if (!enabled.length || enabled.includes(aspect)) return { aspect, note: "" };
+  const fallback = enabled[0];
+  return { aspect: fallback, note: `该通路出不了 ${aspect}，已改为 ${fallback}。` };
 }
 
 export function platformShortcutLabel(platform = typeof navigator !== "undefined" ? navigator.platform : "") {

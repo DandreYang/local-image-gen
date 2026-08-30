@@ -444,7 +444,7 @@ class TestBatchContainment(unittest.TestCase):
             },
         }
         with patch.object(server, "_BATCHES", active), patch.object(server, "_BATCHES_LOADED", True):
-            with self.assertRaisesRegex(ValueError, "active batch"):
+            with self.assertRaisesRegex(ValueError, "批任务在运行"):
                 server.start_confirm_generate({"jobs": [{"prompt": "synthetic"}]})
 
     def test_runtime_status_counts_only_active_batches_and_jobs(self):

@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import local_image_gen as cli  # noqa: E402
 import server  # noqa: E402
-from job import brief, build_job_prompt, merge_revision_draft, split_revision_draft  # noqa: E402
+from job import brief, build_job_prompt, coerce_aspect, merge_revision_draft, split_revision_draft  # noqa: E402
 from templates import TEMPLATES, infer_aspect_from_prompt, pick_template  # noqa: E402
 
 
@@ -402,6 +402,14 @@ class CodexAspectTests(unittest.TestCase):
         self.assertEqual(item["aspect_requested"], "16:9")
         self.assertEqual(item["actual_mime"], "image/webp")
 
+    def test_unknown_template_ratio_maps_to_its_nearest_canvas_not_square(self) -> None:
+        self.assertEqual(coerce_aspect("grok", "4:5", "template"), ("3:4", "template", None))
+        aspect, source, note = coerce_aspect("codex", "4:5", "template")
+        self.assertEqual((aspect, source), ("1:1", "provider"))
+        self.assertIn("3:4 已改为 1:1", note)
+        for template_id in ("isometric", "travel-poster"):
+            self.assertIn(TEMPLATES[template_id]["aspect"], cli.SUPPORTED_ASPECTS)
+
     def test_brief_coerces_template_aspect_to_what_codex_can_draw(self) -> None:
         """A 小红书 template defaults to 3:4; under Codex the card must already say 1:1."""
         card = brief("小红书封面 主标题\n开营", provider="codex")
@@ -442,6 +450,159 @@ class CodexAspectTests(unittest.TestCase):
         self.assertIn("1:1 / 3:2 / 2:3", aspect_warning("openai", "16:9") or "")
         self.assertIsNone(aspect_warning("openai", "3:2"))
         self.assertIsNone(aspect_warning("grok", "16:9"))
+
+
+class BatchTruthTests(unittest.TestCase):
+    """2026-08-30 review: a failed batch must reach the UI as data, not as a transport error."""
+
+    def test_failed_batch_snapshot_is_still_a_successful_fetch(self) -> None:
+        rec = {
+            "id": "abc123abc123",
+            "status": "failed",
+            "mode": "single",
+            "jobs": [
+                {
+                    "id": "j1",
+                    "status": "failed",
+                    "result": {
+                        "success": False,
+                        "error": "Requested aspect 1:1 but x is 864x1821 (1:2).",
+                    },
+                }
+            ],
+        }
+        snap = server.batch_public(rec)
+        self.assertTrue(snap["success"])
+        self.assertEqual(snap["status"], "failed")
+        self.assertIn("864x1821", snap["jobs"][0]["error"])
+        self.assertIn("864x1821", snap["error"])
+
+    def test_edit_keeps_the_paid_image_when_the_backend_ignored_the_canvas(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            job_dir = Path(tmp)
+            (job_dir / "local-generated-image-1.png").write_bytes(server.fixture_png_bytes())
+            failed = {
+                "success": False,
+                "error": "Requested aspect 1:1 or 1:1 but local-generated-image-1.png is 864x1821 (1:2). The backend ignored the ratio.",
+            }
+            attached = server.attach_private_artifact(failed, job_dir)
+            self.assertTrue(attached["saved_but_failed"])
+            self.assertTrue(attached["saved_image"].endswith("local-generated-image-1.png"))
+            accepted = server.accept_edit_canvas(attached, "1:1")
+        self.assertTrue(accepted["success"])
+        self.assertTrue(accepted["aspect_mismatch"])
+        self.assertIn("1:1", accepted["warning"])
+        self.assertNotIn("error", accepted)
+        self.assertTrue(any("864x1821" in note for note in accepted["notes"]))
+
+    def test_generation_failures_are_not_salvaged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "a.png").write_bytes(b"x")
+            failed = {"success": False, "error": "codex 401"}
+            self.assertEqual(server.attach_private_artifact(failed, Path(tmp)), failed)
+
+    def test_missing_reference_image_is_an_error_not_a_downgrade(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "images").mkdir()
+            with patch.object(server, "OUTPUTS", root):
+                with self.assertRaises(ValueError) as caught:
+                    server.reference_image_path("images/gone.png")
+                self.assertIn("gone.png", str(caught.exception))
+                (root / "images" / "here.png").write_bytes(server.fixture_png_bytes())
+                self.assertEqual(
+                    server.reference_image_path("images/here.png"),
+                    (root / "images" / "here.png").resolve(),
+                )
+
+    def test_restart_wording_starts_over(self) -> None:
+        self.assertTrue(server.revision_restarts("这张不行，从头再来"))
+        self.assertTrue(server.revision_restarts("Please restart"))
+        self.assertFalse(server.revision_restarts("字再大一点"))
+
+    def test_cli_children_treat_the_studio_root_as_a_pure_sink(self) -> None:
+        seen: dict = {}
+
+        def fake_run(argv, **kwargs):
+            seen["env"] = kwargs["env"]
+            return type("P", (), {"stdout": '{"success": true}', "stderr": "", "returncode": 0})()
+
+        with patch.object(server.subprocess, "run", side_effect=fake_run), patch.dict(
+            os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": ""}, clear=False
+        ):
+            server.run_cli(["doctor"], timeout=5)
+        self.assertEqual(seen["env"]["LOCAL_IMAGE_GEN_OUTPUTS"], str(server.OUTPUTS))
+
+    def test_cli_children_ignore_ambient_output_overrides(self) -> None:
+        seen: dict = {}
+
+        def fake_run(argv, **kwargs):
+            seen["env"] = kwargs["env"]
+            return type("P", (), {"stdout": '{"success": true}', "stderr": "", "returncode": 0})()
+
+        with patch.object(server.subprocess, "run", side_effect=fake_run), patch.dict(
+            os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": "/tmp/not-studio"}, clear=False
+        ):
+            server.run_cli(["doctor"], timeout=5)
+        self.assertEqual(seen["env"]["LOCAL_IMAGE_GEN_OUTPUTS"], str(server.OUTPUTS))
+
+    def test_generation_crop_miss_keeps_the_paid_image(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "kept.png"
+            image.write_bytes(server.fixture_png_bytes())
+            failed = {
+                "success": False,
+                "saved_but_failed": True,
+                "saved_image": str(image),
+                "image": str(image),
+                "error": "Requested aspect 1:1 but x is 864x1821 (1:2).",
+                "_studio_committed": True,
+            }
+            with patch.object(server, "recover_aspect", side_effect=lambda result, aspect: result), patch.object(
+                server, "persist_result_receipts"
+            ):
+                out = server.finalize_generated(failed, {"aspect": "1:1"}, "p")
+        self.assertTrue(out["success"])
+        self.assertTrue(out["aspect_mismatch"])
+        self.assertIn("1:1", out["warning"])
+
+    def test_receipt_and_library_item_keep_the_mismatch_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / "images" / "kept.png"
+            image.parent.mkdir()
+            image.write_bytes(server.fixture_png_bytes())
+            with patch.object(server, "OUTPUTS", root):
+                server.write_media_receipt(
+                    image,
+                    {
+                        "success": True,
+                        "warning": "通路没有按请求的 1:1 出图",
+                        "aspect_mismatch": True,
+                        "aspect_ratio": "1:1",
+                        "aspect_requested": "1:1",
+                    },
+                )
+                item = server.media_item(image)
+        self.assertTrue(item["aspect_mismatch"])
+        self.assertIn("1:1", item["warning"])
+
+    def test_missing_reference_during_generate_is_a_job_failure_not_a_crash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "images").mkdir()
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_STUDIO_FIXTURE": ""}), patch.object(
+                server, "OUTPUTS", root
+            ), patch.object(server, "JOB_DIR", root / ".jobs"):
+                (root / ".jobs").mkdir()
+                out = server._run_one_job({"prompt": "x", "draft": "x", "images": ["images/gone.png"], "provider": "grok"})
+        self.assertFalse(out["success"])
+        self.assertIn("gone.png", out["error"])
+
+    def test_timeouts_explain_which_command_hung(self) -> None:
+        self.assertIn("doctor", server._cli_timeout_message(["doctor"], 25))
+        self.assertIn("重新检测", server._cli_timeout_message(["doctor"], 25))
+        self.assertIn("1–3 分钟", server._cli_timeout_message(["a prompt", "--raw"], 320))
 
 
 if __name__ == "__main__":

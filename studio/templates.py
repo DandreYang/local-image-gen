@@ -60,7 +60,7 @@ TEMPLATES: Dict[str, Dict[str, object]] = {
     "isometric": {
         "label": "等距沙盘",
         "profile": "isometric",
-        "aspect": "4:5",
+        "aspect": "3:4",
         "ban": (
             "单块方形模型底板，斜成钻石透视，一次只出一块。"
             "主体比例可信，人车树都是单独微缩体，全程合焦。"
@@ -125,7 +125,7 @@ TEMPLATES: Dict[str, Dict[str, object]] = {
     "travel-poster": {
         "label": "旅行海报",
         "profile": "travel",
-        "aspect": "4:5",
+        "aspect": "3:4",
         "ban": (
             "单张可印刷的旅行招贴。城市名原文入画。"
             "地标要进同一片风景或同一块布料，不要景点清单、不要照片拼贴。"

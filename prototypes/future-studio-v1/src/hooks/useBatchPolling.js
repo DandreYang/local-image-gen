@@ -21,7 +21,10 @@ export function useBatchPolling({ batch, intent, onSnapshot, resolveOutputs, onD
         if (cancelled) return;
         onSnapshot(snapshot);
         if (["done", "failed", "interrupted"].includes(snapshot.status)) {
-          if (snapshot.status !== "done") throw new Error(snapshot.error || "生成任务失败");
+          if (snapshot.status !== "done") {
+            const jobError = (snapshot.jobs || []).map((row) => row.error).find(Boolean);
+            throw new Error(snapshot.error || jobError || "生成任务失败");
+          }
           const outputs = await resolveOutputs(snapshot);
           onDone(snapshot, outputs);
           return;

@@ -52,7 +52,7 @@ CASES: List[Dict[str, Any]] = [
         "family": "gpt_image",
         "template": "isometric",
         "title": "等距沙盘",
-        "aspect": "4:5",
+        "aspect": "3:4",
         "when": "城市、场馆、园区要做成一张可印刷的建筑模型海报",
         "craft": (
             "单块方形模型底板，斜成钻石透视，俯视约 45°。"
@@ -122,7 +122,7 @@ CASES: List[Dict[str, Any]] = [
         "family": "gpt_image",
         "template": "travel-poster",
         "title": "复古旅行海报",
-        "aspect": "4:5",
+        "aspect": "3:4",
         "when": "城市名+两三个地标，要像可收藏的丝网印刷招贴，不要写实风景照",
         "craft": (
             "限定 4–6 色，老化纸纹，丝网/剪纸层，轻微套印错位。"
@@ -145,7 +145,7 @@ CASES: List[Dict[str, Any]] = [
         "family": "gpt_image",
         "template": "travel-poster",
         "title": "国旗变成国土",
-        "aspect": "4:5",
+        "aspect": "3:4",
         "when": "国家/城市要从一面旗或一块布里长成风景，而不是把旗贴在天上",
         "craft": (
             "前景是可认的丝绸旗帜：褶皱、缝线、反光都在。"

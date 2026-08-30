@@ -223,7 +223,7 @@ class StudioServerLaunchTests(unittest.TestCase):
                 # Explicit store override: a pure sink, the workspace link is never created.
                 self.assertFalse((root / "outputs").exists())
             with patch.object(studio_server.Path, "cwd", return_value=nested), patch.dict(
-                os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": "", "LOCAL_IMAGE_GEN_STUDIO_FIXTURE": ""}
+                os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": "", "LOCAL_IMAGE_GEN_STUDIO_FIXTURE": "", "LOCAL_IMAGE_GEN_HOME": str(root / "share")}
             ), patch.object(studio_server.cli, "default_outputs_home", return_value=root / "home-store"):
                 linked = studio_server.resolve_outputs_root()
                 self.assertEqual(linked, root.resolve() / "outputs")

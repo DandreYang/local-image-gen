@@ -6,6 +6,7 @@ import {
   apiThumbUrl,
   confirmGenerate,
   createBrief,
+  getBatch,
   loadCapabilities,
   optimizeDraft,
   patchReceipt,
@@ -52,6 +53,34 @@ test("createBrief preserves every user-selectable generation field", async () =>
     assert.equal(captured.url, "/studio-api/api/brief");
     assert.equal(captured.options.method, "POST");
     assert.deepEqual(JSON.parse(captured.options.body), body);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("getBatch treats a failed snapshot with success:true as data", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => jsonResponse({
+    success: true,
+    status: "failed",
+    error: "Requested aspect 1:1 but x is 864x1821 (1:2).",
+    batch_id: "abc123abc123",
+    jobs: [{ error: "Requested aspect 1:1 but x is 864x1821 (1:2)." }],
+  });
+  try {
+    const snapshot = await getBatch("abc123abc123");
+    assert.equal(snapshot.status, "failed");
+    assert.match(snapshot.error, /864x1821/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("getBatch still throws when the transport itself failed", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => jsonResponse({ success: false, error: "not found" }, 404);
+  try {
+    await assert.rejects(() => getBatch("missing"), /not found/);
   } finally {
     globalThis.fetch = originalFetch;
   }

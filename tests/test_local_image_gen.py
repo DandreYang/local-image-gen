@@ -1375,7 +1375,7 @@ class DyroOptionalTests(unittest.TestCase):
             existing.mkdir(parents=True)
             kept = existing / "kept.png"
             kept.write_bytes(b"\x89PNG\r\n\x1a\n")
-            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": ""}), patch.object(
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": "", "LOCAL_IMAGE_GEN_HOME": str(home / "share")}), patch.object(
                 image_gen, "default_outputs_home", return_value=home
             ):
                 out_dir, workspace = image_gen.default_image_dir(None, nested)
@@ -1386,7 +1386,7 @@ class DyroOptionalTests(unittest.TestCase):
             self.assertEqual(link.resolve(), store.resolve())
             self.assertEqual(out_dir.resolve(), (store / "images").resolve())
             self.assertTrue((store / "images" / "kept.png").is_file())
-            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": ""}), patch.object(
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": "", "LOCAL_IMAGE_GEN_HOME": str(home / "share")}), patch.object(
                 image_gen, "default_outputs_home", return_value=home
             ):
                 again, _ = image_gen.default_image_dir(None, nested)
@@ -1404,7 +1404,7 @@ class DyroOptionalTests(unittest.TestCase):
             existing.mkdir()
             (existing / ".DS_Store").write_bytes(b"junk")
             (existing / "images").mkdir()
-            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": ""}), patch.object(
+            with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_OUTPUTS": "", "LOCAL_IMAGE_GEN_HOME": str(home / "share")}), patch.object(
                 image_gen, "default_outputs_home", return_value=home
             ):
                 image_gen.default_image_dir(None, nested)

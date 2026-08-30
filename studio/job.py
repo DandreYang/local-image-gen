@@ -206,8 +206,19 @@ def coerce_aspect(provider: str, aspect: str, source: str) -> Tuple[str, str, Op
     """Keep the confirmation card confirmable: an aspect the provider cannot draw is
     replaced by the provider's first supported one, and the card says so.
 
+    A ratio the CLI does not speak (a template's 4:5, say) is first mapped to
+    the nearest supported canvas, exactly as the CLI itself maps it.
+
     Returns (aspect, aspect_source, note). Nothing changes for providers without limits.
     """
+    if aspect and aspect not in cli.SUPPORTED_ASPECTS:
+        mapped = None
+        try:
+            mapped = cli.normalize_aspect(aspect)
+        except cli.ImageGenError:
+            mapped = None
+        if mapped:
+            aspect = mapped
     allowed = provider_allowed_aspects(provider)
     if not aspect or aspect in allowed:
         return aspect, source, None

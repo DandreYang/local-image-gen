@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   aspectOptionsFor,
+  coerceAspectToCapability,
   connectRows,
   getRuntimeAccess,
   groupLibraryItems,
@@ -16,6 +17,7 @@ import {
   usableModelOptions,
   versionLabel,
   providerLabel,
+  TEMPLATES,
 } from "../src/studio-options.js";
 import { formatElapsed, jumpOptionIndex } from "../src/studio-state.js";
 
@@ -32,6 +34,10 @@ const models = [
   { model: "gpt-image-2", provider: "openai", resolutions: [], qualities: ["low"], aspects: ["1:1", "3:2", "2:3"] },
   { model: "gemini-3-pro-image", provider: "gemini", resolutions: ["1k", "2k", "4k"], qualities: [], aspects: ["1:1"] },
 ];
+
+test("free template is a first-class hand-pickable option", () => {
+  assert.deepEqual(TEMPLATES.find((row) => row[0] === "free"), ["free", "自由画面"]);
+});
 
 test("auto mode lists only usable providers' models, deduplicated and labelled", () => {
   const rows = usableModelOptions(models, providers, "auto");
@@ -158,6 +164,15 @@ test("settingsFromItem keeps a usable provider and warns about an unusable one",
   const gone = settingsFromItem({ provider: "gemini", model: "gemini-3-pro-image" }, { fixture: false, usableProviders: providers.slice(0, 2), models, fallbackProvider: "grok" });
   assert.match(gone.warning, /gemini 当前不可用/);
   assert.equal(gone.apply({ provider: "grok", model: "m" }).provider, "grok");
+});
+
+test("coerceAspectToCapability keeps a supported canvas and rewrites an unsupported one", () => {
+  const options = aspectOptionsFor(models, "codex", "gpt-image-2");
+  assert.deepEqual(coerceAspectToCapability("1:1", options), { aspect: "1:1", note: "" });
+  const rewritten = coerceAspectToCapability("1:2", options);
+  assert.equal(rewritten.aspect, "1:1");
+  assert.match(rewritten.note, /1:2/);
+  assert.deepEqual(coerceAspectToCapability("", options), { aspect: "", note: "" });
 });
 
 test("supportedAspect never leaks odd pixel ratios into a request", () => {

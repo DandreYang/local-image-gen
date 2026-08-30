@@ -27,7 +27,7 @@ export function GeneratingView({ batch, startedAt, provider, onLibrary, ready, b
         <ol className="job-list">
           {jobs.map((job, index) => (
             <li key={job.id || index} className={job.status === "running" ? "job-running" : job.status === "queued" ? "job-queued" : "job-done"}>
-              <span>任务 {String(index + 1).padStart(2, "0")}</span><span>{job.status === "done" ? "已完成" : job.status === "failed" ? job.error || "失败" : job.status === "running" ? "模型生成中" : "等待中"}</span><i />
+              <span>任务 {String(index + 1).padStart(2, "0")}</span><span>{job.status === "done" ? (job.warning || "已完成") : job.status === "failed" ? job.error || "失败" : job.status === "running" ? "模型生成中" : "等待中"}</span><i />
             </li>
           ))}
         </ol>

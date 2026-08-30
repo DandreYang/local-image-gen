@@ -11,6 +11,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   aspectOptionsFor,
+  coerceAspectToCapability,
   connectRows,
   getRuntimeAccess,
   providerForSelection,
@@ -68,7 +69,7 @@ export function App() {
   const [optimizing, setOptimizing] = useState(false);
   const [optimizeNote, setOptimizeNote] = useState("");
   const [error, setError] = useState("");
-  const [retry, setRetry] = useState(null);
+  const [retryIntent, setRetryIntent] = useState(null);
   const operationRef = useRef(0);
   const ops = {
     begin: () => { operationRef.current += 1; return operationRef.current; },
@@ -197,6 +198,7 @@ export function App() {
     },
     onDone: (_snapshot, outputs) => {
       const completion = { intent, items: outputs };
+      const jobWarning = (_snapshot.jobs || []).map((row) => row.warning).find(Boolean);
       if (intent === "revision" && outputs[0]) {
         setSelectedItem(outputs[0]);
         setVersions((rows) => [...rows.filter((item) => item.id !== outputs[0].id), outputs[0]]);
@@ -206,10 +208,13 @@ export function App() {
         setGeneratedItems(outputs);
         if (viewRef.current === "generating") setView("candidates", true); else setPendingCompletion(completion);
       }
+      if (jobWarning) setError(jobWarning);
     },
     onFail: (cause) => {
-      setError(cause.message || String(cause));
-      setRetry(() => () => startCurrentBrief(intent));
+      const message = cause.message || String(cause);
+      setError(message);
+      setRetryIntent(intent);
+      setBatch((current) => (current ? { ...current, status: "failed", error: current.error || message } : current));
       setView("error", true);
     },
   });
@@ -292,7 +297,10 @@ export function App() {
   }
 
   async function startCurrentBrief(nextIntent = intent) {
-    if (!brief?.jobs?.length) return;
+    if (!brief?.jobs?.length) {
+      setError("没有可重试的任务，请返回修改。");
+      return;
+    }
     if (!assertRuntimeSafe()) return;
     if (batchRunning) { setError("已有生成任务正在运行，请等待完成后再开始下一批。"); return; }
     const expectedView = viewRef.current;
@@ -310,7 +318,7 @@ export function App() {
       setIntent(nextIntent); setBatch(snapshot); setBatchStartedAt(Date.now()); setPendingCompletion(null); setView("generating");
     } catch (cause) {
       if (operationRef.current !== operationId) return;
-      setError(cause.message || String(cause)); setRetry(() => () => startCurrentBrief(nextIntent)); setView("error");
+      setError(cause.message || String(cause)); setRetryIntent(nextIntent); setView("error");
     }
     finally { if (operationRef.current === operationId) setLoading(false); }
   }
@@ -343,8 +351,11 @@ export function App() {
       const result = await reviseImage({ image: selectedItem.id, message: instruction.trim(), draft: selectedItem.prompt_used || selectedItem.prompt_original || "", brief: workPrompt, critique });
       if (!ops.isCurrent(operationId, "refine")) return;
       const provider = settings.provider === "auto" ? selectedItem.provider || effectiveProvider || "auto" : settings.provider;
-      const job = buildRevisionJob({ result, instruction: instruction.trim(), workPrompt, settings, selectedItem, provider, aspect: settings.aspect || supportedAspect(selectedItem) });
-      setBrief({ success: true, preflight: "local", template: "edit", template_label: "继续改这张", mode: "single", jobs: [job], requirements: job.requirements, warnings: ["确认前未调用外部文本或搜索模型"] });
+      const coerced = coerceAspectToCapability(settings.aspect || supportedAspect(selectedItem), aspectOptions);
+      const job = buildRevisionJob({ result, instruction: instruction.trim(), workPrompt, settings, selectedItem, provider, aspect: coerced.aspect });
+      const warnings = ["确认前未调用外部文本或搜索模型"];
+      if (coerced.note) warnings.push(coerced.note);
+      setBrief({ success: true, preflight: "local", template: "edit", template_label: "继续改这张", mode: "single", jobs: [job], requirements: job.requirements, warnings });
       setIntent("revision"); setView("confirm");
     } catch (cause) { if (operationRef.current === operationId) setError(cause.message || String(cause)); }
     finally { if (operationRef.current === operationId) setLoading(false); }
@@ -357,7 +368,7 @@ export function App() {
     setCritique(null);
     setInstruction("");
     setBrief(null);
-    setRetry(null);
+    setRetryIntent(null);
     setError(warning);
     setPendingCompletion(null);
     setView("refine");
@@ -369,7 +380,7 @@ export function App() {
     setCritique(null);
     setInstruction("");
     setBrief(null);
-    setRetry(null);
+    setRetryIntent(null);
     setError(warning);
     setPendingCompletion(null);
   }
@@ -381,7 +392,7 @@ export function App() {
   }
 
   function resetCreation() {
-    setPrompt(""); setReferences([]); setReferenceIds([]); setBrief(null); setBatch(null); setBatchStartedAt(null); setGeneratedItems([]); setSelectedItem(null); setVersions([]); setCritique(null); setInstruction(""); setError(""); setRetry(null); setPendingCompletion(null); setOptimizeNote(""); setView("start");
+    setPrompt(""); setReferences([]); setReferenceIds([]); setBrief(null); setBatch(null); setBatchStartedAt(null); setGeneratedItems([]); setSelectedItem(null); setVersions([]); setCritique(null); setInstruction(""); setError(""); setRetryIntent(null); setPendingCompletion(null); setOptimizeNote(""); setView("start");
   }
 
   const visibleError = runtimeModeError || error;
@@ -393,7 +404,7 @@ export function App() {
   if (view === "compare") return <CompareView versions={versions} onBack={() => setView("refine", true)} {...shared} />;
   if (view === "export" && selectedItem) return <ExportView item={selectedItem} onBack={() => setView("refine", true)} {...shared} />;
   if (view === "library") return <LibraryView items={libraryItems} loading={loading} onImport={importFiles} onBack={leaveLibrary} onOpen={openLibraryItem} onToggleFavorite={toggleFavorite} onTrash={removeLibraryItem} {...shared} />;
-  if (view === "error") return <ErrorView error={error} onRetry={retry || (() => setView("start", true))} onBack={() => setView("start", true)} {...shared} />;
+  if (view === "error") return <ErrorView error={error} onRetry={() => (retryIntent != null ? startCurrentBrief(retryIntent) : setView("start", true))} onBack={() => setView("start", true)} loading={loading} {...shared} />;
 
   return <StartView prompt={prompt} setPrompt={setPrompt} references={references} referenceUrls={referenceUrls} onAddReferences={addReferenceFiles} onRemoveReference={removeReference} settings={settings} effectiveProvider={effectiveProvider} providers={usableProviders} models={modelOptions} aspects={aspectOptions} qualities={qualityOptions} resolutions={resolutionOptions} onProvider={changeProvider} onSetting={(key, value) => setSettings((current) => ({ ...current, [key]: value }))} onContinue={prepareInitial} connectRows={connectRowsList} onRecheck={recheckCapabilities} checking={checking} canGenerate={canGenerate} loading={loading} {...shared} />;
 }

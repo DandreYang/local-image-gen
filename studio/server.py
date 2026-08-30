@@ -501,8 +501,24 @@ def attach_saved_artifact(payload: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
+def _cli_timeout_message(args: List[str], timeout: int) -> str:
+    command = str(args[0]) if args else ""
+    if command in {"doctor", "--doctor", "--list-models", "--list-providers"}:
+        return (
+            f"本机命令 local-image-gen {command} 超过 {timeout} 秒没有返回；"
+            "请检查是否有卡住的 local-image-gen 进程，然后点“重新检测”。"
+        )
+    return (
+        f"生图任务超过 {timeout} 秒没有返回。"
+        "Codex / Grok 通常需要 1–3 分钟；请稍后重试，或检查本机进程。"
+    )
+
+
 def run_cli(args: List[str], timeout: int = 300, *, skip_update_check: bool = True) -> Dict[str, Any]:
     env = os.environ.copy()
+    # Studio already resolved its store. The child must use that root even when the
+    # parent shell exported a different LOCAL_IMAGE_GEN_OUTPUTS (fixture/e2e).
+    env["LOCAL_IMAGE_GEN_OUTPUTS"] = str(OUTPUTS)
     if skip_update_check:
         env["LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK"] = "1"
     else:
@@ -519,7 +535,7 @@ def run_cli(args: List[str], timeout: int = 300, *, skip_update_check: bool = Tr
     except subprocess.TimeoutExpired:
         return {
             "success": False,
-            "error": f"CLI timed out after {timeout}s. Codex/Grok jobs often take 1–3 minutes; retry or check the process.",
+            "error": _cli_timeout_message(args, timeout),
             "exit_code": None,
         }
     payload = parse_cli_json(proc.stdout) or parse_cli_json(proc.stderr)
@@ -759,6 +775,8 @@ def write_media_receipt(path: Path, payload: Dict[str, Any]) -> None:
             "actual_mime": payload.get("actual_mime"),
             "cropped_from": payload.get("cropped_from"),
             "notes": payload.get("notes"),
+            "warning": payload.get("warning"),
+            "aspect_mismatch": payload.get("aspect_mismatch"),
             "prompt": prompt,
             "cli": "local-image-gen",
             "studio": True,
@@ -860,8 +878,14 @@ def finalize_generated(result: Dict[str, Any], job: Dict[str, Any], used: str) -
     result = stamp_job_meta(result, job, used)
     studio_committed = bool(result.pop("_studio_committed", False))
     aspect = str(job.get("aspect") or "")
-    if result.get("saved_but_failed") and aspect:
-        result = recover_aspect(result, aspect)
+    if result.get("saved_but_failed"):
+        # Edits keep the paid canvas. Generations try a crop first; if that fails
+        # the image is already in the library, so the same keep-and-warn path
+        # must run instead of reporting a total failure over a saved file.
+        if aspect and not job.get("images"):
+            result = recover_aspect(result, aspect)
+        if not result.get("success"):
+            result = accept_edit_canvas(result, aspect)
     saved = result.get("image") or result.get("saved_image")
     if saved:
         path = Path(str(saved))
@@ -1062,6 +1086,8 @@ def media_item(path: Path) -> Dict[str, Any]:
         "has_receipt": receipt is not None,
         "cropped_from": cropped_from,
         "notes": (receipt or {}).get("notes"),
+        "warning": (receipt or {}).get("warning"),
+        "aspect_mismatch": (receipt or {}).get("aspect_mismatch"),
         "receipt": receipt,
         "composed_from": (receipt or {}).get("composed_from"),
         "overlays": (receipt or {}).get("overlays"),
@@ -1565,17 +1591,72 @@ def generate_compiled(job: Dict[str, Any], used: str) -> Dict[str, Any]:
     job_dir = JOB_DIR / uuid.uuid4().hex
     job_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
     args.extend(["--out-dir", str(job_dir)])
-    for raw in job.get("images") or []:
-        path = Path(str(raw))
-        if not path.is_absolute():
-            path = (OUTPUTS / path).resolve()
-        if path.is_file() and is_under(path, OUTPUTS):
-            args.extend(["-i", str(path)])
     try:
+        for raw in job.get("images") or []:
+            args.extend(["-i", str(reference_image_path(raw))])
         result = run_cli(args, timeout=320)
+        if not result.get("success"):
+            result = attach_private_artifact(result, job_dir)
         return commit_generated_artifact(result, job_dir)
     finally:
         shutil.rmtree(job_dir, ignore_errors=True)
+
+
+def reference_image_path(raw: Any) -> Path:
+    """A reference image must exist inside the library. A missing one is an error,
+    never a silent downgrade from edit to text-to-image."""
+    path = Path(str(raw))
+    if not path.is_absolute():
+        path = (OUTPUTS / path).resolve()
+    if not path.is_file() or not is_under(path, OUTPUTS):
+        raise ValueError(f"参考图 {Path(str(raw)).name} 不在素材库里（可能已移到回收站），请重新选择底图。")
+    return path
+
+
+def attach_private_artifact(result: Dict[str, Any], job_dir: Path) -> Dict[str, Any]:
+    """An edit whose backend ignored the requested canvas still produced a paid image
+    inside the private job directory. Keep it so finalize_generated can label it."""
+    if "Requested aspect" not in str(result.get("error") or ""):
+        return result
+    if result.get("saved_image") or result.get("image"):
+        out = dict(result)
+        out["saved_but_failed"] = True
+        return out
+    if not job_dir.is_dir():
+        return result
+    candidates = sorted(
+        item
+        for item in job_dir.iterdir()
+        if item.is_file() and item.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+    )
+    if len(candidates) != 1:
+        return result
+    out = dict(result)
+    out["saved_image"] = str(candidates[0])
+    out["saved_but_failed"] = True
+    return out
+
+
+def accept_edit_canvas(result: Dict[str, Any], aspect: str) -> Dict[str, Any]:
+    """Edits keep whatever canvas came back: requested vs actual is recorded, the
+    image is not thrown away, and the job succeeds with a visible warning."""
+    out = dict(result)
+    notes = out.get("notes")
+    if isinstance(notes, str) and notes:
+        kept = [notes]
+    elif isinstance(notes, list):
+        kept = [item for item in notes if item]
+    else:
+        kept = []
+    detail = str(out.get("error") or "").strip()
+    out["notes"] = kept + ([detail] if detail else [])
+    out["success"] = True
+    out["aspect_mismatch"] = True
+    out["warning"] = f"通路没有按请求的 {aspect or '画幅'} 出图，已按实际尺寸保存并如实记录。"
+    out["image"] = out.get("image") or out.get("saved_image")
+    out.pop("error", None)
+    out.pop("saved_but_failed", None)
+    return out
 
 
 def commit_generated_artifact(result: Dict[str, Any], job_dir: Path) -> Dict[str, Any]:
@@ -1613,12 +1694,15 @@ def commit_generated_artifact(result: Dict[str, Any], job_dir: Path) -> Dict[str
 
 
 def _run_one_job(job: Dict[str, Any]) -> Dict[str, Any]:
-    used = str(job.get("draft") or job.get("prompt") or "").strip()
-    generated = generate_compiled(job, used)
-    for key in ("session_id", "parent", "batch_id", "mode", "template", "starred", "project_id"):
-        if job.get(key) not in (None, ""):
-            generated[key] = job[key]
-    return finalize_generated(generated, job, used)
+    try:
+        used = str(job.get("draft") or job.get("prompt") or "").strip()
+        generated = generate_compiled(job, used)
+        for key in ("session_id", "parent", "batch_id", "mode", "template", "starred", "project_id"):
+            if job.get(key) not in (None, ""):
+                generated[key] = job[key]
+        return finalize_generated(generated, job, used)
+    except ValueError as exc:
+        return {"success": False, "error": redact_public_text(str(exc))}
 
 
 def valid_batch_id(batch_id: Any) -> bool:
@@ -1779,17 +1863,26 @@ def batch_public(rec: Dict[str, Any]) -> Dict[str, Any]:
         }
         if result:
             row["error"] = result.get("error")
+            row["warning"] = result.get("warning")
             row["image"] = result.get("image") or result.get("saved_image")
             results.append(result)
         jobs.append(row)
     status = str(rec.get("status") or "running")
     done = sum(1 for item in rec.get("jobs") or [] if item.get("status") == "done")
+    error = rec.get("error")
+    if not error:
+        for row in jobs:
+            if row.get("error"):
+                error = row["error"]
+                break
     return {
-        "success": status not in {"failed", "interrupted"},
+        # The snapshot itself succeeded; the batch outcome lives in `status`, so a
+        # failed batch reaches the UI as data instead of a transport error.
+        "success": True,
         "batch_id": rec.get("id"),
         "mode": rec.get("mode"),
         "status": status,
-        "error": rec.get("error"),
+        "error": error,
         "done": done,
         "session_id": rec.get("session_id"),
         "jobs": jobs,
@@ -1835,13 +1928,15 @@ def normalize_studio_jobs(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             providers,
         )
         if settings["warning"]:
-            raise ValueError(f"confirmed job settings are no longer valid: {settings['warning']}")
+            raise ValueError(f"确认卡上的设置已失效：{settings['warning']}")
         model = settings["model"]
         if model and (provider, model) not in model_pairs:
             raise ValueError(f"模型 {model} 不属于 {provider} 通路，请在设置里换一个模型或通路")
         aspect = str(row.get("aspect") or "")
         if aspect and aspect not in provider_aspects(provider):
             raise ValueError(f"{provider} 只能出 {' / '.join(provider_aspects(provider))}，不支持 {aspect}")
+        for image_raw in row.get("images") or []:
+            reference_image_path(image_raw)
         row["provider"] = provider
         row["model"] = model
         row["resolution"] = settings["resolution"]
@@ -1853,16 +1948,16 @@ def start_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
     ensure_batches_loaded()
     raw_jobs = body.get("jobs")
     if not isinstance(raw_jobs, list) or not raw_jobs:
-        raise ValueError("jobs required")
+        raise ValueError("没有可生成的任务，请返回重新整理。")
     if len(raw_jobs) > MAX_BATCH_JOBS:
-        raise ValueError(f"too many jobs in one batch (limit {MAX_BATCH_JOBS})")
+        raise ValueError(f"一批最多 {MAX_BATCH_JOBS} 张，请减少数量后再确认。")
     jobs = [dict(item) for item in raw_jobs if isinstance(item, dict)]
     if not jobs:
-        raise ValueError("jobs required")
+        raise ValueError("没有可生成的任务，请返回重新整理。")
     with _BATCH_LOCK:
         active = sum(1 for item in _BATCHES.values() if item.get("status") in {"queued", "running"})
         if active >= MAX_ACTIVE_BATCHES:
-            raise ValueError(f"active batch limit reached ({MAX_ACTIVE_BATCHES})")
+            raise ValueError(f"本机已有 {MAX_ACTIVE_BATCHES} 批任务在运行，请等它们完成后再开始；右上角“素材库”可查看进度。")
     jobs = normalize_studio_jobs(jobs)
     mode = _normalize_batch_mode(str(body.get("mode") or jobs[0].get("mode") or "single"), jobs)
     batch_id = uuid.uuid4().hex[:12]
@@ -1896,7 +1991,7 @@ def start_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
             _BATCHES.pop(key, None)
         active = sum(1 for item in _BATCHES.values() if item.get("status") in {"queued", "running"})
         if active >= MAX_ACTIVE_BATCHES:
-            raise ValueError(f"active batch limit reached ({MAX_ACTIVE_BATCHES})")
+            raise ValueError(f"本机已有 {MAX_ACTIVE_BATCHES} 批任务在运行，请等它们完成后再开始；右上角“素材库”可查看进度。")
         _BATCHES[batch_id] = record
         persist_batch(record)
     exec_mode = "series" if mode == "series" else "parallel"
@@ -1934,7 +2029,7 @@ def run_confirm_generate(body: Dict[str, Any]) -> Dict[str, Any]:
     """Synchronous helper for tests. Live UI uses start_confirm_generate."""
     jobs = body.get("jobs")
     if not isinstance(jobs, list) or not jobs:
-        raise ValueError("jobs required")
+        raise ValueError("没有可生成的任务，请返回重新整理。")
     results: List[Dict[str, Any]] = []
     prev: Optional[str] = None
     mode = str(body.get("mode") or (jobs[0] or {}).get("mode") or "single")
@@ -1994,6 +2089,15 @@ def run_look(body: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+RESTART_TOKENS = ("从头", "重做", "重新画", "restart", "start over")
+
+
+def revision_restarts(message: str) -> bool:
+    """A revision that asks to start over is a fresh generation, not an edit of the last image."""
+    lowered = str(message or "").lower()
+    return any(token in lowered for token in RESTART_TOKENS)
+
+
 def run_revise(body: Dict[str, Any]) -> Dict[str, Any]:
     image = str(body.get("image") or "").strip()
     last_image = ""
@@ -2002,8 +2106,7 @@ def run_revise(body: Dict[str, Any]) -> Dict[str, Any]:
         last_image = str(resolved.resolve().relative_to(OUTPUTS.resolve()).as_posix())
     message = str(body.get("message") or "").strip()
     draft = str(body.get("draft") or "").strip()
-    restart = any(token in message.lower() for token in ("从头", "重做", "重新画", "restart", "start over"))
-    mode = "generate" if restart or not last_image else "edit"
+    mode = "generate" if revision_restarts(message) or not last_image else "edit"
     compiled, requirements = merge_revision_draft(draft, message)
     return {
         "success": True,
