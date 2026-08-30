@@ -279,3 +279,11 @@ export function providerForSelection(provider, model, modelOptions, usableProvid
   if (row?.provider) return row.provider;
   return (usableProviders || [])[0]?.provider || "auto";
 }
+
+/** How a confirmation card names the route: `auto → grok` when routing was left to Studio. */
+export function providerLabel(requested, actual) {
+  const real = String(actual || "").trim();
+  const asked = String(requested || "").trim() || "auto";
+  if (!real || real === "auto") return asked;
+  return asked === "auto" ? `auto → ${real}` : real;
+}

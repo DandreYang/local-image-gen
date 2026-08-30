@@ -15,6 +15,7 @@ import {
   supportedAspect,
   usableModelOptions,
   versionLabel,
+  providerLabel,
 } from "../src/studio-options.js";
 import { formatElapsed, jumpOptionIndex } from "../src/studio-state.js";
 
@@ -191,4 +192,11 @@ test("an imported photo resets provider and model to auto routing", () => {
   assert.equal(applied.provider, "auto");
   assert.equal(applied.model, "");
   assert.equal(applied.aspect, "1:1");
+});
+
+test("the confirmation card says auto → grok when routing was left to Studio", () => {
+  assert.equal(providerLabel("auto", "grok"), "auto → grok");
+  assert.equal(providerLabel("codex", "codex"), "codex");
+  assert.equal(providerLabel("auto", ""), "auto");
+  assert.equal(providerLabel("", "grok"), "auto → grok");
 });

@@ -34,7 +34,7 @@
 - Produces: `templates.infer_aspect_from_prompt(prompt: str) -> str`（返回 `""` 表示未命中）；`TEMPLATES["free"] = {"label": "自由画面", "profile": "", "aspect": "", "ban": ""}`；`brief()` 返回新增字段 `aspect_source: "user" | "template" | "prompt" | "default"`。
 - `build_job_prompt(user, template_id, style, facts, *, images, beat, series_index, series_total)` 签名不变，但 `facts` 参数被忽略（保留签名以免改动全部调用点；下一任务删除 `research_facts` 后 `facts` 只来自 `user_facts`，仍不拼入终稿）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # tests/test_studio_product_lead.py
@@ -93,12 +93,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `cd repositories/local-image-gen && PYTHONDONTWRITEBYTECODE=1 LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1 python3 -m unittest tests.test_studio_product_lead -v`
 Expected: FAIL（`ImportError: infer_aspect_from_prompt`）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `studio/templates.py`：
 
@@ -145,12 +145,12 @@ def infer_aspect_from_prompt(prompt: str) -> str:
 
 `tests/test_studio_job.py`：删除 `with patch("job.research_facts") ...` 块与两个 `@patch("job.research_facts", ...)` 装饰器（对应函数去掉 `_research` 形参）；`tests/test_studio_phase3.py:135` 同理。若这些测试断言 `research.assert_not_called()`，改为 `self.assertEqual(card["preflight"], "local")`。
 
-- [ ] **Step 4: 运行相关套件**
+- [x] **Step 4: 运行相关套件**
 
 Run: `PYTHONDONTWRITEBYTECODE=1 LOCAL_IMAGE_GEN_SKIP_UPDATE_CHECK=1 LOCAL_IMAGE_GEN_OUTPUTS=/tmp-scratch/outputs python3 -m unittest tests.test_studio_product_lead tests.test_studio_job tests.test_studio_phase3 -v`
 Expected: PASS；若旧测试断言终稿含「课程封面」ban（无关键词场景），改为断言 `free`。
 
-- [ ] **Step 5: 记录**：把用例数与结果写入 §验证记录。
+- [x] **Step 5: 记录**：把用例数与结果写入 §验证记录。
 
 ---
 
@@ -165,7 +165,7 @@ Expected: PASS；若旧测试断言终稿含「课程封面」ban（无关键词
 **Interfaces:**
 - Produces: `split_revision_draft(draft: str) -> Tuple[str, List[str]]`；`merge_revision_draft(draft: str, message: str) -> Tuple[str, List[str]]`；`run_revise()` 响应新增 `"requirements": [...]`，`draft` 形如 `"<base>\n修改要求：\n1. 字再大一点\n2. 背景更暗"`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 from job import merge_revision_draft, split_revision_draft  # noqa: E402
@@ -193,9 +193,9 @@ class RevisionDraftTests(unittest.TestCase):
         self.assertEqual(reqs, ["字再大一点", "背景更暗"])
 ```
 
-- [ ] **Step 2: 运行确认失败**（ImportError）
+- [x] **Step 2: 运行确认失败**（ImportError）
 
-- [ ] **Step 3: 实现（`studio/job.py`）**
+- [x] **Step 3: 实现（`studio/job.py`）**
 
 ```python
 REVISION_HEADER = "修改要求："
@@ -246,8 +246,8 @@ def merge_revision_draft(draft: str, message: str) -> Tuple[str, List[str]]:
 
 `server.run_revise`：`compiled = ...` 两行替换为 `compiled, requirements = merge_revision_draft(draft, message)`；返回 dict 增加 `"requirements": requirements`。`tests/test_studio_server.py:26-45`：删除 `patch.object(studio_server, "revise_turn")`，断言 `payload["draft"].endswith("修改要求：\n1. 字再大一点")` 与 `payload["requirements"] == ["字再大一点"]`。
 
-- [ ] **Step 4: 运行** `tests.test_studio_product_lead tests.test_studio_server` → PASS
-- [ ] **Step 5: 记录**
+- [x] **Step 4: 运行** `tests.test_studio_product_lead tests.test_studio_server` → PASS
+- [x] **Step 5: 记录**
 
 ---
 
@@ -263,7 +263,7 @@ def merge_revision_draft(draft: str, message: str) -> Tuple[str, List[str]]:
 **Interfaces:**
 - Produces: `optimize_draft(job: Dict[str, Any]) -> Dict[str, Any]`（同原 `compile_job` 行为）；`run_optimize_draft(body) -> {"success": True, "draft": str, "backend": {"provider": str, "model": str|None}, "calls": 1, "family": str}` 或 `{"success": False, "error": str}`；HTTP `POST /api/optimize-draft`，请求 `{prompt, provider, model, aspect, profile}`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 import server  # noqa: E402  (sys.path 已含 studio)
@@ -301,8 +301,8 @@ class OptimizeDraftRouteTests(unittest.TestCase):
         self.assertEqual(payload["calls"], 1)
 ```
 
-- [ ] **Step 2: 运行确认失败**
-- [ ] **Step 3: 实现**
+- [x] **Step 2: 运行确认失败**
+- [x] **Step 3: 实现**
 
 ```python
 def run_optimize_draft(body: Dict[str, Any]) -> Dict[str, Any]:
@@ -349,8 +349,8 @@ def run_optimize_draft(body: Dict[str, Any]) -> Dict[str, Any]:
 
 `optimize_draft` = 原 `compile_job` 改名；fixture 分支保持。删除列出的死代码与测试。`tests/test_studio_security.py` 的 `test_brief_http_does_not_compile_or_research_before_confirmation` 改为只 patch `build_brief` 并额外断言 `payload["preflight"] == "local"`。
 
-- [ ] **Step 4: 运行** `tests.test_studio_product_lead tests.test_studio_server tests.test_studio_security tests.test_studio_job` → PASS
-- [ ] **Step 5: 记录**
+- [x] **Step 4: 运行** `tests.test_studio_product_lead tests.test_studio_server tests.test_studio_security tests.test_studio_job` → PASS
+- [x] **Step 5: 记录**
 
 ---
 
@@ -364,7 +364,7 @@ def run_optimize_draft(body: Dict[str, Any]) -> Dict[str, Any]:
 **Interfaces:**
 - Produces: `fixture_outputs_root() -> Path`（= `cli.default_share_home() / "fixture-outputs"`）；`resolve_outputs_root()` 优先级：`LOCAL_IMAGE_GEN_STUDIO_OUTPUTS` > fixture 根 > `LOCAL_IMAGE_GEN_OUTPUTS` > Dyro 工作区 store > `WORKSPACE/outputs`；`studio_runtime.outputs_root: str`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 class FixtureIsolationTests(unittest.TestCase):
@@ -394,8 +394,8 @@ class FixtureIsolationTests(unittest.TestCase):
         self.assertEqual(payload["studio_runtime"]["outputs_root"], str(server.OUTPUTS))
 ```
 
-- [ ] **Step 2: 运行确认失败**
-- [ ] **Step 3: 实现**
+- [x] **Step 2: 运行确认失败**
+- [x] **Step 3: 实现**
 
 ```python
 def fixture_outputs_root() -> Path:
@@ -428,8 +428,8 @@ def resolve_outputs_root() -> Path:
 
 `studio_doctor_payload`：`payload["studio_runtime"] = {"fixture": ..., "bind_host": ..., "outputs_root": str(OUTPUTS)}`。`print_studio_banner` 在 fixture 时打印 `fixture      on  (no model quota, outputs isolated)`。CLI `studio` 分支在构建 argv 前：`if getattr(args, "fixture", False): os.environ["LOCAL_IMAGE_GEN_STUDIO_FIXTURE"] = "1"`（对 daemon 与前台两种 Popen 都生效，子进程继承）。
 
-- [ ] **Step 4: 运行** `tests.test_studio_product_lead tests.test_studio_server` → PASS；手工：`python3 scripts/local_image_gen.py studio --fixture --no-open --port 18790`，日志 outputs 行指向 `<share home>/fixture-outputs`，`ls ~/.local-image-gen/images | wc -l` 不变。
-- [ ] **Step 5: 记录**
+- [x] **Step 4: 运行** `tests.test_studio_product_lead tests.test_studio_server` → PASS；手工：`python3 scripts/local_image_gen.py studio --fixture --no-open --port 18790`，日志 outputs 行指向 `<share home>/fixture-outputs`，`ls ~/.local-image-gen/images | wc -l` 不变。
+- [x] **Step 5: 记录**
 
 ---
 
@@ -443,7 +443,7 @@ def resolve_outputs_root() -> Path:
 - `ensure_outputs_link(link, target)`：已有符号链接且其目标是存在的目录时**保持不变**并返回 `link`；只有链接悬空、或 `link` 是待迁移的真实目录、或不存在时才创建/改指。
 - `default_image_dir(explicit, start)`：`LOCAL_IMAGE_GEN_OUTPUTS` 设置时返回 `(override / "images", workspace)` 且不调用 `ensure_outputs_link`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 import local_image_gen as cli  # noqa: E402
@@ -482,8 +482,8 @@ class WorkspaceLinkTests(unittest.TestCase):
             self.assertEqual(link.resolve(), store.resolve())
 ```
 
-- [ ] **Step 2: 运行确认失败**
-- [ ] **Step 3: 实现**
+- [x] **Step 2: 运行确认失败**
+- [x] **Step 3: 实现**
 
 ```python
 def ensure_outputs_link(link: Path, target: Path) -> Path:
@@ -530,8 +530,8 @@ def default_image_dir(explicit: Optional[Path] = None, start: Optional[Path] = N
 
 （`generated_images_root()` 在 override 下返回 override 路径，因此 `override / "images"` 成立。）
 
-- [ ] **Step 4: 运行** `tests.test_studio_product_lead tests.test_local_image_gen` → PASS（`test_local_image_gen` 中若有「链接被改指」的旧断言，按新规则更新并在验证记录说明）。
-- [ ] **Step 5: 记录**
+- [x] **Step 4: 运行** `tests.test_studio_product_lead tests.test_local_image_gen` → PASS（`test_local_image_gen` 中若有「链接被改指」的旧断言，按新规则更新并在验证记录说明）。
+- [x] **Step 5: 记录**
 
 ---
 
@@ -545,7 +545,7 @@ def default_image_dir(explicit: Optional[Path] = None, start: Optional[Path] = N
 **Interfaces:**
 - `read_image_dimensions(path)` 支持 `RIFF....WEBP` 的 `VP8 ` / `VP8L` / `VP8X` 三种；`sniff_image_suffix(data)` 返回 `".webp"`；`actual_image_facts` 的 `actual_mime` 可为 `image/webp`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def _webp_vp8x(width: int, height: int) -> bytes:
@@ -586,8 +586,8 @@ class WebpFactsTests(unittest.TestCase):
             self.assertEqual(out["actual_mime"], "image/webp")
 ```
 
-- [ ] **Step 2: 运行确认失败**
-- [ ] **Step 3: 实现**
+- [x] **Step 2: 运行确认失败**
+- [x] **Step 3: 实现**
 
 `read_image_dimensions` 在 JPEG 分支之后加：
 
@@ -610,8 +610,8 @@ class WebpFactsTests(unittest.TestCase):
 
 `server.py`：`WEBP_MAGIC` 判断 `data[:4] == b"RIFF" and data[8:12] == b"WEBP"` → `".webp"`（`sniff_image_suffix` 读取 16 字节足够）；`actual_image_facts` 的 mime 映射加 `".webp": "image/webp"`；`commit_generated_artifact` 的 `if suffix not in {".png", ".jpg"}` → `{".png", ".jpg", ".webp"}`；`data[:16]` 保持。
 
-- [ ] **Step 4: 运行** `tests.test_studio_product_lead tests.test_local_image_gen tests.test_studio_server` → PASS
-- [ ] **Step 5: 记录**
+- [x] **Step 4: 运行** `tests.test_studio_product_lead tests.test_local_image_gen tests.test_studio_server` → PASS
+- [x] **Step 5: 记录**
 
 ---
 
@@ -627,7 +627,7 @@ class WebpFactsTests(unittest.TestCase):
 - `/api/models` 行新增 `"aspects": [...]`。
 - 回执新增 `aspect_requested`；`media_item()["aspect_ratio"]` = 像素推断（`cli.describe_dimensions`）优先，无像素时回退回执。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 class CodexAspectTests(unittest.TestCase):
@@ -656,8 +656,8 @@ class CodexAspectTests(unittest.TestCase):
         self.assertIsNone(aspect_warning("codex", "3:2"))
 ```
 
-- [ ] **Step 2: 运行确认失败**
-- [ ] **Step 3: 实现**
+- [x] **Step 2: 运行确认失败**
+- [x] **Step 3: 实现**
 
 ```python
 PROVIDER_ASPECTS: Dict[str, Tuple[str, ...]] = {
@@ -689,8 +689,8 @@ def aspect_warning(provider: str, aspect: str) -> Optional[str]:
     return f"{provider} 只能出 {' / '.join(CODEX_ASPECTS)}；{aspect} 会被拒绝，请在设置里换一个比例。"
 ```
 
-- [ ] **Step 4: 运行** 全量 Python：`python3 -m unittest discover -s tests` → OK（旧 `aspect_warning` 文案断言按新文案更新）。
-- [ ] **Step 5: 记录**
+- [x] **Step 4: 运行** 全量 Python：`python3 -m unittest discover -s tests` → OK（旧 `aspect_warning` 文案断言按新文案更新）。
+- [x] **Step 5: 记录**
 
 ---
 
@@ -708,7 +708,7 @@ def aspect_warning(provider: str, aspect: str) -> Optional[str]:
 - 每个 view 默认导出同名函数组件，props 与现有 `App.jsx` 中的定义一致（逐字搬移）。
 - `components/TechSelect.jsx` 导出 `TechSelect`；`components/ControlStrip.jsx` 导出 `ControlStrip`。
 
-- [ ] **Step 1: 更新契约测试读取路径**
+- [x] **Step 1: 更新契约测试读取路径**
 
 `prototype-contract.test.mjs` 顶部改为读取多个文件并拼接：
 
@@ -723,10 +723,10 @@ const source = [appSource, startSource, techSelectSource, librarySource, await r
 
 原来对 `source` 的断言保持；新增 `test("App.jsx stays a state machine", () => assert.ok(appSource.split("\n").length <= 420))`。
 
-- [ ] **Step 2: 运行确认失败**（文件不存在）
-- [ ] **Step 3: 机械拆分** — 从 `App.jsx` 剪切各函数到对应文件，补 import/export；`App.jsx` 顶部 import 所有 view；不改任何 JSX 与逻辑。
-- [ ] **Step 4: 运行** `npm test`（35+1 通过）、`npm run build`（成功）；以 fixture 服务起 e2e：`npm run test:e2e` 5/5。
-- [ ] **Step 5: 记录**
+- [x] **Step 2: 运行确认失败**（文件不存在）
+- [x] **Step 3: 机械拆分** — 从 `App.jsx` 剪切各函数到对应文件，补 import/export；`App.jsx` 顶部 import 所有 view；不改任何 JSX 与逻辑。
+- [x] **Step 4: 运行** `npm test`（35+1 通过）、`npm run build`（成功）；以 fixture 服务起 e2e：`npm run test:e2e` 5/5。
+- [x] **Step 5: 记录**
 
 ---
 
@@ -749,7 +749,7 @@ export function platformShortcutLabel(platform = navigator.platform) // "⌘↩"
 export function jumpOptionIndex(options, edge /* "home"|"end" */) // 跳过 disabled
 ```
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```js
 // tests/studio-options.test.mjs
@@ -812,8 +812,8 @@ test("home and end skip disabled options", () => {
 
 `package.json` 的 `test` 脚本加入 `tests/studio-options.test.mjs`。
 
-- [ ] **Step 2: 运行确认失败**
-- [ ] **Step 3: 实现**
+- [x] **Step 2: 运行确认失败**
+- [x] **Step 3: 实现**
 
 ```js
 // studio-options.js
@@ -867,8 +867,8 @@ export function jumpOptionIndex(options, edge) {
 
 App：`modelInfo` 改为 `usableModelOptions(...).find(r => r.value === settings.model)?.row`；`qualityOptions = qualityOptionsFor(modelInfo)`；`resolutionOptions = resolutionOptionsFor(modelInfo)`；`ControlStrip` 的 `aspectOptions` 用 `aspectOptionsFor(capabilities.models, settings.provider, settings.model)`；当当前 `settings.aspect` 变成 disabled 时在 `useEffect` 中重置为 `""`。`TechSelect` Home/End 调用 `jumpOptionIndex`。`StartView` 提示改为 `按 {platformShortcutLabel()} 整理 · 确认后才会消耗图像配额`。CSS：`.fact-grid div { flex-direction: column; align-items: flex-start; gap: 6px; }`，`.fact-grid dd { font-size: 15px; word-break: break-all; }`。
 
-- [ ] **Step 4: 运行** `npm test` → PASS；`npm run build` 成功。
-- [ ] **Step 5: 记录**
+- [x] **Step 4: 运行** `npm test` → PASS；`npm run build` 成功。
+- [x] **Step 5: 记录**
 
 ---
 
@@ -887,7 +887,7 @@ export function connectRows(providers) // -> [{provider, title, command, state: 
 // grok → "grok login"; codex → "codex auth login"（实验）; gemini/openai/xai → 写 ~/.local-image-gen.env 的 KEY 名；antigravity/cursor → blocked + studio_disabled_reason
 ```
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```js
 test("runtime access distinguishes offline from no provider", () => {
@@ -909,8 +909,8 @@ test("connect rows give one command per missing provider", () => {
 });
 ```
 
-- [ ] **Step 2: 运行确认失败**
-- [ ] **Step 3: 实现**
+- [x] **Step 2: 运行确认失败**
+- [x] **Step 3: 实现**
 
 `getRuntimeAccess` 增加：`const backendState = !doctorSuccess ? "offline" : (runtimeFixture === true || usableProviderCount > 0) ? "ready" : "no-provider";` 并返回。`connectRows`：
 
@@ -934,8 +934,8 @@ export function connectRows(providers) {
 
 `ConnectPanel({ rows, onRecheck, checking })`：`<section className="connect-panel" aria-labelledby="connect-title">`，标题「接通一条通路」，每行 `<code>` 命令 + 状态文本（已就绪 / 未登录 / 暂不开放），底部「重新检测」按钮。`Header` 状态文案：`backendState === "offline" ? "Studio 未连接" : backendState === "no-provider" ? "还没有可用的生图通路" : ...`；`App` 新增 `reloadCapabilities()`（复用初始 `loadCapabilities` 逻辑）并传入 `StartView` → `ConnectPanel`；`StartView` 在 `backendState === "no-provider"` 时渲染面板，textarea 不再 disabled（`disabled={loading}`），按钮保持 disabled 且 `title="先接通一条通路"`。
 
-- [ ] **Step 4: 运行** `npm test`；手工以假 HOME 起服务核对面板。
-- [ ] **Step 5: 记录**
+- [x] **Step 4: 运行** `npm test`；手工以假 HOME 起服务核对面板。
+- [x] **Step 5: 记录**
 
 ---
 
@@ -951,7 +951,7 @@ export function connectRows(providers) {
 - `optimizeDraft({ prompt, provider, model, aspect, profile }) -> { draft, backend: {provider, model}, calls, family }`
 - `brief.requirements?: string[]`（改稿时由 `/api/revise` 返回）；`brief.aspect_source`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```js
 test("optimizeDraft posts to /studio-api/api/optimize-draft with the current draft", async () => {
@@ -964,8 +964,8 @@ test("optimizeDraft posts to /studio-api/api/optimize-draft with the current dra
 });
 ```
 
-- [ ] **Step 2: 运行确认失败**
-- [ ] **Step 3: 实现**
+- [x] **Step 2: 运行确认失败**
+- [x] **Step 3: 实现**
 
 `studio-api.js`：`export function optimizeDraft(body) { return request("/api/optimize-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }`。
 
@@ -983,8 +983,8 @@ test("optimizeDraft posts to /studio-api/api/optimize-draft with the current dra
 
 事实网格「比例 / 清晰度」在 `brief.aspect_source === "prompt"` 时追加「（按描述推断）」，`"default"` 时「（默认）」。改稿卡（`intent === "revision"`）在 `confirm-prompt` 处显示 `brief.requirements` 有序列表，标题「本次修改要求」。`App.optimizeCurrentDraft()`：取 `brief.jobs[0]`，调用 `optimizeDraft`，成功后 `updateDraft(payload.draft)` 且 `setOptimizeNote(`已由 ${provider} · ${model} 改写，可继续手改`)`；失败 `setOptimizeNote(`改写失败：${message}`)`。`prepareRevision` 里 `setBrief({... , requirements: result.requirements || [instruction.trim()], ...})`。
 
-- [ ] **Step 4: 运行** `npm test`、`npm run build`。
-- [ ] **Step 5: 记录**
+- [x] **Step 4: 运行** `npm test`、`npm run build`。
+- [x] **Step 5: 记录**
 
 ---
 
@@ -999,10 +999,10 @@ test("optimizeDraft posts to /studio-api/api/optimize-draft with the current dra
 - `formatElapsed(ms) -> "mm:ss"`（放在 `studio-state.js`）；`useElapsed(startedAt, active) -> ms`。
 - `PROVIDER_HINTS = { grok: "Grok 通常 30–90 秒", codex: "Codex 通常 40–120 秒", default: "通常 30–120 秒" }`。
 
-- [ ] **Step 1: 测试** `assert.equal(formatElapsed(0), "00:00"); assert.equal(formatElapsed(61_500), "01:01");`
-- [ ] **Step 2: 失败** → **Step 3: 实现**（`useElapsed` 用 `setInterval(1000)`，`active` 为假时停止）；GeneratingView 显示 `已用 {formatElapsed(elapsed)} · {hint}`，`aria-live="polite"` 区域只在整分钟更新文案（避免每秒播报：把计时器放在 `aria-hidden` 的 span，提示语放 live 区域）。
-- [ ] **Step 4: 运行** `npm test`。
-- [ ] **Step 5: 记录**
+- [x] **Step 1: 测试** `assert.equal(formatElapsed(0), "00:00"); assert.equal(formatElapsed(61_500), "01:01");`
+- [x] **Step 2: 失败** → **Step 3: 实现**（`useElapsed` 用 `setInterval(1000)`，`active` 为假时停止）；GeneratingView 显示 `已用 {formatElapsed(elapsed)} · {hint}`，`aria-live="polite"` 区域只在整分钟更新文案（避免每秒播报：把计时器放在 `aria-hidden` 的 span，提示语放 live 区域）。
+- [x] **Step 4: 运行** `npm test`。
+- [x] **Step 5: 记录**
 
 ---
 
@@ -1016,7 +1016,7 @@ test("optimizeDraft posts to /studio-api/api/optimize-draft with the current dra
 **Interfaces:**
 - `versionLabel(versions, item) -> "V2 · 共 2 版"`；`itemFactRows(item) -> [{label, value}]`（通路/模型 requested vs actual、比例 requested vs actual、清晰度 requested vs 像素、格式 actual_mime、文件名、发送的终稿）。
 
-- [ ] **Step 1: 测试**
+- [x] **Step 1: 测试**
 
 ```js
 test("version label and fact rows separate requested from actual", () => {
@@ -1029,9 +1029,9 @@ test("version label and fact rows separate requested from actual", () => {
 });
 ```
 
-- [ ] **Step 2: 失败** → **Step 3: 实现**：`DetailsFold({ title = "生成详情", rows, prompt })` 用 `<details>`/`<summary>`（原生可访问）；RefineView 工具栏 `strong` 改为 `{libraryItemTitle(item)} · {versionLabel(versions, item)}`，文件名进 DetailsFold；「看图建议」按钮 `title="会调用一次文本模型看图"` 并在 dock 提示文案写明。
-- [ ] **Step 4: 运行** `npm test`、`npm run build`。
-- [ ] **Step 5: 记录**
+- [x] **Step 2: 失败** → **Step 3: 实现**：`DetailsFold({ title = "生成详情", rows, prompt })` 用 `<details>`/`<summary>`（原生可访问）；RefineView 工具栏 `strong` 改为 `{libraryItemTitle(item)} · {versionLabel(versions, item)}`，文件名进 DetailsFold；「看图建议」按钮 `title="会调用一次文本模型看图"` 并在 dock 提示文案写明。
+- [x] **Step 4: 运行** `npm test`、`npm run build`。
+- [x] **Step 5: 记录**
 
 ---
 
@@ -1045,7 +1045,7 @@ test("version label and fact rows separate requested from actual", () => {
 **Interfaces:**
 - `cropRectForFocus(naturalWidth, naturalHeight, targetRatio, focus = {x: 0.5, y: 0.5}) -> {sx, sy, sw, sh}`；`FocusGrid({ value, onChange, disabled })` 是 `role="radiogroup"` 的 3×3 按钮，值为 `{x, y} ∈ {0, 0.5, 1}²`。
 
-- [ ] **Step 1: 测试**
+- [x] **Step 1: 测试**
 
 ```js
 test("crop rect follows the focus anchor", () => {
@@ -1056,7 +1056,7 @@ test("crop rect follows the focus anchor", () => {
 });
 ```
 
-- [ ] **Step 2: 失败** → **Step 3: 实现**
+- [x] **Step 2: 失败** → **Step 3: 实现**
 
 ```js
 export function cropRectForFocus(naturalWidth, naturalHeight, targetRatio, focus = { x: 0.5, y: 0.5 }) {
@@ -1072,8 +1072,8 @@ export function cropRectForFocus(naturalWidth, naturalHeight, targetRatio, focus
 
 ExportView：`download()` 用 `cropRectForFocus`；预览 `<img>` 用 `object-position: ${fx*100}% ${fy*100}%` 即时反映焦点；仅当 `format !== "原始尺寸"` 时显示 FocusGrid（标题「裁切焦点」）。
 
-- [ ] **Step 4: 运行** `npm test`、`npm run build`。
-- [ ] **Step 5: 记录**
+- [x] **Step 4: 运行** `npm test`、`npm run build`。
+- [x] **Step 5: 记录**
 
 ---
 
@@ -1087,7 +1087,7 @@ ExportView：`download()` 用 `cropRectForFocus`；预览 `<img>` 用 `object-po
 - `groupLibraryItems(items, now = Date.now()) -> [{key: "today"|"yesterday"|"week"|"older", title, items}]`，组内新到旧（按 `created_at`，缺失时 `mtime*1000`）。
 - `trashItem(id) -> POST /api/trash {id}`。
 
-- [ ] **Step 1: 测试**
+- [x] **Step 1: 测试**
 
 ```js
 test("library groups by day and sorts newest first", () => {
@@ -1106,9 +1106,9 @@ test("library groups by day and sorts newest first", () => {
 test("trashItem posts the library id", async () => { /* 与 optimizeDraft 同型，断言 url 为 /studio-api/api/trash */ });
 ```
 
-- [ ] **Step 2: 失败** → **Step 3: 实现**：分组用本地日历日（`new Date(ts).toDateString()` 比较 today / yesterday；7 天内 `week`；其余 `older`）。LibraryView：每组 `<section aria-labelledby>`；卡片容器 `style={{ aspectRatio: cssRatio(item.aspect_ratio) }}` + `object-fit: contain` 背景 `#020406`；有 `item.parent` 显示徽标 `V`（`versionBadge = "改稿版"`）；新增按钮「移到回收站」→ `window.confirm("移到回收站？原图与回执会一起移走，可在 ~/.local-image-gen/.trash 找回。")` → `trashItem(item.id)` → 从列表移除。
-- [ ] **Step 4: 运行** `npm test`、`npm run build`。
-- [ ] **Step 5: 记录**
+- [x] **Step 2: 失败** → **Step 3: 实现**：分组用本地日历日（`new Date(ts).toDateString()` 比较 today / yesterday；7 天内 `week`；其余 `older`）。LibraryView：每组 `<section aria-labelledby>`；卡片容器 `style={{ aspectRatio: cssRatio(item.aspect_ratio) }}` + `object-fit: contain` 背景 `#020406`；有 `item.parent` 显示徽标 `V`（`versionBadge = "改稿版"`）；新增按钮「移到回收站」→ `window.confirm("移到回收站？原图与回执会一起移走，可在 ~/.local-image-gen/.trash 找回。")` → `trashItem(item.id)` → 从列表移除。
+- [x] **Step 4: 运行** `npm test`、`npm run build`。
+- [x] **Step 5: 记录**
 
 ---
 
@@ -1121,7 +1121,7 @@ test("trashItem posts the library id", async () => { /* 与 optimizeDraft 同型
 - Modify: `tests/test_studio_frontend.py`（重写）、`tests/path_a_probe.html:24,55`（注释改为「与 prototypes/future-studio-v1 的导出裁切逻辑同源」）
 - Modify: `tests/test_future_studio_delivery.py`（`/static/index.html` 404 用例改为 `/static/js/main.js` 404）
 
-- [ ] **Step 1: 重写 `tests/test_studio_frontend.py`**
+- [x] **Step 1: 重写 `tests/test_studio_frontend.py`**
 
 ```python
 class DeliveredClientTests(unittest.TestCase):
@@ -1144,7 +1144,7 @@ class DeliveredClientTests(unittest.TestCase):
 
 （`...` 处按 `tests/test_future_studio_delivery.py` 的 setUp/tearDown 与 `urlopen` 写法复制，断言 `/static/js/main.js` 与 `/static/css/tokens.css` 均 404。）
 
-- [ ] **Step 2: 运行确认失败** → **Step 3: 删除文件与路由** → **Step 4: 全量 Python + `npm run build:local` + e2e** → **Step 5: 记录**
+- [x] **Step 2: 运行确认失败** → **Step 3: 删除文件与路由** → **Step 4: 全量 Python + `npm run build:local` + e2e** → **Step 5: 记录**
 
 ---
 
@@ -1157,7 +1157,7 @@ class DeliveredClientTests(unittest.TestCase):
 - Modify: `prototypes/future-studio-v1/tests/e2e/studio.spec.mjs`（新增：无通路引导态、导出焦点、素材库回收站）
 - Modify: `prototypes/future-studio-v1/playwright.config.mjs`（第二个 webServer：`HOME=<.artifacts/empty-home>` 的非 fixture 服务，端口 `STUDIO_E2E_PORT+1`，供无通路用例使用）
 
-- [ ] **Step 1: 写 e2e**
+- [x] **Step 1: 写 e2e**
 
 ```js
 test("a machine without any login sees the connect panel instead of a dead screen", async ({ page }) => {
@@ -1185,16 +1185,16 @@ test("export exposes a crop focus grid and the library can trash a work", async 
 });
 ```
 
-- [ ] **Step 2: 更新文档与 CHANGELOG**（每条一行，动词开头，写清用户可见变化）
-- [ ] **Step 3: 构建并提升** `npm run build:local`；`git status --short studio/client` 只含本轮产物
-- [ ] **Step 4: 全量验证**
+- [x] **Step 2: 更新文档与 CHANGELOG**（每条一行，动词开头，写清用户可见变化）
+- [x] **Step 3: 构建并提升** `npm run build:local`；`git status --short studio/client` 只含本轮产物
+- [x] **Step 4: 全量验证**
   - `python3 -m unittest discover -s tests`（预期 ≥ 377 + 新增，全 OK）
   - `npm test`、`npm run test:sites`、`npm audit --audit-level=moderate`
   - `npm run test:e2e`（7 条）
   - `git diff --check`（新改动 0 命中）
   - 浏览器复核：1440×1024 / 390×844 六步 + 无通路态截图存 `.playwright-mcp/final-*.png`
   - `local-image-gen studio --fixture --no-open` 启动日志 outputs 指向 `fixture-outputs`；`~/.local-image-gen` 文件数不变；`readlink <workspace>/outputs` 仍为 `~/.local-image-gen`
-- [ ] **Step 5: 记录**：写 §验证记录并在最终汇报列出剩余门。
+- [x] **Step 5: 记录**：写 §验证记录并在最终汇报列出剩余门。
 
 ---
 
@@ -1274,3 +1274,13 @@ test("export exposes a crop focus grid and the library can trash a work", async 
 - 工作区 `outputs` 链接在 fixture 实跑前后均指向 `~/.local-image-gen`。
 
 未覆盖：真实通路的改稿只在 fixture 验证；改稿确认卡"通路 / 模型"显示的是自动路由解析后的具体通路（如 `grok`），未显示 `auto →` 前缀。
+
+### 2026-08-30 第七轮：确认卡路由口径、计划复选框回填、CI actions 升级（用户"继续"）
+
+- 确认卡"通路 / 模型"改用 `studio-options.js::providerLabel(requested, actual)`：用户把通路留给自动路由时显示 `auto → grok`，与首屏摘要口径一致；用户指定通路时只显示该通路。`ConfirmView` 新增 `requestedProvider` 属性，由 `App.jsx` 传 `settings.provider`。
+- 本计划 17 个任务的 78 个步骤复选框此前一直未勾。工作已在前六轮完成并写入验证记录，本轮按验证记录一次性回填为已完成；逐步的"先红后绿"以各轮验证记录为准，未逐步单独留痕。
+- `.github/workflows/test.yml`：`actions/checkout@v7`、`actions/setup-node@v7`、`actions/upload-artifact@v7`、`actions/setup-python@v6`，消除 GitHub 的 Node 20 弃用警告。`setup-python` 停在 v6 而非 v7：v7 的变更移除了 EOL Python 的测试矩阵，本仓矩阵仍承诺 3.9，v6 已运行在 Node 24。工作流仅做了 YAML 语法检查，真正生效要等下一次 push 的 CI。
+
+验证：`npm test` 57/57（新增 `providerLabel` 用例）；`npm run build:local` 已提升客户端（`index-DzqZTw1B.js`）；Playwright e2e 7/7；`git diff --check` 0；隔离 fixture 实跑：改稿确认卡显示 `auto → grok · 默认`，新建确认卡显示 `auto → fixture · 默认`（fixture 模式下整理接口固定走 canned `fixture` 通路，而客户端自动路由取第一条可用 canned 通路，二者不同是 fixture 特有；真实模式两者都取服务端同一顺序）。工作区 `outputs` 链接前后均指向 `~/.local-image-gen`。
+
+未覆盖：CI actions 升级未经 CI 运行验证（需 push）；真实通路改稿仍未实跑（需配额授权）。

@@ -4,7 +4,7 @@ import { Header } from "../components/Header.jsx";
 import { StageLabel } from "../components/StageLabel.jsx";
 import { useDialogFocus } from "../hooks/useDialogFocus.js";
 import { apiThumbUrl } from "../studio-api.js";
-import { libraryItemTitle } from "../studio-options.js";
+import { libraryItemTitle, providerLabel } from "../studio-options.js";
 
 const ASPECT_SOURCE_NOTE = { prompt: "按描述推断", default: "默认", template: "按模板", provider: "按该通路能出的画幅" };
 
@@ -19,6 +19,7 @@ export function ConfirmView({
   optimizing,
   optimizeNote,
   intent,
+  requestedProvider,
   baseImage,
   onLibrary,
   ready,
@@ -60,7 +61,7 @@ export function ConfirmView({
         )}
         {referenceUrls.length > 0 && <div className="confirm-reference"><div className="confirm-reference-thumbs">{referenceUrls.map((url, index) => <img key={url} src={url} alt={`已添加的参考图 ${index + 1}`} />)}</div><div><span>参考图</span><strong>{referenceUrls.length} 张已上传并锁入任务</strong></div></div>}
         <dl className="fact-grid">
-          <div><dt>通路 / 模型</dt><dd>{first.provider || "auto"} · {first.model || "默认"}</dd></div>
+          <div><dt>通路 / 模型</dt><dd>{providerLabel(requestedProvider, first.provider)} · {first.model || "默认"}</dd></div>
           <div><dt>模板</dt><dd>{brief?.template_label || brief?.template || "自动"}</dd></div>
           <div><dt>比例 / 清晰度</dt><dd>{first.aspect || "按模板"} · {first.resolution || "默认"}{aspectNote && intent !== "revision" ? <small>比例{aspectNote}，可在首屏设置里改</small> : null}</dd></div>
           <div><dt>质量 / 数量</dt><dd>{first.quality || "auto"} · {jobs.length} 张</dd></div>
