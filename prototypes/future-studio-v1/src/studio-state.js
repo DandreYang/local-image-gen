@@ -95,3 +95,23 @@ export function formatElapsed(ms) {
   const seconds = total % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
+
+/** The job sent when the user asks for the next version of the selected work. */
+export function buildRevisionJob({ result, instruction, workPrompt, settings, selectedItem, provider, aspect }) {
+  return {
+    id: `revision-${Date.now()}`,
+    style: "",
+    mode: "edit",
+    aspect,
+    profile: "edit",
+    prompt: result.draft,
+    draft: result.draft,
+    user_prompt: workPrompt,
+    provider,
+    model: settings.model || selectedItem.model_requested || selectedItem.model || "",
+    quality: settings.quality || selectedItem.quality_requested || selectedItem.quality || "high",
+    resolution: settings.resolution || selectedItem.resolution_requested || "",
+    images: result.images || [selectedItem.id],
+    requirements: Array.isArray(result.requirements) && result.requirements.length ? result.requirements : [instruction],
+  };
+}

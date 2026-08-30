@@ -3,8 +3,10 @@ import { Check, X } from "@phosphor-icons/react";
 import { Header } from "../components/Header.jsx";
 import { StageLabel } from "../components/StageLabel.jsx";
 import { useDialogFocus } from "../hooks/useDialogFocus.js";
+import { apiThumbUrl } from "../studio-api.js";
+import { libraryItemTitle } from "../studio-options.js";
 
-const ASPECT_SOURCE_NOTE = { prompt: "按描述推断", default: "默认", template: "按模板" };
+const ASPECT_SOURCE_NOTE = { prompt: "按描述推断", default: "默认", template: "按模板", provider: "按该通路能出的画幅" };
 
 export function ConfirmView({
   brief,
@@ -17,6 +19,7 @@ export function ConfirmView({
   optimizing,
   optimizeNote,
   intent,
+  baseImage,
   onLibrary,
   ready,
   backendState,
@@ -41,7 +44,14 @@ export function ConfirmView({
           <div><StageLabel>生成确认</StageLabel><h2 id="confirm-title">将生成 {jobs.length} 张{brief?.mode === "candidates" ? "候选" : "图片"}</h2></div>
           <button className="icon-button" type="button" onClick={onBack} aria-label="关闭确认" disabled={loading}><X size={22} weight="light" aria-hidden="true" /></button>
         </div>
-        <p className="confirm-prompt">{prompt}</p>
+        {intent === "revision" && baseImage ? (
+          <div className="confirm-base">
+            <img src={apiThumbUrl(baseImage.url || baseImage.id)} alt="" />
+            <div><span>以这张作品为底</span><strong>{prompt || libraryItemTitle(baseImage)}</strong></div>
+          </div>
+        ) : (
+          <p className="confirm-prompt">{prompt}</p>
+        )}
         {intent === "revision" && requirements.length > 0 && (
           <div className="confirm-requirements">
             <span>本次修改要求</span>

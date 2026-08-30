@@ -1244,8 +1244,33 @@ test("export exposes a crop focus grid and the library can trash a work", async 
 - 下拉框底部超出屏幕：真实缺陷（菜单固定向下 + 页面 `overflow:hidden`），`TechSelect` 改为按可用空间决定向上/向下并限高；Chromium/WebKit 1440×800 复测菜单上翻、底边 601 ≤ 800。
 - 参考图无法选择 / 素材库图片无法显示：以真实素材库副本（72 张）在 Chromium 与 WebKit 复测均未复现（文件框可弹出、参考条正常、可见区缩略图全部加载、`/thumb/` 全 200）。仍加固：参考图改为按钮触发隐藏 input；缩略图改为比例盒内绝对定位填充并移除旧 16:9 规则。Node 53/53、e2e 7/7、Python 340 OK。
 
+### 用户截图两项（2026-08-30 11:30）：确认后才报错
+
+- `codex 只能出 1:1，不支持 3:4`：比例来自模板默认（小红书 3:4），确认卡只警告未拦截。改为整理阶段 `coerce_aspect()`：通路不支持的比例改成该通路首个可用比例（codex → 1:1），`aspect_source=provider`，卡上说明「codex 只能出 1:1；模板默认 3:4 已改为 1:1」。
+- `model gpt-image-2 is not available through Studio provider grok`：自动路由下选了 codex 的模型，通路未随之切换。改为"模型隐含通路"：服务端 `studio_brief_provider(auto, model)` 按模型所属可用通路解析；前端 `providerForSelection()` 同步派生有效通路（设置摘要显示 `auto → codex`，比例/清晰度按该模型限制，brief 请求带派生通路）；服务端拒绝文案改中文。
+- 复测（真实登录态，未生成）：auto + gpt-image-2 → 卡片 `codex · gpt-image-2 / 1:1`，比例下拉仅 1:1 可选；codex + 小红书模板 → 卡片 `1:1` 并标注模板 3:4 已改为 1:1。Python 343 OK、Node 54/54、e2e 7/7。
+
 ## 自检
 
 - 规格覆盖：F1→T9；F2/F3→T1；F4→T2；F5→T4；F6→T5；F7→T6；F8→T3；F9→T7；F10→T10；F11→T12；F12→T13；F13→T14；F14→T15；F15/F16→T9；F17→T16；F18→T8；F19→T5（根解析随链接漂移由 T5 消除）；§5.3 AI 改写→T3+T11；文档→T17。
 - 占位扫描：Task 16 Step 1 的 `...` 已注明复制来源；无 TBD。
 - 类型一致：`optimize_draft` / `run_optimize_draft` / `optimizeDraft`；`merge_revision_draft` 返回 `(draft, requirements)`；`provider_aspects()` 与前端 `row.aspects`；`getRuntimeAccess().backendState` 三值。
+
+### 2026-08-30 第六轮：素材库改图不再带首屏上下文（用户反馈）
+
+用户反馈：在首屏输入的描述、上传的参考图和选择的配置，到素材库打开另一张图做"看图建议 / 生成下一版"时仍被带过来；改稿确认卡显示的是首屏描述与参考图。
+
+根因：`App.jsx` 用首屏的 `prompt`/`referenceUrls` 作为全局上下文，`getCritique`、`prepareRevision` 和 `ConfirmView` 都直接读它们；导入图没有通路信息时又沿用首屏配置。
+
+修复（未提交）：
+- `App.jsx`：新增 `workPrompt`（所选作品自身的 `prompt_original || prompt_used`），看图建议、改稿请求与改稿任务 `user_prompt` 只用它；改稿确认卡传 `baseImage` 且不再传首屏参考图；改稿任务构造抽到 `studio-state.js::buildRevisionJob`。
+- `ConfirmView.jsx`：改稿意图下显示"以这张作品为底 + 作品缩略图"，不显示首屏描述段落与参考图块。
+- `studio-options.js::settingsFromItem`：导入图（无通路）打开时通路回到 `auto`、模型清空，不沿用首屏选择；比例仍取自作品。
+- `studio/job.py::merge_revision_draft`：基础描述为空时，第一条修改要求本身即终稿（不再出现空基底 + "修改要求："头）。
+
+验证：
+- `npm test` 56/56（新增导入图重置通路用例）；`python3 -m unittest discover -s tests` 344 OK（新增空基底合并用例）；`npm run build:local` 已提升客户端；Playwright e2e 7/7；`git diff --check` 0。
+- 隔离 fixture 实跑（`LOCAL_IMAGE_GEN_HOME` 指向 scratch，`--fixture`，Chromium 与 WebKit 各一次）：首屏填描述 + 上传参考图 → 素材库导入另一张图并打开 → 看图建议 → 生成下一版。确认卡：`.confirm-prompt` 0 段、`.confirm-reference` 0 块、`.confirm-base` 为所选作品缩略图；终稿 = 修改要求本身；确认后 V2 挂在该导入图下。请求体：`/studio-api/api/look` 与 `/api/revise` 的 `brief` 为作品自身（导入图为空）、`image` 为所选作品；新建生成的 `/api/brief` 仍带首屏描述与参考图（回归通过）。
+- 工作区 `outputs` 链接在 fixture 实跑前后均指向 `~/.local-image-gen`。
+
+未覆盖：真实通路的改稿只在 fixture 验证；改稿确认卡"通路 / 模型"显示的是自动路由解析后的具体通路（如 `grok`），未显示 `auto →` 前缀。

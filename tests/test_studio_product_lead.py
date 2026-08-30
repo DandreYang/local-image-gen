@@ -90,6 +90,15 @@ class RevisionDraftTests(unittest.TestCase):
         self.assertEqual(base, "城市夜景。")
         self.assertEqual(reqs, ["字再大一点", "背景更暗"])
 
+    def test_imported_photo_without_base_uses_the_instruction_itself(self) -> None:
+        first, reqs = merge_revision_draft("", "把人物完整抠出，配开学季文案")
+        self.assertEqual(first, "把人物完整抠出，配开学季文案")
+        self.assertEqual(reqs, ["把人物完整抠出，配开学季文案"])
+        second, reqs2 = merge_revision_draft(first, "背景换成校园")
+        self.assertEqual(second, "把人物完整抠出，配开学季文案\n修改要求：\n1. 背景换成校园")
+        # The first instruction became the base description; only new asks are requirements.
+        self.assertEqual(reqs2, ["背景换成校园"])
+
     def test_empty_message_keeps_draft(self) -> None:
         draft, reqs = merge_revision_draft("城市夜景。", "   ")
         self.assertEqual(draft, "城市夜景。")
@@ -392,6 +401,37 @@ class CodexAspectTests(unittest.TestCase):
         self.assertEqual(item["aspect_ratio"], "3:2")
         self.assertEqual(item["aspect_requested"], "16:9")
         self.assertEqual(item["actual_mime"], "image/webp")
+
+    def test_brief_coerces_template_aspect_to_what_codex_can_draw(self) -> None:
+        """A 小红书 template defaults to 3:4; under Codex the card must already say 1:1."""
+        card = brief("小红书封面 主标题\n开营", provider="codex")
+        self.assertEqual(card["template"], "xiaohongshu")
+        self.assertEqual(card["jobs"][0]["aspect"], "1:1")
+        self.assertEqual(card["aspect_source"], "provider")
+        self.assertTrue(any("模板默认 3:4 已改为 1:1" in w for w in card["warnings"]), card["warnings"])
+        grok = brief("小红书封面 主标题\n开营", provider="grok")
+        self.assertEqual(grok["jobs"][0]["aspect"], "3:4")
+        self.assertEqual(grok["aspect_source"], "template")
+
+    def test_brief_coerces_user_aspect_under_codex(self) -> None:
+        card = brief("一枚徽章", provider="codex", aspect="16:9")
+        self.assertEqual(card["jobs"][0]["aspect"], "1:1")
+        self.assertTrue(any("你选的 16:9 已改为 1:1" in w for w in card["warnings"]), card["warnings"])
+
+    def test_auto_provider_follows_the_chosen_model(self) -> None:
+        providers = [
+            {"provider": "grok", "subscription": True, "studio_enabled": True, "default_model": "grok-imagine-image-2.0"},
+            {"provider": "codex", "subscription": True, "studio_enabled": True, "default_model": "gpt-image-2"},
+        ]
+        with patch.dict(os.environ, {"LOCAL_IMAGE_GEN_STUDIO_FIXTURE": ""}):
+            self.assertEqual(server.studio_brief_provider("auto", providers, "gpt-image-2"), "codex")
+            self.assertEqual(server.studio_brief_provider("auto", providers, ""), "grok")
+            self.assertEqual(server.studio_brief_provider("auto", providers, "grok-imagine-image"), "grok")
+            self.assertEqual(server.studio_brief_provider("grok", providers, "gpt-image-2"), "grok")
+            with patch.object(server, "current_studio_providers", return_value=providers):
+                with self.assertRaises(ValueError) as caught:
+                    server.normalize_studio_jobs([{"provider": "grok", "model": "gpt-image-2", "aspect": "1:1", "prompt": "x"}])
+            self.assertIn("不属于 grok 通路", str(caught.exception))
 
     def test_brief_warns_codex_unsupported_aspect(self) -> None:
         from job import aspect_warning

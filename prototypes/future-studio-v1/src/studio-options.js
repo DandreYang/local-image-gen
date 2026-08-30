@@ -56,8 +56,26 @@ export function imageFactLabel(item = {}) {
   return actual || (requested ? `请求 ${requested}` : "—");
 }
 
+const LABEL_LINE = /^([A-Za-z][A-Za-z /-]{1,24}):\s*(.*)$/;
+const TITLE_LABELS = ["subject", "scene", "description", "prompt"];
+
+/** A human title: the prompt's real subject, never a `$imagegen` label such as "Use case: …". */
+export function promptTitle(text) {
+  const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return "";
+  const labelled = lines.map((line) => LABEL_LINE.exec(line));
+  if (!labelled[0]) return lines[0].split(/\s+事实：/)[0].split(/\s+修改要求：/)[0];
+  for (const wanted of TITLE_LABELS) {
+    const hit = labelled.find((match) => match && match[1].toLowerCase() === wanted && match[2]);
+    if (hit) return hit[2];
+  }
+  const plain = lines.find((line, index) => !labelled[index]);
+  if (plain) return plain;
+  return labelled[0][2] || lines[0];
+}
+
 export function libraryItemTitle(item = {}) {
-  const prompt = String(item.prompt_original || item.prompt_used || "").trim().split(/\r?\n/)[0].split(/\s+事实：/)[0];
+  const prompt = promptTitle(item.prompt_original || item.prompt_used || "");
   if (prompt) return prompt.length > 36 ? `${prompt.slice(0, 36)}…` : prompt;
   const filename = String(item.name || "本机作品").replace(/\.[^.]+$/, "");
   return filename || "本机作品";
@@ -109,9 +127,11 @@ export function settingsFromItem(item, { fixture, usableProviders, models, fallb
     ? ""
     : `历史作品使用的 ${item.provider} 当前不可用；下一版将使用 ${fallbackProvider}，请在首屏确认后再生成。`;
   const apply = (current) => {
-    const provider = providerAvailable && item.provider ? item.provider : current.provider;
+    // An imported photo carries no provider: start from 自动路由, not from whatever
+    // the start screen happened to be set to.
+    const provider = providerAvailable && item.provider ? item.provider : item.provider ? current.provider : "auto";
     const requestedModel = item.model_requested || item.model;
-    const model = (models || []).some((row) => row.model === requestedModel && modelMatchesProvider(provider, row)) ? requestedModel : current.model;
+    const model = (models || []).some((row) => row.model === requestedModel && modelMatchesProvider(provider, row)) ? requestedModel : item.provider ? current.model : "";
     return {
       ...current,
       provider,
@@ -247,4 +267,15 @@ export function groupLibraryItems(items, now = Date.now()) {
   return Object.keys(buckets)
     .filter((key) => buckets[key].length)
     .map((key) => ({ key, title: GROUP_TITLES[key], items: buckets[key] }));
+}
+
+/**
+ * The provider a request really goes to. In auto mode a chosen model decides
+ * (its row carries the provider); otherwise the first usable provider.
+ */
+export function providerForSelection(provider, model, modelOptions, usableProviders) {
+  if (provider && provider !== "auto") return provider;
+  const row = model ? (modelOptions || []).find((option) => option.value === model) : null;
+  if (row?.provider) return row.provider;
+  return (usableProviders || [])[0]?.provider || "auto";
 }

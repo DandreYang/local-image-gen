@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
 from director import look_at_image
-from job import brief as build_brief, merge_revision_draft
+from job import brief as build_brief, merge_revision_draft, provider_allowed_aspects
 from snippets import add_snippet, color_sentence, delete_snippet, list_snippets as load_snippets
 import local_image_gen as cli
 
@@ -310,18 +310,10 @@ def studio_doctor_payload(*, skip_update_check: bool = True) -> Dict[str, Any]:
 STUDIO_UNSAFE_AGENT_PROVIDERS = {"agy", "antigravity", "cursor"}
 STUDIO_SAFE_PROVIDER_ORDER = ("grok", "codex", "gemini", "xai", "openai")
 
-# Aspects a provider can actually draw. The official OpenAI Images API offers
-# 1024x1024, 1536x1024 and 1024x1536; the unofficial Codex backend returned
-# 1254x1254 for a 3:2 request on 2026-08-30 (and on 2026-08-26), so Studio only
-# promises 1:1 there. Anything else would be a cropped promise.
-PROVIDER_ASPECTS: Dict[str, Tuple[str, ...]] = {
-    "codex": ("1:1",),
-    "openai": ("1:1", "3:2", "2:3"),
-}
-
-
+# Aspects a provider can actually draw live in one place (studio/job.py) so the
+# brief, the confirm gate and the model catalog can never disagree.
 def provider_aspects(provider: Any) -> Tuple[str, ...]:
-    return PROVIDER_ASPECTS.get(str(provider or ""), tuple(cli.SUPPORTED_ASPECTS))
+    return provider_allowed_aspects(str(provider or ""))
 
 
 def studio_provider_allowed(provider: Any) -> bool:
@@ -368,8 +360,12 @@ def resolve_studio_provider(requested: Any, providers: List[Dict[str, Any]]) -> 
     raise ValueError("没有可用的 Studio 安全通路；请登录 Grok/Codex 或配置官方 API Key")
 
 
-def studio_brief_provider(requested: Any, providers: List[Dict[str, Any]]) -> str:
-    """Local brief may name a safe provider before login; confirm still fail-closes."""
+def studio_brief_provider(requested: Any, providers: List[Dict[str, Any]], model: Any = "") -> str:
+    """Local brief may name a safe provider before login; confirm still fail-closes.
+
+    In `auto` mode a chosen model implies its provider: picking `gpt-image-2` means
+    Codex, never "auto → Grok with a Codex model" that the confirm gate would reject.
+    """
     if studio_fixture_enabled():
         return "fixture"
     wanted = str(requested or "auto").strip().lower() or "auto"
@@ -377,6 +373,18 @@ def studio_brief_provider(requested: Any, providers: List[Dict[str, Any]]) -> st
         if not studio_provider_allowed(wanted):
             raise ValueError(f"Studio 暂未安全开放 {wanted} 通路")
         return wanted
+    chosen_model = str(model or "").strip()
+    if chosen_model:
+        indexed = {str(row.get("provider") or ""): row for row in providers if isinstance(row, dict)}
+        for provider in STUDIO_SAFE_PROVIDER_ORDER:
+            row = indexed.get(provider)
+            if row is None or not studio_provider_available(row):
+                continue
+            if any(
+                item.get("provider") == provider and item.get("model") == chosen_model
+                for item in studio_models_payload().get("models") or []
+            ):
+                return provider
     try:
         return resolve_studio_provider("auto", providers)
     except ValueError:
@@ -1830,7 +1838,7 @@ def normalize_studio_jobs(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             raise ValueError(f"confirmed job settings are no longer valid: {settings['warning']}")
         model = settings["model"]
         if model and (provider, model) not in model_pairs:
-            raise ValueError(f"model {model} is not available through Studio provider {provider}")
+            raise ValueError(f"模型 {model} 不属于 {provider} 通路，请在设置里换一个模型或通路")
         aspect = str(row.get("aspect") or "")
         if aspect and aspect not in provider_aspects(provider):
             raise ValueError(f"{provider} 只能出 {' / '.join(provider_aspects(provider))}，不支持 {aspect}")
@@ -2269,7 +2277,7 @@ class Handler(BaseHTTPRequestHandler):
                         if ref not in images:
                             images.append(ref)
                 providers = current_studio_providers()
-                provider = studio_brief_provider(body.get("provider"), providers)
+                provider = studio_brief_provider(body.get("provider"), providers, body.get("model"))
                 normalized = normalize_studio_generation_settings(
                     provider,
                     body.get("model"),

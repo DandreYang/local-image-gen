@@ -168,6 +168,14 @@ def merge_revision_draft(draft: str, message: str) -> Tuple[str, List[str]]:
         reqs.append(text)
     if not reqs:
         return base, []
+    if not base:
+        # An imported photo has no base description: the first instruction *is* the
+        # picture description, later ones become the numbered requirements.
+        base, listed = reqs[0], reqs[1:]
+        if not listed:
+            return base, reqs
+        block = "\n".join(f"{index}. {item}" for index, item in enumerate(listed, start=1))
+        return f"{base}\n{REVISION_HEADER}\n{block}", reqs
     block = "\n".join(f"{index}. {item}" for index, item in enumerate(reqs, start=1))
     return f"{base}\n{REVISION_HEADER}\n{block}", reqs
 
@@ -181,12 +189,32 @@ GPT_IMAGE_ASPECTS = {
 }
 
 
+def provider_allowed_aspects(provider: str) -> Tuple[str, ...]:
+    """Aspects a Studio provider really draws; everything else falls back to the CLI list."""
+    return GPT_IMAGE_ASPECTS.get(str(provider or ""), tuple(cli.SUPPORTED_ASPECTS))
+
+
 def aspect_warning(provider: str, aspect: str) -> Optional[str]:
     """gpt-image providers only draw a few canvases; say so before confirmation."""
     allowed = GPT_IMAGE_ASPECTS.get(provider)
     if not allowed or not aspect or aspect in allowed:
         return None
     return f"{provider} 只能出 {' / '.join(allowed)}；{aspect} 会被拒绝，请在设置里换一个比例。"
+
+
+def coerce_aspect(provider: str, aspect: str, source: str) -> Tuple[str, str, Optional[str]]:
+    """Keep the confirmation card confirmable: an aspect the provider cannot draw is
+    replaced by the provider's first supported one, and the card says so.
+
+    Returns (aspect, aspect_source, note). Nothing changes for providers without limits.
+    """
+    allowed = provider_allowed_aspects(provider)
+    if not aspect or aspect in allowed:
+        return aspect, source, None
+    fallback = allowed[0]
+    origin = {"template": "模板默认", "prompt": "描述里的", "default": "默认", "user": "你选的"}.get(source, "原来的")
+    note = f"{provider} 只能出 {' / '.join(allowed)}；{origin} {aspect} 已改为 {fallback}。"
+    return fallback, "provider", note
 
 
 def is_series_request(
@@ -296,13 +324,13 @@ def brief(
         wanted_aspect, aspect_source = prompt_aspect, "prompt"
     else:
         wanted_aspect, aspect_source = "1:1", "default"
+    wanted_aspect, aspect_source, aspect_note = coerce_aspect(provider, wanted_aspect, aspect_source)
     # The confirmation card is a consent boundary. Building it must be local:
     # no web search, no text-model rewrite, and no cross-provider fallback.
     facts = user_facts(text)
     warnings: List[str] = ["确认前未调用外部文本或搜索模型"]
-    warn = aspect_warning(provider, wanted_aspect)
-    if warn:
-        warnings.append(warn)
+    if aspect_note:
+        warnings.append(aspect_note)
     if chosen in {"calendar-poster", "invite"}:
         warnings.append("二维码请后贴真码。模型画出来的码不能扫。")
     if chosen == "reel":

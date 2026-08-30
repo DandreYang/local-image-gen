@@ -15,6 +15,7 @@ export function StartView({
   onAddReferences,
   onRemoveReference,
   settings,
+  effectiveProvider,
   providers,
   models,
   aspects,
@@ -106,7 +107,7 @@ export function StartView({
           disabled={loading}
         >
           <SlidersHorizontal size={17} aria-hidden="true" />
-          <span>{settings.provider || "auto"} · {settings.aspect || "按模板"} · {settings.resolution || "默认清晰度"}</span>
+          <span>{settings.provider === "auto" && effectiveProvider && effectiveProvider !== "auto" ? `auto → ${effectiveProvider}` : settings.provider || "auto"} · {settings.aspect || "按模板"} · {settings.resolution || "默认清晰度"}</span>
           <CaretDown size={14} aria-hidden="true" />
         </button>
         <div id="advanced-generation-settings" className="advanced-settings-panel" hidden={!settingsOpen}>

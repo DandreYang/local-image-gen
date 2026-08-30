@@ -7,6 +7,8 @@ import {
   groupLibraryItems,
   itemFactRows,
   platformShortcutLabel,
+  promptTitle,
+  providerForSelection,
   qualityOptionsFor,
   resolutionOptionsFor,
   settingsFromItem,
@@ -162,4 +164,31 @@ test("supportedAspect never leaks odd pixel ratios into a request", () => {
   assert.equal(supportedAspect({ aspect_ratio: "10:7", aspect_requested: "16:9" }), "16:9");
   assert.equal(supportedAspect({ aspect_ratio: "1000x700" }), "");
   assert.equal(supportedAspect({}), "");
+});
+
+test("a chosen model implies its provider under auto routing", () => {
+  const options = usableModelOptions(models, providers, "auto");
+  assert.equal(providerForSelection("auto", "gpt-image-2", options, providers.slice(0, 2)), "codex");
+  assert.equal(providerForSelection("auto", "", options, providers.slice(0, 2)), "grok");
+  assert.equal(providerForSelection("grok", "gpt-image-2", options, providers.slice(0, 2)), "grok");
+  assert.equal(providerForSelection("auto", "unknown-model", options, []), "auto");
+});
+
+test("library titles skip $imagegen labels and use the subject", () => {
+  assert.equal(promptTitle("Use case: illustration-story\nAsset type: scene\nSubject: 云雾中的悬空古廊桥\nStyle: cinematic"), "云雾中的悬空古廊桥");
+  assert.equal(promptTitle("Use case: illustration-story\nAsset type: scene\n一座悬空廊桥"), "一座悬空廊桥");
+  assert.equal(promptTitle("Use case: illustration-story"), "illustration-story");
+  assert.equal(promptTitle("霓虹雨夜 事实：霓虹雨夜"), "霓虹雨夜");
+  assert.equal(promptTitle("城市夜景。\n修改要求：\n1. 更暗"), "城市夜景。");
+  assert.equal(promptTitle(""), "");
+});
+
+test("an imported photo resets provider and model to auto routing", () => {
+  const upload = { id: "images/inbox/a.png", aspect_ratio: "1:1" };
+  const result = settingsFromItem(upload, { fixture: false, usableProviders: providers.slice(0, 2), models, fallbackProvider: "codex" });
+  assert.equal(result.warning, "");
+  const applied = result.apply({ provider: "codex", model: "gpt-image-2", template: "cover", aspect: "3:4", resolution: "", quality: "high" });
+  assert.equal(applied.provider, "auto");
+  assert.equal(applied.model, "");
+  assert.equal(applied.aspect, "1:1");
 });

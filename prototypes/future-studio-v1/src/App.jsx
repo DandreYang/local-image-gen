@@ -13,6 +13,7 @@ import {
   aspectOptionsFor,
   connectRows,
   getRuntimeAccess,
+  providerForSelection,
   providerUsable,
   qualityOptionsFor,
   resolutionOptionsFor,
@@ -21,6 +22,7 @@ import {
   usableModelOptions,
 } from "./studio-options.js";
 import {
+  buildRevisionJob,
   buildVersionChain,
   isBatchRunning,
   mergeReferenceFiles,
@@ -105,22 +107,30 @@ export function App() {
     () => usableModelOptions(capabilities.models, capabilities.providers, settings.provider),
     [capabilities.models, capabilities.providers, settings.provider],
   );
-  const effectiveProvider = settings.provider === "auto" ? usableProviders[0]?.provider : settings.provider;
+  // A chosen model implies its provider even under 自动路由, so the card, the
+  // capability lists and the server all talk about the same provider.
+  const effectiveProvider = providerForSelection(settings.provider, settings.model, modelOptions, usableProviders);
   const effectiveModel = settings.model || capabilities.providers.find((row) => row.provider === effectiveProvider)?.default_model || "";
   const modelInfo = capabilities.models.find((row) => row.provider === effectiveProvider && row.model === effectiveModel);
   const aspectOptions = useMemo(
-    () => aspectOptionsFor(capabilities.models, settings.provider, settings.model || effectiveModel),
-    [capabilities.models, settings.provider, settings.model, effectiveModel],
+    () => aspectOptionsFor(capabilities.models, effectiveProvider || settings.provider, settings.model || effectiveModel),
+    [capabilities.models, settings.provider, effectiveProvider, settings.model, effectiveModel],
   );
   const connectRowsList = useMemo(() => connectRows(capabilities.providers), [capabilities.providers]);
   const batchRunning = isBatchRunning(batch);
   const canGenerate = canUseStudioBackend && !batchRunning && Boolean(fixture || settings.provider === "auto" || usableProviders.some((row) => row.provider === settings.provider));
   const qualityOptions = qualityOptionsFor(modelInfo);
   const resolutionOptions = resolutionOptionsFor(modelInfo);
+  // The current work owns its context: critique and revisions talk about the
+  // selected image's own prompt, never about whatever sits in the start screen.
+  const workPrompt = selectedItem ? String(selectedItem.prompt_original || selectedItem.prompt_used || "") : prompt;
 
   function setView(next, replace = false) {
     operationRef.current += 1;
     setLoading(false);
+    // A failed step's message belongs to that step: it must not follow the user
+    // into the library or the start screen. Refine/error set their own text first.
+    if (!["refine", "error"].includes(next)) setError("");
     viewRef.current = next;
     setViewState(next);
     const url = new URL(window.location.href);
@@ -253,7 +263,7 @@ export function App() {
         if (!ops.isCurrent(operationId, "start")) return;
         setReferenceIds(images);
       }
-      const card = await createBrief({ prompt: prompt.trim(), ...settings, images });
+      const card = await createBrief({ prompt: prompt.trim(), ...settings, provider: settings.model ? effectiveProvider : settings.provider, images });
       if (!ops.isCurrent(operationId, "start")) return;
       setBrief(card); setIntent("initial"); setView("confirm");
     } catch (cause) { if (operationRef.current === operationId) setError(cause.message || String(cause)); }
@@ -316,7 +326,7 @@ export function App() {
     const operationId = ops.begin();
     setLoading(true); setError("");
     try {
-      const result = await lookAtImage({ image: selectedItem.id, draft: selectedItem.prompt_used || selectedItem.prompt_original || "", brief: prompt });
+      const result = await lookAtImage({ image: selectedItem.id, draft: selectedItem.prompt_used || selectedItem.prompt_original || "", brief: workPrompt });
       if (!ops.isCurrent(operationId, "refine")) return;
       setCritique(result);
     } catch (cause) { if (operationRef.current === operationId) setError(cause.message || String(cause)); }
@@ -330,34 +340,11 @@ export function App() {
     const operationId = ops.begin();
     setLoading(true); setError(""); setOptimizeNote("");
     try {
-      const result = await reviseImage({ image: selectedItem.id, message: instruction.trim(), draft: selectedItem.prompt_used || selectedItem.prompt_original || "", brief: prompt, critique });
+      const result = await reviseImage({ image: selectedItem.id, message: instruction.trim(), draft: selectedItem.prompt_used || selectedItem.prompt_original || "", brief: workPrompt, critique });
       if (!ops.isCurrent(operationId, "refine")) return;
-      const provider = settings.provider === "auto" ? selectedItem.provider || "auto" : settings.provider;
-      const job = {
-        id: `revision-${Date.now()}`,
-        style: "",
-        mode: "edit",
-        aspect: settings.aspect || supportedAspect(selectedItem),
-        profile: "edit",
-        prompt: result.draft,
-        draft: result.draft,
-        user_prompt: prompt,
-        provider,
-        model: settings.model || selectedItem.model_requested || selectedItem.model || "",
-        quality: settings.quality || selectedItem.quality_requested || selectedItem.quality || "high",
-        resolution: settings.resolution || selectedItem.resolution_requested || "",
-        images: result.images || [selectedItem.id],
-      };
-      setBrief({
-        success: true,
-        preflight: "local",
-        template: "edit",
-        template_label: "继续改这张",
-        mode: "single",
-        jobs: [job],
-        requirements: Array.isArray(result.requirements) && result.requirements.length ? result.requirements : [instruction.trim()],
-        warnings: ["确认前未调用外部文本或搜索模型"],
-      });
+      const provider = settings.provider === "auto" ? selectedItem.provider || effectiveProvider || "auto" : settings.provider;
+      const job = buildRevisionJob({ result, instruction: instruction.trim(), workPrompt, settings, selectedItem, provider, aspect: settings.aspect || supportedAspect(selectedItem) });
+      setBrief({ success: true, preflight: "local", template: "edit", template_label: "继续改这张", mode: "single", jobs: [job], requirements: job.requirements, warnings: ["确认前未调用外部文本或搜索模型"] });
       setIntent("revision"); setView("confirm");
     } catch (cause) { if (operationRef.current === operationId) setError(cause.message || String(cause)); }
     finally { if (operationRef.current === operationId) setLoading(false); }
@@ -399,7 +386,7 @@ export function App() {
 
   const visibleError = runtimeModeError || error;
   const shared = { ready, backendState, fixture, error: visibleError, running: batchRunning, pending: Boolean(pendingCompletion), onLibrary: () => setView("library") };
-  if (view === "confirm" && brief) return <ConfirmView brief={brief} prompt={prompt} intent={intent} referenceUrls={referenceUrls} onDraft={updateDraft} onBack={() => setView(intent === "revision" ? "refine" : "start", true)} onConfirm={() => startCurrentBrief(intent)} onOptimize={optimizeCurrentDraft} optimizing={optimizing} optimizeNote={optimizeNote} canUseBackend={canUseStudioBackend} loading={loading} {...shared} />;
+  if (view === "confirm" && brief) return <ConfirmView brief={brief} prompt={intent === "revision" ? workPrompt : prompt} intent={intent} referenceUrls={intent === "revision" ? [] : referenceUrls} baseImage={intent === "revision" ? selectedItem : null} onDraft={updateDraft} onBack={() => setView(intent === "revision" ? "refine" : "start", true)} onConfirm={() => startCurrentBrief(intent)} onOptimize={optimizeCurrentDraft} optimizing={optimizing} optimizeNote={optimizeNote} canUseBackend={canUseStudioBackend} loading={loading} {...shared} />;
   if (view === "generating") return <GeneratingView batch={batch} startedAt={batchStartedAt} provider={fixture ? "fixture" : brief?.jobs?.[0]?.provider || effectiveProvider} {...shared} />;
   if (view === "candidates") return <CandidatesView prompt={prompt} items={generatedItems} onSelect={selectCandidate} onRetry={() => setView("start", true)} onRegenerate={() => startCurrentBrief("initial")} loading={loading || batchRunning || !canUseStudioBackend} {...shared} />;
   if (view === "refine" && selectedItem) return <RefineView item={selectedItem} versions={versions} instruction={instruction} setInstruction={setInstruction} critique={critique} looking={loading} preparing={loading || batchRunning} canUseBackend={canUseStudioBackend} onLook={getCritique} onPrepareRevision={prepareRevision} onVersion={switchVersion} onCompare={() => setView("compare")} onExport={() => setView("export")} onNew={resetCreation} {...shared} />;
@@ -408,5 +395,5 @@ export function App() {
   if (view === "library") return <LibraryView items={libraryItems} loading={loading} onImport={importFiles} onBack={leaveLibrary} onOpen={openLibraryItem} onToggleFavorite={toggleFavorite} onTrash={removeLibraryItem} {...shared} />;
   if (view === "error") return <ErrorView error={error} onRetry={retry || (() => setView("start", true))} onBack={() => setView("start", true)} {...shared} />;
 
-  return <StartView prompt={prompt} setPrompt={setPrompt} references={references} referenceUrls={referenceUrls} onAddReferences={addReferenceFiles} onRemoveReference={removeReference} settings={settings} providers={usableProviders} models={modelOptions} aspects={aspectOptions} qualities={qualityOptions} resolutions={resolutionOptions} onProvider={changeProvider} onSetting={(key, value) => setSettings((current) => ({ ...current, [key]: value }))} onContinue={prepareInitial} connectRows={connectRowsList} onRecheck={recheckCapabilities} checking={checking} canGenerate={canGenerate} loading={loading} {...shared} />;
+  return <StartView prompt={prompt} setPrompt={setPrompt} references={references} referenceUrls={referenceUrls} onAddReferences={addReferenceFiles} onRemoveReference={removeReference} settings={settings} effectiveProvider={effectiveProvider} providers={usableProviders} models={modelOptions} aspects={aspectOptions} qualities={qualityOptions} resolutions={resolutionOptions} onProvider={changeProvider} onSetting={(key, value) => setSettings((current) => ({ ...current, [key]: value }))} onContinue={prepareInitial} connectRows={connectRowsList} onRecheck={recheckCapabilities} checking={checking} canGenerate={canGenerate} loading={loading} {...shared} />;
 }
