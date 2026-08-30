@@ -1284,3 +1284,5 @@ test("export exposes a crop focus grid and the library can trash a work", async 
 验证：`npm test` 57/57（新增 `providerLabel` 用例）；`npm run build:local` 已提升客户端（`index-DzqZTw1B.js`）；Playwright e2e 7/7；`git diff --check` 0；隔离 fixture 实跑：改稿确认卡显示 `auto → grok · 默认`，新建确认卡显示 `auto → fixture · 默认`（fixture 模式下整理接口固定走 canned `fixture` 通路，而客户端自动路由取第一条可用 canned 通路，二者不同是 fixture 特有；真实模式两者都取服务端同一顺序）。工作区 `outputs` 链接前后均指向 `~/.local-image-gen`。
 
 未覆盖：CI actions 升级未经 CI 运行验证（需 push）；真实通路改稿仍未实跑（需配额授权）。
+
+补记（b3489d1 的 CI）：run 33301011346 中 `studio-client` 的 `npm test` 56/57 失败，其余 5 个 job 全绿，Node 20 弃用警告已消失。失败用例是 `tests/prototype-contract.test.mjs` 把 `actions/upload-artifact@v4` 写死为契约；改工作流后本地只重跑了 e2e、没有重跑 `npm test`，属验证遗漏。修正：契约改为"必须存在 upload-artifact，且 checkout/setup-node/setup-python/upload-artifact 不得停留在 Node 20 的旧大版本"；本地 `npm test` 57/57。

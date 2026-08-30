@@ -106,7 +106,9 @@ test("CI runs browser accessibility and cross-platform release gates", () => {
   assert.match(workflow, /prototype\/\*\*/);
   assert.match(workflow, /playwright install --with-deps chromium/);
   assert.match(workflow, /npm run test:e2e/);
-  assert.match(workflow, /actions\/upload-artifact@v4/);
+  assert.match(workflow, /actions\/upload-artifact@v\d+/);
+  // GitHub retired Node 20 for actions; the majors below still run on it.
+  assert.doesNotMatch(workflow, /actions\/(?:checkout@v[1-4]|setup-node@v[1-4]|setup-python@v[1-5]|upload-artifact@v[1-5])\b/);
   assert.match(workflow, /macos-latest/);
   assert.match(workflow, /windows-latest/);
   assert.match(workflow, /python -m unittest discover -s tests/);
