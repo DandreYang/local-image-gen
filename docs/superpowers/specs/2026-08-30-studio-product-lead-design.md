@@ -1,9 +1,9 @@
 # Studio 产品定义与落地设计（首席产品技术负责人视角）
 
-Date: 2026-08-30（Asia/Taipei）
+Date: 2026-08-30（Asia/Taipei）；落地修订 2026-08-31（§5.8 / A5 / §9 与实现对齐）
 Line: `prototype/studio`
 Baseline: `b0af996`（0 behind / 61 ahead of `origin/main@166fd76`，CI 6 job 全绿，Python 377 tests OK）
-Status: 设计已定，本文即实施依据；实施计划见 `docs/superpowers/plans/2026-08-30-studio-product-lead.md`。
+Status: 设计已定，本文即实施依据；实施计划见 `docs/superpowers/plans/2026-08-30-studio-product-lead.md`。§5.8 画幅、隔离子进程、失败批次快照与失败页恢复以当前代码为准。
 
 本文在无人值守模式下由被任命的产品技术负责人完成：所有需要用户拍板的问题都在 §12 以「假设」形式列出，用户可随时推翻；本文不授权 commit / push / merge / release。
 
@@ -130,9 +130,13 @@ Status: 设计已定，本文即实施依据；实施计划见 `docs/superpowers
 
 - `--fixture` 默认输出根为 `<share home>/fixture-outputs`（`LOCAL_IMAGE_GEN_STUDIO_OUTPUTS` 仍优先），启动日志与 `/api/doctor.studio_runtime.outputs_root` 明示；真实素材库在 fixture 下不可见也不可写。
 - 覆盖即纯落点：`LOCAL_IMAGE_GEN_OUTPUTS`（CLI/Studio）与 `LOCAL_IMAGE_GEN_STUDIO_OUTPUTS`（Studio）生效时，直接使用覆盖目录，不创建、不改指工作区 `outputs` 链接，也不把工作区或旧 share 目录里的图片迁移进覆盖目录（只整理覆盖目录自身的嵌套 bucket）。无覆盖时：链接不存在则创建；链接悬空则修复；链接存在且指向别的活目录（例如 `HOME` 被改）时不动链接，本进程直接写自己的 store。报告与生成在任何覆盖下都直接用覆盖路径。
+- **子进程隔离**：Studio 调用 CLI 时始终把 `LOCAL_IMAGE_GEN_OUTPUTS` 设为当前进程已解析的 `OUTPUTS`，即使父 shell 导出了别的值。fixture / e2e / 测试不得继承外层环境去改写真实库或工作区 `outputs` 链接。
 - WebP：魔数 `RIFF….WEBP` 识别，VP8 / VP8L / VP8X 尺寸解析；提交、回执、缩略图均接受。
 - 删除 `attach_compiled_drafts()`、`research_facts()`、`director.revise_turn()`；`compile_job()` 改名为 `optimize_draft()` 只服务 §5.3 的显式 opt-in 路由 `POST /api/optimize-draft`。
-- Codex 通路下比例选项只保留能被 `CODEX_ASPECT_TO_SIZE` 无损映射的 `1:1 / 16:9 / 9:16 / 3:2 / 2:3`；其它比例在 Codex 下禁用并在确认卡警告（服务端 `normalize_studio_jobs` 同步 fail-closed）。
+- **画幅**：CLI 不认识的比例（模板 `4:5`、像素比 `1000x700`）先映到最近的 `SUPPORTED_ASPECTS`（`4:5` → `3:4`），再按通路能力收敛。Grok 出全套 CLI 比例；实验性 Codex 只承诺 `1:1`（2026-08-26 / 08-30 真跑无论请求什么都回到约 1254×1254）；官方 OpenAI Images 只开放 `1:1 / 3:2 / 2:3`。确认卡必须已经是该通路能画的比例（brief / 改稿 `revisionAspect`）；确认闸 `normalize_studio_jobs` **fail-closed** 拒绝卡上承诺不了的比例，不在闸内静默改写（N2：卡上写什么就发什么）。
+- **失败批次是数据不是传输错误**：`batch_public` 恒为 `success: true`，批次结果写在 `status`（含 `failed`）与 `error`。前端按快照渲染失败页并可重试，而不是把 `success===false` 当成抛错锁死页面。
+- **失败页刷新**：sessionStorage 保留 `retryIntent` / `error` / `brief`；刷新后仍停在失败页，重试继续投当前确认卡。
+- **Studio 模型目录**：`/api/models` 不列出已退役的 `gpt-image-1`（Studio 只提供 `gpt-image-2`）；CLI `--list-models` 仍保留该条目。
 
 ### 5.9 工程收口
 
@@ -194,7 +198,7 @@ Status: 设计已定，本文即实施依据；实施计划见 `docs/superpowers
 - 通路为 0：不再是错误态，而是「接通通路」引导态；`/api/doctor` 失败才显示「Studio 未连接」并提供重试。
 - 改写终稿失败：保留原稿，卡内 inline 提示「改写失败：<脱敏错误>」，可再试或直接确认。
 - 回收站：失败时卡片保留并提示；成功后从列表移除并刷新索引（服务端已具备）。
-- 现有恢复（刷新、批次中断、stop 保护）不变。
+- 现有恢复（刷新、批次中断、stop 保护）不变。失败页刷新必须带回 `retryIntent`、错误文案与当前 `brief`；缺少这三者时回落到首屏，而不是停在无法重试的失败页。
 
 ## 10. 验收与测试
 
@@ -216,7 +220,7 @@ Status: 设计已定，本文即实施依据；实施计划见 `docs/superpowers
 - A2 「用 AI 改写终稿」作为确认卡上的显式按钮存在；不默认执行。
 - A3 删除旧暗房 UI 文件与占位 SVG，而不是继续保留。
 - A4 `--fixture` 默认根放在 share home 下的 `fixture-outputs`，不放在真实 store 内。
-- A5 Codex 下只开放可无损映射的比例，其余禁用而非「先出图再裁」。
+- A5 Codex 通路只承诺 `1:1`（实测会回到约 1254×1254）；官方 OpenAI 只开放 `1:1 / 3:2 / 2:3`。其余比例在选项里禁用。确认卡在发出前必须已经是能画的比例；确认闸拒绝而不是确认后再裁。CLI 不认识的比例（如 `4:5`）先映射再收敛。
 - A6 版本号保持 `0.1.5`，CHANGELOG 继续记在 `Unreleased`，版本升级留给 release 授权。
 
 ## 13. 交付与授权边界

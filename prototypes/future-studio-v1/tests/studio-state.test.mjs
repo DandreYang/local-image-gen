@@ -65,6 +65,15 @@ test("Studio recovery rejects malformed state and keeps the minimum safe shape",
   assert.equal(recovered.prompt, "night city");
   assert.equal(recovered.settings.provider, "grok");
   assert.equal(recovered.batch.batch_id, "abc123def456");
+  const retry = parseStudioRecovery(JSON.stringify({
+    prompt: "night city",
+    retryIntent: "revision",
+    error: "Requested aspect 1:1",
+    brief: { jobs: [{ id: "j1" }] },
+  }));
+  assert.equal(retry.retryIntent, "revision");
+  assert.equal(retry.error, "Requested aspect 1:1");
+  assert.equal(parseStudioRecovery(JSON.stringify({ prompt: "x", retryIntent: "nope" })).prompt, undefined);
 });
 
 test("refresh only restores views whose required context survived", () => {
@@ -73,4 +82,7 @@ test("refresh only restores views whose required context survived", () => {
   assert.equal(resolveRecoveryView("confirm", { brief: { jobs: [{}] } }), "confirm");
   assert.equal(resolveRecoveryView("refine", { selectedItem: { id: "images/a.png" } }), "refine");
   assert.equal(resolveRecoveryView("export", {}), "start");
+  assert.equal(resolveRecoveryView("error", { brief: { jobs: [{}] }, retryIntent: "initial" }), "error");
+  assert.equal(resolveRecoveryView("error", { retryIntent: "revision" }), "error");
+  assert.equal(resolveRecoveryView("error", {}), "start");
 });

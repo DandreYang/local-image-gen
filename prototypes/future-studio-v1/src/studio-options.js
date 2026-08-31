@@ -194,6 +194,45 @@ export function coerceAspectToCapability(aspect, aspectOptions) {
   return { aspect: fallback, note: `该通路出不了 ${aspect}，已改为 ${fallback}。` };
 }
 
+/** Map a ratio the CLI does not list (4:5, 1000x700) onto the nearest ASPECTS canvas. */
+export function nearestListedAspect(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  if (ASPECTS.includes(text)) return text;
+  const match = /^(\d+(?:\.\d+)?)\s*[:/x]\s*(\d+(?:\.\d+)?)$/i.exec(text);
+  if (!match) return "";
+  const target = Number(match[1]) / Number(match[2]);
+  if (!Number.isFinite(target) || target <= 0) return "";
+  let best = "";
+  let bestErr = Infinity;
+  for (const item of ASPECTS) {
+    if (!item) continue;
+    const [width, height] = item.split(":");
+    const err = Math.abs(target - Number(width) / Number(height));
+    if (err < bestErr) {
+      best = item;
+      bestErr = err;
+    }
+  }
+  return best;
+}
+
+/** The canvas a revision job should request: listed ratio, then provider capability. */
+export function revisionAspect(item, settingsAspect, aspectOptions) {
+  const raw = settingsAspect || item?.aspect_ratio || item?.aspect_requested || "";
+  const listed = nearestListedAspect(raw);
+  const coerced = coerceAspectToCapability(listed, aspectOptions);
+  if (coerced.aspect) return coerced;
+  const enabled = (aspectOptions || []).filter((row) => row.value && !row.disabled).map((row) => row.value);
+  if (!enabled.length) return coerced;
+  return {
+    aspect: enabled[0],
+    note: listed
+      ? `该通路出不了 ${listed}，已改为 ${enabled[0]}。`
+      : `该通路需要明确画幅，已改为 ${enabled[0]}。`,
+  };
+}
+
 export function platformShortcutLabel(platform = typeof navigator !== "undefined" ? navigator.platform : "") {
   return /mac|iphone|ipad/i.test(String(platform || "")) ? "⌘↩" : "Ctrl+Enter";
 }

@@ -57,6 +57,8 @@ export function parseStudioRecovery(raw) {
   if (value.batch != null && (!value.batch || typeof value.batch !== "object" || typeof value.batch.batch_id !== "string")) return {};
   if (value.brief != null && (!value.brief || typeof value.brief !== "object" || !Array.isArray(value.brief.jobs))) return {};
   if (value.selectedItem != null && (!value.selectedItem || typeof value.selectedItem !== "object" || !value.selectedItem.id)) return {};
+  if (value.retryIntent != null && !["initial", "revision"].includes(value.retryIntent)) return {};
+  if (value.error != null && typeof value.error !== "string") return {};
   return {
     prompt: value.prompt || "",
     settings: value.settings || {},
@@ -69,6 +71,8 @@ export function parseStudioRecovery(raw) {
     instruction: typeof value.instruction === "string" ? value.instruction : "",
     intent: value.intent || "initial",
     batchStartedAt: Number(value.batchStartedAt) > 0 ? Number(value.batchStartedAt) : null,
+    retryIntent: value.retryIntent || null,
+    error: value.error || "",
   };
 }
 
@@ -78,7 +82,8 @@ export function resolveRecoveryView(requested, recovered = {}) {
   if (view === "confirm") return recovered.brief?.jobs?.length ? view : "start";
   if (["refine", "compare", "export"].includes(view)) return recovered.selectedItem?.id ? view : "start";
   if (view === "candidates") return recovered.generatedItems?.length ? view : "start";
-  if (["start", "library", "error"].includes(view)) return view;
+  if (view === "error") return recovered.brief?.jobs?.length || recovered.retryIntent ? view : "start";
+  if (["start", "library"].includes(view)) return view;
   return "start";
 }
 

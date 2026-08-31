@@ -369,6 +369,13 @@ class CodexAspectTests(unittest.TestCase):
         self.assertEqual(openai["aspects"], ["1:1", "3:2", "2:3"])
         self.assertEqual(grok["aspects"], list(cli.SUPPORTED_ASPECTS))
 
+    def test_studio_models_omit_retired_gpt_image_1(self) -> None:
+        rows = server.studio_models_payload()["models"]
+        self.assertIn("gpt-image-1", cli.MODEL_CATALOG)
+        self.assertFalse(any(row["model"] == "gpt-image-1" for row in rows))
+        self.assertTrue(any(row["model"] == "gpt-image-2" and row["provider"] == "codex" for row in rows))
+        self.assertEqual({row["model"] for row in rows if row["provider"] == "openai"}, {"gpt-image-2"})
+
     def test_normalize_rejects_codex_non_square_but_keeps_1_1(self) -> None:
         """Real Codex runs (2026-08-26 / 2026-08-30) came back 1254x1254 whatever was asked."""
         providers = [{"provider": "codex", "subscription": True, "studio_enabled": True, "default_model": "gpt-image-2"}]

@@ -2,11 +2,12 @@
 
 ## Unreleased
 
-- Studio recovery: a failed or interrupted batch snapshot is returned as data (`success: true`, `status: failed`), so the UI can show the real error and retry with current state instead of locking the page on a transport exception.
+- Studio recovery: a failed or interrupted batch snapshot is returned as data (`success: true`, `status: failed`), so the UI can show the real error and retry with current state instead of locking the page on a transport exception. Refreshing the error page keeps `retryIntent`, the error text and the current brief, so Retry still sends the same confirmation card.
+- Studio catalog: `/api/models` hides retired `gpt-image-1`; Studio only offers `gpt-image-2`. CLI `--list-models` still lists the old id.
 - Studio isolation: CLI children always use Studio's resolved output root, so fixture/e2e `doctor` cannot inherit a parent `LOCAL_IMAGE_GEN_OUTPUTS` and migrate the real library or re-point a workspace `outputs` link.
 - Studio edits: a missing reference image fails closed as a job error (not a crashed batch). Jobs that ignore the requested canvas keep the paid image, record requested vs actual, and surface the warning on the success screen and in the receipt.
 - Studio canvases: unknown ratios such as template `4:5` map to the nearest CLI canvas (`3:4`) before provider coercion; isometric and travel-poster templates now default to `3:4`.
-- Studio options: 自由画面 is a selectable template; revision jobs coerce the canvas to what the current provider can draw.
+- Studio options: 自由画面 is a selectable template; revision jobs map unlisted ratios (4:5 → 3:4) then coerce to what the current provider can draw, so the confirm card never says 按模板 for a real work.
 
 - Studio truth: option lists are capabilities — `auto` only shows models of usable providers (deduplicated, labelled), resolution/quality come from the selected model, and aspects are limited to what each provider really draws — experimental Codex 1:1 only (real runs return 1254x1254), official OpenAI 1:1 / 3:2 / 2:3 (server fails closed, UI disables the rest). Receipts add `aspect_requested`; the library reports the aspect measured from pixels.
 - Studio drafts: the confirmation card sends exactly what it shows — no "事实：" echo, no silent "课程封面" template (unmatched prompts use 自由画面 and an aspect inferred from words like 16:9/竖版/方图); revisions rebuild one numbered 修改要求 list instead of appending `Constraints:` forever. `用 AI 改写终稿` is an explicit one-call opt-in on the card (`POST /api/optimize-draft`); the post-confirm rewrite path and other dead code were removed.
@@ -23,7 +24,7 @@
 - Studio UX: advanced controls are progressively disclosed; library search/favorites use human prompt titles; original exports preserve the real file suffix.
 - Studio delivery: Node build/test/Sites/audit run in CI; `npm test` works on a clean checkout; dependency audit is clean.
 - Studio release gates: isolated Playwright fixture journeys run axe WCAG A/AA checks across start/confirm/candidates/refine/export/library and mobile reduced-motion; CI uploads failure evidence and defines macOS/Windows full-suite jobs.
-- Path A browser proof: Chromium now PNG-encodes and decodes both the original and composited canvases, then enforces zero RGB mismatches outside the edit box.
+- Path A browser proof: shared geometry in `tests/path_a_geom.js`; Chromium PNG-encodes and decodes both the original and composited canvases, then enforces zero RGB mismatches outside the edit box. Python only guards the shared wiring.
 - Accessibility reflow: the production start/settings surface has an explicit semantic group and a 720px 200%-zoom-equivalent no-overflow axe gate.
 - Studio library performance: grids use lazy 480px thumbnail URLs instead of eager full-resolution media; Linux can build private atomic JPEG thumbnails through ffmpeg or ImageMagick.
 - Provider safety: explicit `--provider gemini` is official-API-only and never falls through to Antigravity/Cursor; official Gemini Pro 2K requests preserve uppercase `imageSize: 2K`.

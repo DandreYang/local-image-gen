@@ -71,6 +71,9 @@ test("active creation state survives a browser refresh", () => {
   assert.match(appSource, /resolveRecoveryView/);
   assert.match(appSource, /recovered\.batch/);
   assert.match(appSource, /recovered\.selectedItem/);
+  assert.match(appSource, /recovered\.retryIntent/);
+  assert.match(appSource, /recovered\.error/);
+  assert.match(appSource, /revisionAspect/);
 });
 
 test("the local library supports human search and favorites", () => {

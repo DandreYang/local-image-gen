@@ -400,6 +400,10 @@ def studio_models_payload() -> Dict[str, Any]:
     """Expose only models reachable through non-agent Studio providers."""
     rows: List[Dict[str, Any]] = []
     for model, meta in cli.MODEL_CATALOG.items():
+        if model == "gpt-image-1":
+            # Studio only offers gpt-image-2. The CLI catalog still lists gpt-image-1
+            # for `--list-models`; it must not reappear as an OpenAI leftover option.
+            continue
         base = {
             "model": model,
             "aliases": list(meta.get("aliases") or ()),

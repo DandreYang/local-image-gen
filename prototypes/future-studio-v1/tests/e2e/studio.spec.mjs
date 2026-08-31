@@ -136,6 +136,7 @@ test("Path A survives a real Chromium PNG round-trip with zero outside mismatche
   await expect(page.locator("#report")).toContainText("RGB 不同 0");
 
   const proof = await page.evaluate(async () => {
+    const { pctToPixels, pasteRegion, countOutsideMismatches } = window.PathA;
     const original = document.createElement("canvas");
     original.width = 96;
     original.height = 72;

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   aspectOptionsFor,
   coerceAspectToCapability,
+  nearestListedAspect,
+  revisionAspect,
   connectRows,
   getRuntimeAccess,
   groupLibraryItems,
@@ -173,6 +175,22 @@ test("coerceAspectToCapability keeps a supported canvas and rewrites an unsuppor
   assert.equal(rewritten.aspect, "1:1");
   assert.match(rewritten.note, /1:2/);
   assert.deepEqual(coerceAspectToCapability("", options), { aspect: "", note: "" });
+});
+
+test("nearestListedAspect maps unknown ratios onto the CLI canvas list", () => {
+  assert.equal(nearestListedAspect("4:5"), "3:4");
+  assert.equal(nearestListedAspect("1:1"), "1:1");
+  assert.equal(nearestListedAspect("1000x700"), "3:2");
+  assert.equal(nearestListedAspect(""), "");
+});
+
+test("revisionAspect maps a 4:5 work onto what Codex can actually draw", () => {
+  const options = aspectOptionsFor(models, "codex", "gpt-image-2");
+  const coerced = revisionAspect({ aspect_ratio: "4:5" }, "", options);
+  assert.equal(coerced.aspect, "1:1");
+  assert.match(coerced.note, /3:4/);
+  const grokOptions = aspectOptionsFor(models, "grok", "grok-imagine-image-2.0");
+  assert.equal(revisionAspect({ aspect_ratio: "4:5" }, "", grokOptions).aspect, "3:4");
 });
 
 test("supportedAspect never leaks odd pixel ratios into a request", () => {

@@ -11,15 +11,14 @@ import {
 import {
   DEFAULT_SETTINGS,
   aspectOptionsFor,
-  coerceAspectToCapability,
   connectRows,
   getRuntimeAccess,
   providerForSelection,
   providerUsable,
   qualityOptionsFor,
   resolutionOptionsFor,
+  revisionAspect,
   settingsFromItem,
-  supportedAspect,
   usableModelOptions,
 } from "./studio-options.js";
 import {
@@ -68,8 +67,8 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
   const [optimizeNote, setOptimizeNote] = useState("");
-  const [error, setError] = useState("");
-  const [retryIntent, setRetryIntent] = useState(null);
+  const [error, setError] = useState(recovered.error || "");
+  const [retryIntent, setRetryIntent] = useState(recovered.retryIntent || null);
   const operationRef = useRef(0);
   const ops = {
     begin: () => { operationRef.current += 1; return operationRef.current; },
@@ -85,8 +84,8 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    writeRecovery({ prompt, settings, brief, batch, batchStartedAt, generatedItems, selectedItem, versions, critique, instruction, intent, view });
-  }, [prompt, settings, brief, batch, batchStartedAt, generatedItems, selectedItem, versions, critique, instruction, intent, view]);
+    writeRecovery({ prompt, settings, brief, batch, batchStartedAt, generatedItems, selectedItem, versions, critique, instruction, intent, view, retryIntent, error });
+  }, [prompt, settings, brief, batch, batchStartedAt, generatedItems, selectedItem, versions, critique, instruction, intent, view, retryIntent, error]);
 
   const usableProviders = useMemo(() => capabilities.providers.filter(providerUsable), [capabilities.providers]);
   const declaredFixture = import.meta.env.PROD ? "dynamic" : import.meta.env.VITE_STUDIO_FIXTURE === true;
@@ -351,7 +350,7 @@ export function App() {
       const result = await reviseImage({ image: selectedItem.id, message: instruction.trim(), draft: selectedItem.prompt_used || selectedItem.prompt_original || "", brief: workPrompt, critique });
       if (!ops.isCurrent(operationId, "refine")) return;
       const provider = settings.provider === "auto" ? selectedItem.provider || effectiveProvider || "auto" : settings.provider;
-      const coerced = coerceAspectToCapability(settings.aspect || supportedAspect(selectedItem), aspectOptions);
+      const coerced = revisionAspect(selectedItem, settings.aspect, aspectOptions);
       const job = buildRevisionJob({ result, instruction: instruction.trim(), workPrompt, settings, selectedItem, provider, aspect: coerced.aspect });
       const warnings = ["确认前未调用外部文本或搜索模型"];
       if (coerced.note) warnings.push(coerced.note);
@@ -404,7 +403,7 @@ export function App() {
   if (view === "compare") return <CompareView versions={versions} onBack={() => setView("refine", true)} {...shared} />;
   if (view === "export" && selectedItem) return <ExportView item={selectedItem} onBack={() => setView("refine", true)} {...shared} />;
   if (view === "library") return <LibraryView items={libraryItems} loading={loading} onImport={importFiles} onBack={leaveLibrary} onOpen={openLibraryItem} onToggleFavorite={toggleFavorite} onTrash={removeLibraryItem} {...shared} />;
-  if (view === "error") return <ErrorView error={error} onRetry={() => (retryIntent != null ? startCurrentBrief(retryIntent) : setView("start", true))} onBack={() => setView("start", true)} loading={loading} {...shared} />;
+  if (view === "error") return <ErrorView error={error} onRetry={() => (retryIntent != null || brief?.jobs?.length ? startCurrentBrief(retryIntent || intent) : setView("start", true))} onBack={() => setView("start", true)} loading={loading} {...shared} />;
 
   return <StartView prompt={prompt} setPrompt={setPrompt} references={references} referenceUrls={referenceUrls} onAddReferences={addReferenceFiles} onRemoveReference={removeReference} settings={settings} effectiveProvider={effectiveProvider} providers={usableProviders} models={modelOptions} aspects={aspectOptions} qualities={qualityOptions} resolutions={resolutionOptions} onProvider={changeProvider} onSetting={(key, value) => setSettings((current) => ({ ...current, [key]: value }))} onContinue={prepareInitial} connectRows={connectRowsList} onRecheck={recheckCapabilities} checking={checking} canGenerate={canGenerate} loading={loading} {...shared} />;
 }
